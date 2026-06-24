@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Java集合框架(八) HashMap红黑树原理 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<article class="page">
+    <header class="page-header">
+        <h1 class="page-title">Java集合框架(八) HashMap红黑树原理</h1>
+    </header>
+
+    <div class="page-content">
+        <h2 id="前言">前言</h2>
+<p>上一篇文章我们分析了 HashMap 的扩容机制，提到了 JDK 1.8 引入的红黑树优化。这篇文章我们来深入理解 HashMap 中红黑树的实现原理。</p>
+<h2 id="为什么要引入红黑树">为什么要引入红黑树？</h2>
+<h3 id="链表的问题">链表的问题</h3>
+<pre tabindex="0"><code>场景：hash 冲突严重，某个桶的链表很长
+
+链表查找：O(n)
+        ┌───┐
+        │ A │ → B → C → D → E → F → G → H → I → J
+        └───┘
+             ↑
+        查找 J 需要遍历 10 个节点
+
+当链表长度很长时，查找性能退化严重
+</code></pre><h3 id="红黑树的优势">红黑树的优势</h3>
+<pre tabindex="0"><code>红黑树查找：O(log n)
+
+        ┌───┐
+        │ E │  ← 根节点
+        └─┬─┘
+      ┌───┴───┐
+      │       │
+    ┌─┴─┐   ┌─┴─┐
+    │ B │   │ G │  ← 平衡二叉树
+    └─┬─┘   └─┬─┘
+      │       │
+    ┌─┴─┐   ┌─┴─┐
+    │ A │   │ I │
+    └───┘   └───┘
+
+查找 J：E → G → I → J，只需要 4 步！
+</code></pre><h2 id="树化的条件">树化的条件</h2>
+<h3 id="两个阈值">两个阈值</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 链表转红黑树</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> TREEIFY_THRESHOLD <span style="color:#f92672">=</span> 8;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 红黑树退化为链表</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> UNTREEIFY_THRESHOLD <span style="color:#f92672">=</span> 6;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 最小树形化容量（桶数量）</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> MIN_TREEIFY_CAPACITY <span style="color:#f92672">=</span> 64;
+</span></span></code></pre></div><h3 id="树化条件详解">树化条件详解</h3>
+<pre tabindex="0"><code>treeifyBin() 触发条件：
+
+┌─────────────────────────────────────────────────────────────┐
+│                                                              │
+│  条件 1：链表长度 &gt; 8                                         │
+│                                                              │
+│  条件 2：桶数量 &gt;= 64                                        │
+│                                                              │
+│  两个条件都满足时才树化                                       │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+
+为什么不满足条件 2 时不树化？
+
+因为当桶数量较少时（&lt; 64），优先选择扩容而不是树化
+扩容可以将冲突的节点分散到新的桶中
+</code></pre><h3 id="为什么是-8-和-6">为什么是 8 和 6？</h3>
+<pre tabindex="0"><code>这是一个统计优化的结果
+
+链表长度分布（泊松分布）：
+• length=8 时概率约为 0.00000006（极低）
+• 意味着超过 8 个节点的冲突极其罕见
+
+为什么退化成 6 而不是 7？
+
+避免在阈值附近反复树化/退化：
+• 链表长度 = 7 时，如果再添加一个 → 树化
+• 链表长度 = 7 时，如果删除一个 → 退化
+• 这样会导致频繁转换
+• 所以用 6 和 8 留出缓冲
+
+  链表：长度 &lt;= 6
+  红黑树：长度 &gt;= 8
+  过渡区：长度 = 7（保持原样）
+</code></pre><h2 id="treenode-节点结构">TreeNode 节点结构</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">TreeNode</span><span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> <span style="color:#66d9ef">extends</span> Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> {
+</span></span><span style="display:flex;"><span>    TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> parent;   <span style="color:#75715e">// 父节点</span>
+</span></span><span style="display:flex;"><span>    TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> left;     <span style="color:#75715e">// 左子节点</span>
+</span></span><span style="display:flex;"><span>    TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> right;    <span style="color:#75715e">// 右子节点</span>
+</span></span><span style="display:flex;"><span>    TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> prev;     <span style="color:#75715e">// 前一个节点（用于链表）</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">boolean</span> red;            <span style="color:#75715e">// 节点颜色</span>
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// ...</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="双重身份">双重身份</h3>
+<pre tabindex="0"><code>TreeNode 既是一棵二叉树节点，也是一个链表节点：
+
+链表视角：
+┌───┐   ┌───┐   ┌───┐   ┌───┐
+│ A │ → │ B │ → │ C │ → │ D │  ← prev/next 指针
+└───┘   └───┘   └───┘   └───┘
+
+树视角：
+        ┌───┐
+        │ B │  ← root
+        └─┬─┘
+      ┌───┴───┐
+      │       │
+    ┌─┴─┐   ┌─┴─┐
+    │ A │   │ D │
+    └───┘   └───┘
+
+这样在退化为链表时，可以快速还原
+</code></pre><h2 id="红黑树的特性">红黑树的特性</h2>
+<h3 id="五大规则">五大规则</h3>
+<pre tabindex="0"><code>1. 每个节点要么是红色，要么是黑色
+
+2. 根节点是黑色
+
+3. 所有叶子节点（NIL/空节点）是黑色
+
+4. 红色节点的子节点必须是黑色
+   （即：红色节点不能连续）
+
+5. 从任一节点到其所有叶子节点的路径上，
+   黑色节点的数量相同
+   （即：黑色高度相同）
+</code></pre><h3 id="特性图解">特性图解</h3>
+<pre tabindex="0"><code>正确示例：                    错误示例：
+
+        黑(B)                        黑(B)
+       /      \                     /      \
+    红(R)    红(R)               红(R)    红(R)
+    /   \      \                 /   \      \
+黑(G)  黑(G)  黑(G)            红(R) 黑(G) 黑(G)  ← 红红连续！错误！
+   ↓      ↓     ↓
+叶子    叶子  叶子
+
+B(黑) 到每个叶子路径上的黑节点数 = 2
+</code></pre><h3 id="这些特性保证了什么">这些特性保证了什么？</h3>
+<pre tabindex="0"><code>结论：从根到最远叶子的路径长度 不超过 从根到最近叶子的路径长度的两倍
+
+这保证了红黑树的大致平衡 → 查找复杂度 O(log n)
+
+最坏情况（全是红黑交替）：
+路径长度 = 2 * 黑色节点数
+
+最好情况（全黑）：
+路径长度 = 黑色节点数
+</code></pre><h2 id="树化过程">树化过程</h2>
+<h3 id="treeifybin-方法">treeifyBin() 方法</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">final</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">treeifyBin</span>(Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> tab, <span style="color:#66d9ef">int</span> hash) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> n, index;
+</span></span><span style="display:flex;"><span>    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> e;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 如果桶数量 &lt; 64，优先扩容</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (tab <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span> (n <span style="color:#f92672">=</span> tab.<span style="color:#a6e22e">length</span>) <span style="color:#f92672">&lt;</span> MIN_TREEIFY_CAPACITY) {
+</span></span><span style="display:flex;"><span>        resize();
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 否则，链表转红黑树</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> ((e <span style="color:#f92672">=</span> tab<span style="color:#f92672">[</span>index <span style="color:#f92672">=</span> (n <span style="color:#f92672">-</span> 1) <span style="color:#f92672">&amp;</span> hash<span style="color:#f92672">]</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>        TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> hd <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>, tl <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>        
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 1. 先构建链表（有序）</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>            TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> p <span style="color:#f92672">=</span> replacementTreeNode(e, <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (tl <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                hd <span style="color:#f92672">=</span> p;
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                p.<span style="color:#a6e22e">prev</span> <span style="color:#f92672">=</span> tl;
+</span></span><span style="display:flex;"><span>                tl.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> p;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            tl <span style="color:#f92672">=</span> p;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">while</span> ((e <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">next</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>        
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 2. 将链表转为红黑树</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> ((tab<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> hd) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            hd.<span style="color:#a6e22e">treeify</span>();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="红黑树的插入">红黑树的插入</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// TreeNode.putTreeVal()</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">final</span> TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">putTreeVal</span>(HashMap<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> map, Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> tab,
+</span></span><span style="display:flex;"><span>                               <span style="color:#66d9ef">int</span> h, K k, V v) {
+</span></span><span style="display:flex;"><span>    TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> p <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>;
+</span></span><span style="display:flex;"><span>    TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> parent <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> dir <span style="color:#f92672">=</span> 0;  <span style="color:#75715e">// 方向：-1=左，1=右</span>
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 1. 找到插入位置</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>        parent <span style="color:#f92672">=</span> p;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> ph <span style="color:#f92672">=</span> p.<span style="color:#a6e22e">hash</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> cmp;
+</span></span><span style="display:flex;"><span>        K pk <span style="color:#f92672">=</span> p.<span style="color:#a6e22e">key</span>;
+</span></span><span style="display:flex;"><span>        
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// hash 大，往右</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (h <span style="color:#f92672">&gt;</span> ph) {
+</span></span><span style="display:flex;"><span>            dir <span style="color:#f92672">=</span> 1;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// hash 小，往左</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (h <span style="color:#f92672">&lt;</span> ph) {
+</span></span><span style="display:flex;"><span>            dir <span style="color:#f92672">=</span> <span style="color:#f92672">-</span>1;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// hash 相同，用 equals</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> ((pk <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> k <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>                 (pk <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> pk.<span style="color:#a6e22e">equals</span>(k))) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> p;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// hash 相同但 equals 不同，尝试比较 Comparable</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> ((pk <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> k <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                 (k.<span style="color:#a6e22e">getClass</span>() <span style="color:#f92672">==</span> pk.<span style="color:#a6e22e">getClass</span>() <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>                  k <span style="color:#66d9ef">instanceof</span> Comparable <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                  (cmp <span style="color:#f92672">=</span> ((Comparable)k).<span style="color:#a6e22e">compareTo</span>(pk)) <span style="color:#f92672">!=</span> 0)) {
+</span></span><span style="display:flex;"><span>            dir <span style="color:#f92672">=</span> cmp;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 无法比较，用 tieBreakOrder</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            dir <span style="color:#f92672">=</span> tieBreakOrder(k, pk);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        
+</span></span><span style="display:flex;"><span>        p <span style="color:#f92672">=</span> (dir <span style="color:#f92672">&lt;=</span> 0) <span style="color:#f92672">?</span> p.<span style="color:#a6e22e">left</span> : p.<span style="color:#a6e22e">right</span>;
+</span></span><span style="display:flex;"><span>        
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">while</span> (p <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 2. 创建新节点（默认为红色）</span>
+</span></span><span style="display:flex;"><span>    TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> f <span style="color:#f92672">=</span> (TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span>)tab<span style="color:#f92672">[</span>hash <span style="color:#f92672">&amp;</span> (tab.<span style="color:#a6e22e">length</span> <span style="color:#f92672">-</span> 1)<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>    TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> x <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> TreeNode<span style="color:#f92672">&lt;&gt;</span>(parent, k, v, f);
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 3. 插入</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (dir <span style="color:#f92672">&lt;=</span> 0) {
+</span></span><span style="display:flex;"><span>        parent.<span style="color:#a6e22e">left</span> <span style="color:#f92672">=</span> x;
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>        parent.<span style="color:#a6e22e">right</span> <span style="color:#f92672">=</span> x;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 4. 调整平衡（着色 + 旋转）</span>
+</span></span><span style="display:flex;"><span>    x.<span style="color:#a6e22e">balanceInsertion</span>(root, x);
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="旋转操作">旋转操作</h3>
+<pre tabindex="0"><code>左旋：
+
+    P                     P
+     \                     \
+      x          →          y
+     / \                   / \
+    a   y                 x   r
+       / \               / \
+      b   r             a   b
+
+代码：
+y.left = x.right
+x.right.parent = y
+p.right = x (或 left)
+x.parent = p
+y.parent = x.parent
+x.right = y
+y.parent = x
+</code></pre><pre tabindex="0"><code>右旋：
+
+    P                     P
+     \                     \
+      x          →          y
+     / \                   / \
+    y   a                 l   x
+   / \                       / \
+  l   r                     r   a
+
+代码：
+y.right = x.left
+x.left.parent = y
+p.right = y (或 left)
+y.parent = p
+y.right = x
+x.parent = y
+x.left = y.right
+y.right.parent = x
+</code></pre><h2 id="退化过程">退化过程</h2>
+<h3 id="退化条件">退化条件</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 扩容时调用</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">final</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">split</span>(HashMap<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> map, Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> tab, <span style="color:#66d9ef">int</span> index, <span style="color:#66d9ef">int</span> bit) {
+</span></span><span style="display:flex;"><span>    TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> b <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// ... 省略迁移逻辑 ...</span>
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 退化逻辑</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (loHead <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (size <span style="color:#f92672">&lt;=</span> UNTREEIFY_THRESHOLD) {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 节点数 &lt;= 6，退化为链表</span>
+</span></span><span style="display:flex;"><span>            tab<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> loHead.<span style="color:#a6e22e">untreeify</span>(map);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// ...</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="untreeify-方法">untreeify() 方法</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">final</span> Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">untreeify</span>(HashMap<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> map) {
+</span></span><span style="display:flex;"><span>    TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> hd <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>, tl <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 遍历红黑树，按中序遍历转链表</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> q <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>; q <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>; q <span style="color:#f92672">=</span> q.<span style="color:#a6e22e">next</span>) {
+</span></span><span style="display:flex;"><span>        Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> p <span style="color:#f92672">=</span> map.<span style="color:#a6e22e">replacementNode</span>(q, <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (tl <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            hd <span style="color:#f92672">=</span> p;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            tl.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> p;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        tl <span style="color:#f92672">=</span> p;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> hd;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="红黑树-vs-其他平衡树">红黑树 vs 其他平衡树</h2>
+<h3 id="为什么选红黑树而不是-avl-树">为什么选红黑树而不是 AVL 树？</h3>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>红黑树</th>
+					<th>AVL 树</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>平衡标准</td>
+					<td>大致平衡</td>
+					<td>严格平衡（左右子树高度差 ≤ 1）</td>
+			</tr>
+			<tr>
+					<td>插入/删除开销</td>
+					<td>较小（最多 2 次旋转）</td>
+					<td>较大（可能 O(log n) 次旋转）</td>
+			</tr>
+			<tr>
+					<td>查找效率</td>
+					<td>O(log n)，略慢于 AVL</td>
+					<td>O(log n)，最优</td>
+			</tr>
+			<tr>
+					<td>应用场景</td>
+					<td>插入删除多</td>
+					<td>查找多</td>
+			</tr>
+	</tbody>
+</table>
+<pre tabindex="0"><code>HashMap 的选择理由：
+
+1. HashMap 经常需要 put/remove
+   - 红黑树的插入删除开销更小
+   - 适合频繁修改的场景
+
+2. HashMap 不需要严格平衡
+   - 只需要 O(log n) 的查找复杂度
+   - 红黑树的&#34;大致平衡&#34;已经足够
+
+3. AVL 的严格平衡在 HashMap 中没有优势
+   - HashMap 追求的是综合性能
+</code></pre><h2 id="实战思考">实战思考</h2>
+<h3 id="极端场景下的性能">极端场景下的性能</h3>
+<pre tabindex="0"><code>场景：所有 key 的 hash 都相同
+
+JDK 1.7（纯链表）：
+• 所有元素都在一个桶的链表上
+• 查找 O(n)，性能差
+
+JDK 1.8（红黑树）：
+• 链表长度 &gt; 8 后树化
+• 查找 O(log n)，性能好
+</code></pre><h3 id="如何避免-hash-冲突">如何避免 hash 冲突</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ 差的 hashCode 实现</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">BadKey</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> value;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">hashCode</span>() { <span style="color:#66d9ef">return</span> 0; }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 好的 hashCode 实现</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">GoodKey</span> {
+</span></span><span style="display:flex;"><span>    String name;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> value;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">hashCode</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> result <span style="color:#f92672">=</span> name <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">?</span> name.<span style="color:#a6e22e">hashCode</span>() : 0;
+</span></span><span style="display:flex;"><span>        result <span style="color:#f92672">=</span> 31 <span style="color:#f92672">*</span> result <span style="color:#f92672">+</span> value;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> result;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 更好的方案：使用不可变对象作为 key</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 如 String、Integer、UUID 等</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 这些类的 hashCode 已经经过优化</span>
+</span></span></code></pre></div><h2 id="常见面试题">常见面试题</h2>
+<h3 id="q1hashmap-什么时候树化">Q1：HashMap 什么时候树化？</h3>
+<p><strong>答</strong>：链表长度 &gt; 8 且桶数量 &gt;= 64 时。</p>
+<h3 id="q2hashmap-什么时候退化">Q2：HashMap 什么时候退化？</h3>
+<p><strong>答</strong>：红黑树节点数 &lt;= 6 时会退化为链表。</p>
+<h3 id="q3为什么用红黑树而不是-avl-树">Q3：为什么用红黑树而不是 AVL 树？</h3>
+<p><strong>答</strong>：红黑树的插入删除开销更小，适合 HashMap 这种需要频繁 put/remove 的场景。</p>
+<h3 id="q4treenode-的-prev-指针有什么用">Q4：TreeNode 的 prev 指针有什么用？</h3>
+<p><strong>答</strong>：在红黑树退化为链表时，可以快速将树结构转换为链表结构。</p>
+<h3 id="q5红黑树的五大特性是什么">Q5：红黑树的五大特性是什么？</h3>
+<p><strong>答</strong>：</p>
+<ol>
+<li>节点非红即黑</li>
+<li>根节点是黑色</li>
+<li>叶子节点是黑色</li>
+<li>红色节点不能连续</li>
+<li>黑色高度相同</li>
+</ol>
+<hr>
+<h2 id="总结">总结</h2>
+<ol>
+<li><strong>树化条件</strong>：链表长度 &gt; 8 且桶数量 &gt;= 64</li>
+<li><strong>退化条件</strong>：红黑树节点数 &lt;= 6</li>
+<li><strong>双重身份</strong>：TreeNode 同时是树节点和链表节点</li>
+<li><strong>五大特性</strong>：保证大致平衡，查找 O(log n)</li>
+<li><strong>选择原因</strong>：插入删除开销小，适合 HashMap 场景</li>
+</ol>
+<hr>
+<h2 id="下篇预告">下篇预告</h2>
+<p>下一篇文章我们将讲解 <strong>ConcurrentHashMap 并发原理</strong>，包括：</p>
+<ul>
+<li>JDK 1.7 分段锁 vs 1.8 CAS + synchronized</li>
+<li>并发扩容机制</li>
+<li>常用操作的线程安全实现</li>
+</ul>
+<p>敬请期待！</p>
+<hr>
+<blockquote>
+<p>📚 <strong>推荐阅读</strong></p>
+<ul>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E4%B9%9D-concurrenthashmap%E5%B9%B6%E5%8F%91%E5%8E%9F%E7%90%86/">ConcurrentHashMap 并发原理</a></li>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E5%8D%81-%E9%80%89%E5%9E%8B%E4%B8%8E%E5%AE%9E%E6%88%98%E6%80%BB%E7%BB%93/">集合选型与实战总结</a></li>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E4%B8%83-hashmap%E6%89%A9%E5%AE%B9%E6%9C%BA%E5%88%B6%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/">HashMap 扩容机制</a></li>
+</ul>
+</blockquote>
+    </div>
+</article>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

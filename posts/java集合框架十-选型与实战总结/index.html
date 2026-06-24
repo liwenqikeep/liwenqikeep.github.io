@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Java集合框架(十) 选型与实战总结 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<article class="page">
+    <header class="page-header">
+        <h1 class="page-title">Java集合框架(十) 选型与实战总结</h1>
+    </header>
+
+    <div class="page-content">
+        <h2 id="前言">前言</h2>
+<p>这是 Java 集合系列的最后一篇文章。我们来做一个全面的总结，包括：各集合的适用场景、性能优化技巧和常见踩坑汇总。</p>
+<h2 id="选型决策树">选型决策树</h2>
+<pre tabindex="0"><code>需要存储键值对？
+│
+├─ Yes → 需要并发安全？
+│       │
+│       ├─ Yes → ConcurrentHashMap
+│       │
+│       └─ No → 需要保持插入顺序？
+│               │
+│               ├─ Yes → LinkedHashMap
+│               │
+│               └─ No → 需要按键排序？
+│                       │
+│                       ├─ Yes → TreeMap
+│                       │
+│                       └─ No → HashMap
+│
+└─ No → 需要 Queue/Stack？
+        │
+        ├─ Yes → 需要两端操作？
+        │       │
+        │       ├─ Yes → LinkedList / ArrayDeque
+        │       │
+        │       └─ No → 需要优先级？
+        │               │
+        │               ├─ Yes → PriorityQueue
+        │               │
+        │               └─ No → LinkedList
+        │
+        └─ No → 需要元素唯一？
+                │
+                ├─ Yes → 需要排序？
+                │       │
+                │       ├─ Yes → TreeSet
+                │       │
+                │       └─ No → LinkedHashSet / HashSet
+                │
+                └─ No → 需要快速随机访问？
+                        │
+                        ├─ Yes → ArrayList
+                        │
+                        └─ No → LinkedList
+</code></pre><h2 id="list-选型">List 选型</h2>
+<table>
+	<thead>
+			<tr>
+					<th>场景</th>
+					<th>推荐</th>
+					<th>原因</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>随机访问多</td>
+					<td>ArrayList</td>
+					<td>随机访问 O(1)</td>
+			</tr>
+			<tr>
+					<td>尾部追加为主</td>
+					<td>ArrayList</td>
+					<td>扩容代价可接受</td>
+			</tr>
+			<tr>
+					<td>头尾操作多</td>
+					<td>LinkedList</td>
+					<td>头尾操作 O(1)</td>
+			</tr>
+			<tr>
+					<td>遍历多</td>
+					<td>ArrayList</td>
+					<td>缓存友好</td>
+			</tr>
+			<tr>
+					<td>线程安全</td>
+					<td>CopyOnWriteArrayList</td>
+					<td>读多写少场景</td>
+			</tr>
+			<tr>
+					<td>通用场景</td>
+					<td>ArrayList</td>
+					<td>默认选择</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="实际案例">实际案例</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 场景 1：存储用户列表，分页展示</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>User<span style="color:#f92672">&gt;</span> users <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 分页时 get(index) O(1)</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 场景 2：实现消息队列</span>
+</span></span><span style="display:flex;"><span>Queue<span style="color:#f92672">&lt;</span>Message<span style="color:#f92672">&gt;</span> queue <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> LinkedList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>queue.<span style="color:#a6e22e">offer</span>(msg);
+</span></span><span style="display:flex;"><span>Message msg <span style="color:#f92672">=</span> queue.<span style="color:#a6e22e">poll</span>();
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 头尾操作 O(1)</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 场景 3：配置列表，几乎只读</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>Config<span style="color:#f92672">&gt;</span> configs <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> CopyOnWriteArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 读不加锁，写时复制快照</span>
+</span></span></code></pre></div><h2 id="set-选型">Set 选型</h2>
+<table>
+	<thead>
+			<tr>
+					<th>场景</th>
+					<th>推荐</th>
+					<th>原因</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>去重（最常用）</td>
+					<td>HashSet</td>
+					<td>O(1) 插入和查找</td>
+			</tr>
+			<tr>
+					<td>保持插入顺序</td>
+					<td>LinkedHashSet</td>
+					<td>内部维护双向链表</td>
+			</tr>
+			<tr>
+					<td>需要排序</td>
+					<td>TreeSet</td>
+					<td>红黑树，有序</td>
+			</tr>
+			<tr>
+					<td>线程安全</td>
+					<td>ConcurrentSkipListSet</td>
+					<td>有序并发 Set</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="实际案例-1">实际案例</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 场景 1：用户 ID 去重</span>
+</span></span><span style="display:flex;"><span>Set<span style="color:#f92672">&lt;</span>Long<span style="color:#f92672">&gt;</span> userIds <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashSet<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>userIds.<span style="color:#a6e22e">add</span>(user.<span style="color:#a6e22e">getId</span>());
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 场景 2：最近访问记录（保持顺序）</span>
+</span></span><span style="display:flex;"><span>Set<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> recent <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> LinkedHashSet<span style="color:#f92672">&lt;&gt;</span>(16, 0.<span style="color:#a6e22e">75f</span>, <span style="color:#66d9ef">true</span>);
+</span></span><span style="display:flex;"><span>recent.<span style="color:#a6e22e">add</span>(url);
+</span></span><span style="display:flex;"><span>recent.<span style="color:#a6e22e">add</span>(url);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ accessOrder=true 时，最近访问的移到最后</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 场景 3：排行榜（需要排序）</span>
+</span></span><span style="display:flex;"><span>Set<span style="color:#f92672">&lt;</span>Score<span style="color:#f92672">&gt;</span> ranking <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> TreeSet<span style="color:#f92672">&lt;&gt;</span>(
+</span></span><span style="display:flex;"><span>    Comparator.<span style="color:#a6e22e">comparingInt</span>(Score::getScore).<span style="color:#a6e22e">reversed</span>()
+</span></span><span style="display:flex;"><span>);
+</span></span></code></pre></div><h2 id="map-选型">Map 选型</h2>
+<table>
+	<thead>
+			<tr>
+					<th>场景</th>
+					<th>推荐</th>
+					<th>原因</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>键值存储（通用）</td>
+					<td>HashMap</td>
+					<td>O(1) 查找和插入</td>
+			</tr>
+			<tr>
+					<td>保持键的顺序</td>
+					<td>LinkedHashMap</td>
+					<td>插入顺序或访问顺序</td>
+			</tr>
+			<tr>
+					<td>需要按键排序</td>
+					<td>TreeMap</td>
+					<td>红黑树，有序</td>
+			</tr>
+			<tr>
+					<td>并发读写</td>
+					<td>ConcurrentHashMap</td>
+					<td>线程安全高性能</td>
+			</tr>
+			<tr>
+					<td>需要并发有序</td>
+					<td>ConcurrentSkipListMap</td>
+					<td>有序并发 Map</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="实际案例-2">实际案例</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 场景 1：缓存用户信息</span>
+</span></span><span style="display:flex;"><span>Map<span style="color:#f92672">&lt;</span>Long, User<span style="color:#f92672">&gt;</span> cache <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>cache.<span style="color:#a6e22e">put</span>(user.<span style="color:#a6e22e">getId</span>(), user);
+</span></span><span style="display:flex;"><span>User u <span style="color:#f92672">=</span> cache.<span style="color:#a6e22e">get</span>(userId);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 场景 2：实现 LRU 缓存</span>
+</span></span><span style="display:flex;"><span>Map<span style="color:#f92672">&lt;</span>String, Object<span style="color:#f92672">&gt;</span> lru <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> LinkedHashMap<span style="color:#f92672">&lt;&gt;</span>(16, 0.<span style="color:#a6e22e">75f</span>, <span style="color:#66d9ef">true</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">removeEldestEntry</span>(Map.<span style="color:#a6e22e">Entry</span> eldest) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> size() <span style="color:#f92672">&gt;</span> MAX_SIZE;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 场景 3：配置中心</span>
+</span></span><span style="display:flex;"><span>Map<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> config <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ConcurrentHashMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>config.<span style="color:#a6e22e">put</span>(key, value);  <span style="color:#75715e">// 多线程安全</span>
+</span></span></code></pre></div><h2 id="性能优化技巧">性能优化技巧</h2>
+<h3 id="1-预估容量避免扩容">1. 预估容量，避免扩容</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ 每次 add 都可能触发扩容</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> 100000; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>    list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;item&#34;</span> <span style="color:#f92672">+</span> i);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 预估容量，一次到位</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>(100000);
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> 100000; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>    list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;item&#34;</span> <span style="color:#f92672">+</span> i);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ HashMap 同样适用</span>
+</span></span><span style="display:flex;"><span>Map<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>(expectedSize <span style="color:#f92672">*</span> 2);
+</span></span></code></pre></div><h3 id="2-使用批量操作">2. 使用批量操作</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ 逐个添加</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (String item : items) {
+</span></span><span style="display:flex;"><span>    list.<span style="color:#a6e22e">add</span>(item);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 批量添加（只扩容一次）</span>
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">addAll</span>(items);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 批量获取</span>
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">putAll</span>(anotherMap);
+</span></span></code></pre></div><h3 id="3-选择合适的负载因子">3. 选择合适的负载因子</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 默认负载因子 0.75</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 场景：内存敏感，愿意用空间换时间</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 可以降低负载因子，减少冲突</span>
+</span></span><span style="display:flex;"><span>Map<span style="color:#f92672">&lt;</span>K, V<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>(initialCapacity, 0.<span style="color:#a6e22e">5f</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 场景：内存不敏感，希望减少扩容次数</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 可以提高负载因子</span>
+</span></span><span style="display:flex;"><span>Map<span style="color:#f92672">&lt;</span>K, V<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>(initialCapacity, 0.<span style="color:#a6e22e">9f</span>);
+</span></span></code></pre></div><h3 id="4-使用-entry-遍历">4. 使用 Entry 遍历</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ 低效：每 entrySet() 都创建新的 Set 视图</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (String key : map.<span style="color:#a6e22e">keySet</span>()) {
+</span></span><span style="display:flex;"><span>    doSomething(key, map.<span style="color:#a6e22e">get</span>(key));
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 高效：直接遍历 Entry</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (Map.<span style="color:#a6e22e">Entry</span><span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> entry : map.<span style="color:#a6e22e">entrySet</span>()) {
+</span></span><span style="display:flex;"><span>    doSomething(entry.<span style="color:#a6e22e">getKey</span>(), entry.<span style="color:#a6e22e">getValue</span>());
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ JDK 8+ 更高效率</span>
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">forEach</span>((key, value) <span style="color:#f92672">-&gt;</span> doSomething(key, value));
+</span></span></code></pre></div><h3 id="5-合理使用基本类型包装类">5. 合理使用基本类型包装类</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ 每个 Integer 都是对象，内存开销大</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>Integer<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> 10000; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>    list.<span style="color:#a6e22e">add</span>(i);  <span style="color:#75715e">// 自动装箱：int → Integer</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 如果能用 int 数组</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span><span style="color:#f92672">[]</span> array <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> <span style="color:#66d9ef">int</span><span style="color:#f92672">[</span>10000<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> 10000; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>    array<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> i;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 或者使用第三方库如 Trove（现在推荐 HPPC）</span>
+</span></span><span style="display:flex;"><span>TIntArrayList list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> TIntArrayList();
+</span></span></code></pre></div><h3 id="6-迭代时删除的正确方式">6. 迭代时删除的正确方式</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ ConcurrentModificationException</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (String item : list) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (shouldRemove(item)) {
+</span></span><span style="display:flex;"><span>        list.<span style="color:#a6e22e">remove</span>(item);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 方式 1：使用迭代器删除</span>
+</span></span><span style="display:flex;"><span>Iterator<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> it <span style="color:#f92672">=</span> list.<span style="color:#a6e22e">iterator</span>();
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">while</span> (it.<span style="color:#a6e22e">hasNext</span>()) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (shouldRemove(it.<span style="color:#a6e22e">next</span>())) {
+</span></span><span style="display:flex;"><span>        it.<span style="color:#a6e22e">remove</span>();
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 方式 2：JDK 8+ removeIf</span>
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">removeIf</span>(<span style="color:#66d9ef">this</span>::shouldRemove);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 方式 3：倒序遍历</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> list.<span style="color:#a6e22e">size</span>() <span style="color:#f92672">-</span> 1; i <span style="color:#f92672">&gt;=</span> 0; i<span style="color:#f92672">--</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (shouldRemove(list.<span style="color:#a6e22e">get</span>(i))) {
+</span></span><span style="display:flex;"><span>        list.<span style="color:#a6e22e">remove</span>(i);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="常见踩坑汇总">常见踩坑汇总</h2>
+<h3 id="踩坑-1hashmap-的-key-不能是可变对象">踩坑 1：HashMap 的 key 不能是可变对象</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ 错误示例：key 的 hashCode 变了</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">User</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> String name;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">int</span> id;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">hashCode</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> id;  <span style="color:#75715e">// 如果 id 变了，hashCode 就变了！</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Map<span style="color:#f92672">&lt;</span>User, String<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>User user <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> User(1, <span style="color:#e6db74">&#34;Tom&#34;</span>);
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">put</span>(user, <span style="color:#e6db74">&#34;value&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>user.<span style="color:#a6e22e">setId</span>(2);  <span style="color:#75715e">// ⚠️ hashCode 变了！</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">get</span>(user);  <span style="color:#75715e">// ❌ 可能返回 null！因为找不到正确的桶</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 正确做法：使用不可变对象作为 key</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// String、Integer、Long、UUID 都是好的选择</span>
+</span></span></code></pre></div><h3 id="踩坑-2hashmap-不能存-null">踩坑 2：HashMap 不能存 null？</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ HashMap 可以存 null 键和 null 值</span>
+</span></span><span style="display:flex;"><span>HashMap<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">put</span>(<span style="color:#66d9ef">null</span>, <span style="color:#e6db74">&#34;value&#34;</span>);  <span style="color:#75715e">// 可以</span>
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;key&#34;</span>, <span style="color:#66d9ef">null</span>);   <span style="color:#75715e">// 可以</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ❌ ConcurrentHashMap 不允许 null 键和 null 值</span>
+</span></span><span style="display:flex;"><span>ConcurrentHashMap<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> chm <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ConcurrentHashMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>chm.<span style="color:#a6e22e">put</span>(<span style="color:#66d9ef">null</span>, <span style="color:#e6db74">&#34;value&#34;</span>);  <span style="color:#75715e">// NullPointerException！</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 原因：ConcurrentHashMap 的 get() 返回 null 时</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 无法区分是&#34;没有这个键&#34;还是&#34;值是 null&#34;</span>
+</span></span></code></pre></div><h3 id="踩坑-3线程不安全的单例模式">踩坑 3：线程不安全的单例模式</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ 线程不安全的懒加载</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Singleton</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> Map<span style="color:#f92672">&lt;</span>String, Object<span style="color:#f92672">&gt;</span> cache;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> Map<span style="color:#f92672">&lt;</span>String, Object<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">getInstance</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (cache <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            cache <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>();  <span style="color:#75715e">// ⚠️ 多线程下可能创建多个实例</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> cache;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 正确方式 1：内部类</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Singleton</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Holder</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">static</span> Map<span style="color:#f92672">&lt;</span>String, Object<span style="color:#f92672">&gt;</span> cache <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> Map<span style="color:#f92672">&lt;</span>String, Object<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">getInstance</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> Holder.<span style="color:#a6e22e">cache</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 正确方式 2：ConcurrentHashMap</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Singleton</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> ConcurrentHashMap<span style="color:#f92672">&lt;</span>String, Object<span style="color:#f92672">&gt;</span> cache <span style="color:#f92672">=</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">new</span> ConcurrentHashMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> Map<span style="color:#f92672">&lt;</span>String, Object<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">getInstance</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> cache;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="踩坑-4arraylistsublist-不是独立列表">踩坑 4：ArrayList.subList 不是独立列表</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ subList 是原列表的视图，不是副本</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> original <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>original.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;A&#34;</span>);
+</span></span><span style="display:flex;"><span>original.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;B&#34;</span>);
+</span></span><span style="display:flex;"><span>original.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;C&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> sub <span style="color:#f92672">=</span> original.<span style="color:#a6e22e">subList</span>(0, 2);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>sub.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;D&#34;</span>);  <span style="color:#75715e">// 修改 subList</span>
+</span></span><span style="display:flex;"><span>System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(original);  <span style="color:#75715e">// [A, B, D, C]</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ⚠️ 原列表也被修改了！</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>sub.<span style="color:#a6e22e">clear</span>();  <span style="color:#75715e">// 清空 subList</span>
+</span></span><span style="display:flex;"><span>System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(original);  <span style="color:#75715e">// [C]</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ⚠️ 原列表也被清空了！</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 如果需要独立副本</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> copy <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>(original.<span style="color:#a6e22e">subList</span>(0, 2));
+</span></span></code></pre></div><h3 id="踩坑-5hashset-的-contains-复杂度">踩坑 5：HashSet 的 contains 复杂度</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// HashSet.contains() 依赖 hashCode + equals</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 如果所有对象的 hashCode 都相同</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// contains 就退化为 O(n)</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">BadClass</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">int</span> value;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">hashCode</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> 0;  <span style="color:#75715e">// ⚠️ 所有实例 hashCode 都相同！</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>HashSet<span style="color:#f92672">&lt;</span>BadClass<span style="color:#f92672">&gt;</span> set <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashSet<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>set.<span style="color:#a6e22e">contains</span>(badObject);  <span style="color:#75715e">// O(n)！</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 正确实现 hashCode</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">hashCode</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> Objects.<span style="color:#a6e22e">hash</span>(value);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="踩坑-6concurrenthashmap-的复合操作不是原子的">踩坑 6：ConcurrentHashMap 的复合操作不是原子的</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>ConcurrentHashMap<span style="color:#f92672">&lt;</span>String, Integer<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ConcurrentHashMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;key&#34;</span>, 0);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ❌ 不是原子操作！</span>
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;key&#34;</span>, map.<span style="color:#a6e22e">get</span>(<span style="color:#e6db74">&#34;key&#34;</span>) <span style="color:#f92672">+</span> 1);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 使用原子方法</span>
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">incrementAndGet</span>(<span style="color:#e6db74">&#34;key&#34;</span>);  <span style="color:#75715e">// 支持时</span>
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">computeIfPresent</span>(<span style="color:#e6db74">&#34;key&#34;</span>, (k, v) <span style="color:#f92672">-&gt;</span> v <span style="color:#f92672">+</span> 1);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 使用 merge</span>
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">merge</span>(<span style="color:#e6db74">&#34;key&#34;</span>, 1, Integer::sum);
+</span></span></code></pre></div><h3 id="踩坑-7treemap-的-comparable-要求">踩坑 7：TreeMap 的 Comparable 要求</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ 如果 key 没有实现 Comparable，会抛异常</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">User</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> String name;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>TreeMap<span style="color:#f92672">&lt;</span>User, String<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> TreeMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">put</span>(user, <span style="color:#e6db74">&#34;value&#34;</span>);  <span style="color:#75715e">// ClassCastException！</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 方式 1：实现 Comparable</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">User</span> <span style="color:#66d9ef">implements</span> Comparable<span style="color:#f92672">&lt;</span>User<span style="color:#f92672">&gt;</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> String name;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">compareTo</span>(User o) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">name</span>.<span style="color:#a6e22e">compareTo</span>(o.<span style="color:#a6e22e">name</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 方式 2：提供 Comparator</span>
+</span></span><span style="display:flex;"><span>TreeMap<span style="color:#f92672">&lt;</span>User, String<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> TreeMap<span style="color:#f92672">&lt;&gt;</span>(Comparator.<span style="color:#a6e22e">comparing</span>(u <span style="color:#f92672">-&gt;</span> u.<span style="color:#a6e22e">name</span>));
+</span></span></code></pre></div><h2 id="各集合时间复杂度总结">各集合时间复杂度总结</h2>
+<h3 id="list">List</h3>
+<table>
+	<thead>
+			<tr>
+					<th>操作</th>
+					<th>ArrayList</th>
+					<th>LinkedList</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>add(E)</td>
+					<td>O(1) 均摊</td>
+					<td>O(1)</td>
+			</tr>
+			<tr>
+					<td>add(index, E)</td>
+					<td>O(n)</td>
+					<td>O(1) 找到位置</td>
+			</tr>
+			<tr>
+					<td>get</td>
+					<td>O(1)</td>
+					<td>O(n)</td>
+			</tr>
+			<tr>
+					<td>remove</td>
+					<td>O(n)</td>
+					<td>O(1) 找到位置</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="set">Set</h3>
+<table>
+	<thead>
+			<tr>
+					<th>操作</th>
+					<th>HashSet</th>
+					<th>LinkedHashSet</th>
+					<th>TreeSet</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>add</td>
+					<td>O(1)</td>
+					<td>O(1)</td>
+					<td>O(log n)</td>
+			</tr>
+			<tr>
+					<td>remove</td>
+					<td>O(1)</td>
+					<td>O(1)</td>
+					<td>O(log n)</td>
+			</tr>
+			<tr>
+					<td>contains</td>
+					<td>O(1)</td>
+					<td>O(1)</td>
+					<td>O(log n)</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="map">Map</h3>
+<table>
+	<thead>
+			<tr>
+					<th>操作</th>
+					<th>HashMap</th>
+					<th>LinkedHashMap</th>
+					<th>TreeMap</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>put</td>
+					<td>O(1)</td>
+					<td>O(1)</td>
+					<td>O(log n)</td>
+			</tr>
+			<tr>
+					<td>get</td>
+					<td>O(1)</td>
+					<td>O(1)</td>
+					<td>O(log n)</td>
+			</tr>
+			<tr>
+					<td>remove</td>
+					<td>O(1)</td>
+					<td>O(1)</td>
+					<td>O(log n)</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="内存占用对比">内存占用对比</h2>
+<pre tabindex="0"><code>存储 1000 个元素（32位 JVM，指针压缩）
+
+┌────────────────┬─────────────────┬─────────────────┐
+│    集合类型      │  元素引用大小    │   额外开销       │
+├────────────────┼─────────────────┼─────────────────┤
+│ ArrayList      │  ~8KB          │   数组头 ~24B   │
+│ LinkedList     │  ~48KB         │   每节点 ~32B   │
+│ HashMap        │  ~32KB         │   每桶 ~32B    │
+│ TreeMap        │  ~32KB         │   每节点 ~48B  │
+└────────────────┴─────────────────┴─────────────────┘
+</code></pre><h2 id="面试高频问题速记">面试高频问题速记</h2>
+<h3 id="1-arraylist-vs-linkedlist">1. ArrayList vs LinkedList</h3>
+<ul>
+<li>随机访问多 → ArrayList</li>
+<li>头尾操作多 → LinkedList</li>
+<li>默认选择 → ArrayList</li>
+</ul>
+<h3 id="2-hashmap-原理">2. HashMap 原理</h3>
+<ul>
+<li>数组+链表/红黑树</li>
+<li>hash() 扰动函数</li>
+<li>容量 2 的幂次</li>
+<li>负载因子 0.75</li>
+<li>链表 &gt; 8 且桶 &gt;= 64 树化</li>
+</ul>
+<h3 id="3-concurrenthashmap">3. ConcurrentHashMap</h3>
+<ul>
+<li>JDK 1.7：分段锁</li>
+<li>JDK 1.8：CAS + synchronized</li>
+<li>get 不加锁（volatile）</li>
+</ul>
+<h3 id="4-fail-fast-vs-fail-safe">4. fail-fast vs fail-safe</h3>
+<ul>
+<li>fail-fast：modCount 检测</li>
+<li>fail-safe：复制快照遍历</li>
+</ul>
+<h3 id="5-如何保证线程安全">5. 如何保证线程安全</h3>
+<ul>
+<li>单线程：HashMap, ArrayList</li>
+<li>并发安全：ConcurrentHashMap, CopyOnWriteArrayList</li>
+<li>装饰器：Collections.synchronizedMap/List</li>
+</ul>
+<hr>
+<h2 id="系列总结">系列总结</h2>
+<p>经过 10 篇文章，我们深入学习了 Java 集合框架的核心知识：</p>
+<pre tabindex="0"><code>📚 系列文章回顾
+
+1. 集合框架全景图 - 整体架构
+2. ArrayList 原理与扩容 - 动态数组
+3. LinkedList 原理 - 双向链表
+4. fail-fast 机制详解 - modCount
+5. ArrayList vs LinkedList - 性能对比
+6. HashMap 核心原理 - hash 函数
+7. HashMap 扩容机制 - resize
+8. HashMap 红黑树原理 - 树化/退化
+9. ConcurrentHashMap 并发原理 - CAS + synchronized
+10. 集合选型与实战总结 - 选型指南 + 踩坑汇总
+</code></pre><h3 id="核心要点">核心要点</h3>
+<ol>
+<li><strong>ArrayList</strong>：动态数组，随机访问 O(1)，中间操作 O(n)</li>
+<li><strong>LinkedList</strong>：双向链表，头尾操作 O(1)，随机访问 O(n)</li>
+<li><strong>HashMap</strong>：哈希表，put/get O(1)，依赖好的 hashCode</li>
+<li><strong>ConcurrentHashMap</strong>：CAS + synchronized，线程安全</li>
+<li><strong>TreeMap/TreeSet</strong>：红黑树，有序，O(log n)</li>
+<li><strong>选型</strong>：根据访问模式和数据特点选择合适的集合</li>
+</ol>
+<h3 id="进阶学习建议">进阶学习建议</h3>
+<pre tabindex="0"><code>还想深入？可以继续学习：
+
+📖 队列专题
+• BlockingQueue（ArrayBlockingQueue, LinkedBlockingQueue）
+• Deque 详解
+• DelayQueue, PriorityBlockingQueue
+
+📖 高级特性
+• WeakHashMap（缓存）
+• EnumSet/EnumMap（枚举类型）
+• IdentityHashMap（对象身份）
+• Collections 工具类
+
+📖 并发集合
+• CopyOnWriteArrayList
+• ConcurrentLinkedQueue
+• ConcurrentSkipListMap/Set
+
+📖 源码阅读
+• JDK 源码（java.util 包）
+• Guava 集合工具
+• Hutool 集合工具
+</code></pre><hr>
+<p>感谢你坚持看完这个系列！希望这些知识对你有帮助。如果有任何问题，欢迎留言讨论！</p>
+<hr>
+<blockquote>
+<p>📚 <strong>推荐阅读</strong></p>
+<ul>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E4%B8%80-%E5%85%A8%E6%99%AF%E5%9B%BE/">Java 集合框架全景图</a></li>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E4%B9%9D-concurrenthashmap%E5%B9%B6%E5%8F%91%E5%8E%9F%E7%90%86/">ConcurrentHashMap 并发原理</a></li>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E4%B8%83-hashmap%E6%89%A9%E5%AE%B9%E6%9C%BA%E5%88%B6%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/">HashMap 扩容机制</a></li>
+</ul>
+</blockquote>
+<blockquote>
+<p>🚀 <strong>继续加油，Java 之路，与你同行！</strong></p>
+</blockquote>
+    </div>
+</article>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

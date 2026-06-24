@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Java集合框架(七) HashMap扩容机制深度解析 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<article class="page">
+    <header class="page-header">
+        <h1 class="page-title">Java集合框架(七) HashMap扩容机制深度解析</h1>
+    </header>
+
+    <div class="page-content">
+        <h2 id="前言">前言</h2>
+<p>上一篇文章我们分析了 HashMap 的核心原理，包括 put/get 的完整流程。这篇文章我们来深入理解 HashMap 的扩容机制，这是面试中的高频考点，也是 HashMap 性能优化的关键。</p>
+<h2 id="扩容触发条件">扩容触发条件</h2>
+<h3 id="扩容时机">扩容时机</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// HashMap 中有三个关键参数</span>
+</span></span><span style="display:flex;"><span>threshold <span style="color:#f92672">=</span> capacity <span style="color:#f92672">*</span> loadFactor  <span style="color:#75715e">// 扩容阈值</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 默认值</span>
+</span></span><span style="display:flex;"><span>capacity <span style="color:#f92672">=</span> 16      <span style="color:#75715e">// 初始容量</span>
+</span></span><span style="display:flex;"><span>loadFactor <span style="color:#f92672">=</span> 0.<span style="color:#a6e22e">75</span>  <span style="color:#75715e">// 负载因子</span>
+</span></span><span style="display:flex;"><span>threshold <span style="color:#f92672">=</span> 16 <span style="color:#f92672">*</span> 0.<span style="color:#a6e22e">75</span> <span style="color:#f92672">=</span> 12  <span style="color:#75715e">// 当 size &gt; 12 时触发扩容</span>
+</span></span></code></pre></div><h3 id="扩容时机图解">扩容时机图解</h3>
+<pre tabindex="0"><code>初始状态：
+┌─────────────────────────────────────────────────────┐
+│  capacity = 16, loadFactor = 0.75, threshold = 12  │
+│  size = 0                                           │
+│                                                      │
+│  ┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐  │
+│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+│  └──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘  │
+│                                                      │
+│  size: ████░░░░░░░░░░░░░░░░░░░░░░░ 0/12             │
+└─────────────────────────────────────────────────────┘
+
+添加第 12 个元素后：
+┌─────────────────────────────────────────────────────┐
+│  size = 12, 触发扩容！                              │
+│                                                      │
+│  ┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐  │
+│  │██│██│██│██│██│██│██│██│██│██│██│██│  │  │  │  │  │
+│  └──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘  │
+│                                                      │
+│  size: ████████████████████████████████░░░░ 12/12   │
+└─────────────────────────────────────────────────────┘
+
+扩容后：
+┌─────────────────────────────────────────────────────┐
+│  capacity = 32, threshold = 24                      │
+│  size = 12 (元素重新分配后)                         │
+│                                                      │
+│  ┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐  │
+│  │██│  │  │██│  │  │██│  │  │██│  │  │██│  │  │██│  │  │██│  │  │██│  │  │  │  │  │  │  │  │  │  │
+│  └──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘  │
+│                                                      │
+│  size: ████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  12/24 │
+└─────────────────────────────────────────────────────┘
+</code></pre><h3 id="负载因子的影响">负载因子的影响</h3>
+<table>
+	<thead>
+			<tr>
+					<th>负载因子</th>
+					<th>扩容阈值</th>
+					<th>空间利用率</th>
+					<th>查找/插入性能</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>0.5</td>
+					<td>capacity * 0.5</td>
+					<td>低（浪费空间）</td>
+					<td>快（冲突少）</td>
+			</tr>
+			<tr>
+					<td><strong>0.75</strong></td>
+					<td>capacity * 0.75</td>
+					<td>平衡（推荐）</td>
+					<td>平衡</td>
+			</tr>
+			<tr>
+					<td>1.0</td>
+					<td>capacity * 1.0</td>
+					<td>高（省空间）</td>
+					<td>慢（冲突多）</td>
+			</tr>
+	</tbody>
+</table>
+<blockquote>
+<p><strong>结论</strong>：默认的 0.75 是时间和空间的平衡点，HashMap 作者的经验值。</p>
+</blockquote>
+<h2 id="扩容计算">扩容计算</h2>
+<h3 id="resize-方法">resize() 方法</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">final</span> Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> <span style="color:#a6e22e">resize</span>() {
+</span></span><span style="display:flex;"><span>    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> oldTab <span style="color:#f92672">=</span> table;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> oldCap <span style="color:#f92672">=</span> (oldTab <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) <span style="color:#f92672">?</span> 0 : oldTab.<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> oldThr <span style="color:#f92672">=</span> threshold;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> newCap, newThr <span style="color:#f92672">=</span> 0;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (oldCap <span style="color:#f92672">&gt;</span> 0) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 1. 已达最大容量，不再扩容</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (oldCap <span style="color:#f92672">&gt;=</span> MAXIMUM_CAPACITY) {
+</span></span><span style="display:flex;"><span>            threshold <span style="color:#f92672">=</span> Integer.<span style="color:#a6e22e">MAX_VALUE</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> oldTab;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 2. 新容量 = 旧容量 * 2</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> ((newCap <span style="color:#f92672">=</span> oldCap <span style="color:#f92672">&lt;&lt;</span> 1) <span style="color:#f92672">&lt;</span> MAXIMUM_CAPACITY <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                 oldCap <span style="color:#f92672">&gt;=</span> DEFAULT_INITIAL_CAPACITY) {
+</span></span><span style="display:flex;"><span>            newThr <span style="color:#f92672">=</span> oldThr <span style="color:#f92672">&lt;&lt;</span> 1;  <span style="color:#75715e">// 新阈值 = 旧阈值 * 2</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (oldThr <span style="color:#f92672">&gt;</span> 0) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 3. 第一次 put，使用构造时的初始容量</span>
+</span></span><span style="display:flex;"><span>        newCap <span style="color:#f92672">=</span> oldThr;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 4. 使用默认值</span>
+</span></span><span style="display:flex;"><span>        newCap <span style="color:#f92672">=</span> DEFAULT_INITIAL_CAPACITY;  <span style="color:#75715e">// 16</span>
+</span></span><span style="display:flex;"><span>        newThr <span style="color:#f92672">=</span> (<span style="color:#66d9ef">int</span>)(DEFAULT_LOAD_FACTOR <span style="color:#f92672">*</span> DEFAULT_INITIAL_CAPACITY);  <span style="color:#75715e">// 12</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 计算新的阈值</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (newThr <span style="color:#f92672">==</span> 0) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">float</span> ft <span style="color:#f92672">=</span> (<span style="color:#66d9ef">float</span>)newCap <span style="color:#f92672">*</span> loadFactor;
+</span></span><span style="display:flex;"><span>        newThr <span style="color:#f92672">=</span> (newCap <span style="color:#f92672">&lt;</span> MAXIMUM_CAPACITY <span style="color:#f92672">&amp;&amp;</span> ft <span style="color:#f92672">&lt;</span> (<span style="color:#66d9ef">float</span>)MAXIMUM_CAPACITY <span style="color:#f92672">?</span>
+</span></span><span style="display:flex;"><span>                  (<span style="color:#66d9ef">int</span>)ft : Integer.<span style="color:#a6e22e">MAX_VALUE</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    threshold <span style="color:#f92672">=</span> newThr;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 创建新数组</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@SuppressWarnings</span>({<span style="color:#e6db74">&#34;rawtypes&#34;</span>,<span style="color:#e6db74">&#34;unchecked&#34;</span>})
+</span></span><span style="display:flex;"><span>    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> newTab <span style="color:#f92672">=</span> (Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span>)<span style="color:#66d9ef">new</span> Node<span style="color:#f92672">[</span>newCap<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>    table <span style="color:#f92672">=</span> newTab;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 迁移元素</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (oldTab <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> j <span style="color:#f92672">=</span> 0; j <span style="color:#f92672">&lt;</span> oldCap; <span style="color:#f92672">++</span>j) {
+</span></span><span style="display:flex;"><span>            Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> e;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> ((e <span style="color:#f92672">=</span> oldTab<span style="color:#f92672">[</span>j<span style="color:#f92672">]</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                oldTab<span style="color:#f92672">[</span>j<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (e.<span style="color:#a6e22e">next</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">// 单个节点，直接移动</span>
+</span></span><span style="display:flex;"><span>                    newTab<span style="color:#f92672">[</span>e.<span style="color:#a6e22e">hash</span> <span style="color:#f92672">&amp;</span> (newCap <span style="color:#f92672">-</span> 1)<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (e <span style="color:#66d9ef">instanceof</span> TreeNode) {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">// 红黑树迁移</span>
+</span></span><span style="display:flex;"><span>                    ((TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span>)e).<span style="color:#a6e22e">split</span>(<span style="color:#66d9ef">this</span>, newTab, j, oldCap);
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">// 链表迁移（重点！）</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">// 优化：分为高位链和低位链</span>
+</span></span><span style="display:flex;"><span>                    ...
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> newTab;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="容量翻倍">容量翻倍</h3>
+<pre tabindex="0"><code>扩容前：capacity = 16 (二进制 10000)
+        threshold = 12
+
+扩容后：capacity = 32 (二进制 100000)
+        threshold = 24
+
+规律：每次扩容容量翻倍（left shift 1）
+      threshold 也翻倍
+</code></pre><h2 id="元素迁移机制">元素迁移机制</h2>
+<h3 id="jdk-17-的链表迁移">JDK 1.7 的链表迁移</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// JDK 1.7 旧数组长度</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> newCapacity <span style="color:#f92672">=</span> oldCapacity <span style="color:#f92672">&lt;&lt;</span> 1;  <span style="color:#75715e">// 16 → 32</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 迁移链表</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">transfer</span>(Entry<span style="color:#f92672">[]</span> newTable) {
+</span></span><span style="display:flex;"><span>    Entry<span style="color:#f92672">[]</span> src <span style="color:#f92672">=</span> table;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> newCapacity <span style="color:#f92672">=</span> newTable.<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> j <span style="color:#f92672">=</span> 0; j <span style="color:#f92672">&lt;</span> src.<span style="color:#a6e22e">length</span>; j<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>        Entry<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> e <span style="color:#f92672">=</span> src<span style="color:#f92672">[</span>j<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (e <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            src<span style="color:#f92672">[</span>j<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;  <span style="color:#75715e">// 释放旧表</span>
+</span></span><span style="display:flex;"><span>            
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>                Entry<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> next <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">next</span>;
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// 重新计算索引</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> indexFor(e.<span style="color:#a6e22e">hash</span>, newCapacity);
+</span></span><span style="display:flex;"><span>                e.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> newTable<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>                newTable<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                e <span style="color:#f92672">=</span> next;
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">while</span> (e <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="jdk-18-的优化高低位链表">JDK 1.8 的优化：高低位链表</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// JDK 1.8 优化的链表迁移</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// loHead 和 hiHead 分别是低位链和高位链的头</span>
+</span></span><span style="display:flex;"><span>    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> loHead <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>, loTail <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> hiHead <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>, hiTail <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> next;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>        next <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">next</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 核心：判断是否需要移动到高位</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// oldCap = 16, (e.hash &amp; oldCap) 有两种结果：0 或 oldCap</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> ((e.<span style="color:#a6e22e">hash</span> <span style="color:#f92672">&amp;</span> oldCap) <span style="color:#f92672">==</span> 0) {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 保持在原位置（原索引）</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (loTail <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                loHead <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                loTail.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            loTail <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 移动到高位（原索引 + oldCap）</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (hiTail <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                hiHead <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                hiTail.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            hiTail <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">while</span> ((e <span style="color:#f92672">=</span> next) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 放置低位链</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (loTail <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>        loTail.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>        newTab<span style="color:#f92672">[</span>j<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> loHead;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 放置高位链</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (hiTail <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>        hiTail.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>        newTab<span style="color:#f92672">[</span>j <span style="color:#f92672">+</span> oldCap<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> hiHead;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="高低位链原理">高低位链原理</h3>
+<pre tabindex="0"><code>原数组容量：oldCap = 16 (二进制 10000)
+
+假设某个 key 的 hash = 27
+hash &amp; oldCap = 27 &amp; 16 = 0  → 留在原位置
+                   11011
+                 &amp; 10000
+                 ------
+                   00000
+
+假设某个 key 的 hash = 43
+hash &amp; oldCap = 43 &amp; 16 = 16 → 移动到原位置 + oldCap
+                   101011
+                 &amp;  10000
+                 -------
+                   10000 = 16
+
+┌─────────────────────────────────────────────────────────────┐
+│                                                              │
+│  原索引 0 上的链表：                                          │
+│                                                              │
+│  扩容前 (capacity=16):                                       │
+│  ┌───┐                                                      │
+│  │ A │ → B → C                                              │
+│  └───┘                                                      │
+│   0                                                         │
+│                                                              │
+│  扩容后 (capacity=32):                                      │
+│  ┌───┐                    ┌───┐                            │
+│  │ A │ → B                │ C │                              │
+│  └───┘                    └───┘                              │
+│   0                        16                                │
+│  (hash&amp;16=0)             (hash&amp;16=16)                       │
+│                                                              │
+│  原理：只有 hash 值在 oldCap 位为 1 时，才会移动到高位        │
+│        例如 oldCap=16，第 5 位(16)                            │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+</code></pre><h3 id="扩容迁移图解">扩容迁移图解</h3>
+<pre tabindex="0"><code>扩容前 (capacity = 16)：
+
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│   │ A │   │ B │   │   │ C │   │   │ D │   │   │   │   │   │   │   │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+
+假设 A、C、D 的 hash&amp;16=0
+假设 B 的 hash&amp;16=16
+
+扩容后 (capacity = 32)：
+
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│   │ A │   │   │   │ B │   │   │ C │   │   │   │ D │   │   │   │   │   │   │   │   │   │   │   │   │   │   │   │   │   │   │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31
+                                                        ↑
+                                                        B 移动到这里
+</code></pre><h2 id="多线程下的扩容问题">多线程下的扩容问题</h2>
+<h3 id="jdk-17-的死循环">JDK 1.7 的死循环</h3>
+<p>HashMap 在 JDK 1.7 时，扩容操作不是线程安全的。在多线程环境下，可能导致死循环。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// JDK 1.7 迁移代码简化</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">transfer</span>(Entry<span style="color:#f92672">[]</span> newTable) {
+</span></span><span style="display:flex;"><span>    Entry<span style="color:#f92672">[]</span> src <span style="color:#f92672">=</span> table;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> newCapacity <span style="color:#f92672">=</span> newTable.<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> j <span style="color:#f92672">=</span> 0; j <span style="color:#f92672">&lt;</span> src.<span style="color:#a6e22e">length</span>; j<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>        Entry<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> e <span style="color:#f92672">=</span> src<span style="color:#f92672">[</span>j<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (e <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>                Entry<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> next <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">next</span>;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> indexFor(e.<span style="color:#a6e22e">hash</span>, newCapacity);
+</span></span><span style="display:flex;"><span>                e.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> newTable<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span>;  <span style="color:#75715e">// 头插法！</span>
+</span></span><span style="display:flex;"><span>                newTable<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                e <span style="color:#f92672">=</span> next;
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">while</span> (e <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="死循环成因图解">死循环成因图解</h3>
+<pre tabindex="0"><code>初始状态（假设两个线程同时扩容）：
+线程 A 和 B 都看到同样的链表结构
+
+原链表： A → B → null
+        ↓
+      e=B, next=A
+      
+线程 A 执行 transfer()，头插法：
+
+第一次：e=B
+        B.next = newTable[i]
+        newTable[i] = B
+        结果：newTable[i] = B → null
+
+第二次：e=A
+        A.next = newTable[i] = B
+        newTable[i] = A
+        结果：newTable[i] = A → B → null
+
+但如果线程 A 被挂起，线程 B 先完成：
+
+线程 B 完成后的结构：
+newTable[i] = A → B → null
+
+线程 A 恢复，继续执行 transfer()：
+
+第一次：e=B（从 src[j] 读取）
+        B.next = newTable[i] = A → B
+        newTable[i] = B
+        结果：newTable[i] = B → A → B → ...（循环！）
+        
+第二次：e=A（next = B）
+        A.next = newTable[i] = B → A → B ...
+        newTable[i] = A
+        结果：newTable[i] = A → B → A → B → ...（死循环！）
+</code></pre><h3 id="解决方案">解决方案</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ 不要在多线程环境下使用 HashMap</span>
+</span></span><span style="display:flex;"><span>HashMap<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>map.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;key&#34;</span>, <span style="color:#e6db74">&#34;value&#34;</span>);  <span style="color:#75715e">// 可能死循环或数据丢失！</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 方案 1：使用 Collections.synchronizedMap</span>
+</span></span><span style="display:flex;"><span>Map<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> Collections.<span style="color:#a6e22e">synchronizedMap</span>(<span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>());
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 方案 2：使用 ConcurrentHashMap（推荐）</span>
+</span></span><span style="display:flex;"><span>ConcurrentHashMap<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ConcurrentHashMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span></code></pre></div><h2 id="扩容的性能优化">扩容的性能优化</h2>
+<h3 id="预估容量">预估容量</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ 低效：频繁扩容</span>
+</span></span><span style="display:flex;"><span>Map<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> 100000; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>    map.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;key&#34;</span> <span style="color:#f92672">+</span> i, <span style="color:#e6db74">&#34;value&#34;</span>);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 会触发多次扩容</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 高效：预估容量</span>
+</span></span><span style="display:flex;"><span>Map<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>(131072);  <span style="color:#75715e">// 2^17</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> 100000; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>    map.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;key&#34;</span> <span style="color:#f92672">+</span> i, <span style="color:#e6db74">&#34;value&#34;</span>);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 只在最后可能触发一次扩容</span>
+</span></span></code></pre></div><h3 id="容量计算建议">容量计算建议</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 预估元素数量 n，反推 HashMap 容量</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 目标：size &lt; threshold = capacity * loadFactor</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// capacity = n / loadFactor * 1.2（留 20% 余量）</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 然后向上取整到 2 的幂次</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> n <span style="color:#f92672">=</span> 100000;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> capacity <span style="color:#f92672">=</span> (<span style="color:#66d9ef">int</span>) (n <span style="color:#f92672">/</span> 0.<span style="color:#a6e22e">75</span> <span style="color:#f92672">*</span> 1.<span style="color:#a6e22e">2</span>);  <span style="color:#75715e">// 160000</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 向上取整到 2 的幂次</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> size <span style="color:#f92672">=</span> 1;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">while</span> (size <span style="color:#f92672">&lt;</span> capacity) {
+</span></span><span style="display:flex;"><span>    size <span style="color:#f92672">&lt;&lt;=</span> 1;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// size = 262144 = 2^18</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>HashMap<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> map <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashMap<span style="color:#f92672">&lt;&gt;</span>(size);
+</span></span></code></pre></div><h3 id="linkedhashmap-的-lru-示例">LinkedHashMap 的 LRU 示例</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 利用 LinkedHashMap 实现 LRU 缓存</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">LRUCache</span><span style="color:#f92672">&lt;</span>K, V<span style="color:#f92672">&gt;</span> <span style="color:#66d9ef">extends</span> LinkedHashMap<span style="color:#f92672">&lt;</span>K, V<span style="color:#f92672">&gt;</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> maxSize;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#a6e22e">LRUCache</span>(<span style="color:#66d9ef">int</span> maxSize) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">super</span>(16, 0.<span style="color:#a6e22e">75f</span>, <span style="color:#66d9ef">true</span>);  <span style="color:#75715e">// accessOrder = true</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">maxSize</span> <span style="color:#f92672">=</span> maxSize;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">removeEldestEntry</span>(Map.<span style="color:#a6e22e">Entry</span><span style="color:#f92672">&lt;</span>K, V<span style="color:#f92672">&gt;</span> eldest) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> size() <span style="color:#f92672">&gt;</span> maxSize;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 使用</span>
+</span></span><span style="display:flex;"><span>LRUCache<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> cache <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> LRUCache<span style="color:#f92672">&lt;&gt;</span>(1000);
+</span></span><span style="display:flex;"><span>cache.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;key&#34;</span>, <span style="color:#e6db74">&#34;value&#34;</span>);  <span style="color:#75715e">// 自动淘汰最老的条目</span>
+</span></span></code></pre></div><h2 id="常见面试题">常见面试题</h2>
+<h3 id="q1hashmap-的扩容机制">Q1：HashMap 的扩容机制？</h3>
+<p><strong>答</strong>：</p>
+<ol>
+<li>当 size &gt; capacity * loadFactor 时触发</li>
+<li>创建新数组，容量和阈值都翻倍</li>
+<li>将原数组的元素迁移到新数组</li>
+<li>JDK 1.8 优化：高低位链表，避免重新计算 hash</li>
+</ol>
+<h3 id="q2jdk-18-对扩容做了哪些优化">Q2：JDK 1.8 对扩容做了哪些优化？</h3>
+<p><strong>答</strong>：</p>
+<ol>
+<li>利用 (e.hash &amp; oldCap) 判断是否需要移动到高位，避免重新计算 hash</li>
+<li>将链表分为高低位两个链表，头插法改为尾插法顺序不变</li>
+<li>红黑树有专门的 split() 方法处理</li>
+</ol>
+<h3 id="q3hashmap-在-jdk-17-多线程下会死循环">Q3：HashMap 在 JDK 1.7 多线程下会死循环？</h3>
+<p><strong>答</strong>：是的。JDK 1.7 的扩容采用头插法，多线程下可能导致链表成环，形成死循环。JDK 1.8 已修复（但仍不是线程安全的）。</p>
+<h3 id="q4负载因子为什么是-075">Q4：负载因子为什么是 0.75？</h3>
+<p><strong>答</strong>：这是时间和空间的平衡。太小（如 0.5）空间利用率低，太大（如 1.0）冲突多性能差。0.75 是一个经验值。</p>
+<h3 id="q5hashmap-的容量为什么必须是-2-的幂次">Q5：HashMap 的容量为什么必须是 2 的幂次？</h3>
+<p><strong>答</strong>：便于用 (n-1) &amp; hash 快速计算索引，而且扩容时可以用 (e.hash &amp; oldCap) 判断高位，简化迁移逻辑。</p>
+<hr>
+<h2 id="总结">总结</h2>
+<ol>
+<li><strong>扩容触发</strong>：<code>size &gt; capacity * loadFactor</code></li>
+<li><strong>扩容计算</strong>：容量翻倍，阈值也翻倍</li>
+<li><strong>JDK 1.8 优化</strong>：高低位链表，避免重新计算 hash</li>
+<li><strong>多线程问题</strong>：JDK 1.7 可能死循环，JDK 1.8 不会但仍非线程安全</li>
+<li><strong>性能优化</strong>：预估容量，避免频繁扩容</li>
+</ol>
+<hr>
+<h2 id="下篇预告">下篇预告</h2>
+<p>下一篇文章我们将讲解 <strong>HashMap 红黑树原理</strong>，包括：</p>
+<ul>
+<li>链表树化条件</li>
+<li>红黑树的特性</li>
+<li>为什么用红黑树而不是其他平衡树</li>
+</ul>
+<p>敬请期待！</p>
+<hr>
+<blockquote>
+<p>📚 <strong>推荐阅读</strong></p>
+<ul>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E5%85%AB-hashmap%E7%BA%A2%E9%BB%91%E6%A0%91%E5%8E%9F%E7%90%86/">HashMap 红黑树原理</a></li>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E4%B9%9D-concurrenthashmap%E5%B9%B6%E5%8F%91%E5%8E%9F%E7%90%86/">ConcurrentHashMap 并发原理</a></li>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E5%85%AD-hashmap%E6%A0%B8%E5%BF%83%E5%8E%9F%E7%90%86/">HashMap 核心原理</a></li>
+</ul>
+</blockquote>
+    </div>
+</article>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

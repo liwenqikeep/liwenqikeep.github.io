@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Java集合框架(四) fail-fast机制详解 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<article class="page">
+    <header class="page-header">
+        <h1 class="page-title">Java集合框架(四) fail-fast机制详解</h1>
+    </header>
+
+    <div class="page-content">
+        <h2 id="前言">前言</h2>
+<p>在使用 Java 集合的迭代器遍历时，你一定遇到过这个异常：</p>
+<pre tabindex="0"><code>java.util.ConcurrentModificationException
+</code></pre><p>这就是 <strong>fail-fast（快速失败）</strong> 机制在起作用。这篇文章我们来深入理解它的原理、作用和如何避免。</p>
+<h2 id="什么是-fail-fast">什么是 fail-fast？</h2>
+<p>fail-fast 是 Java 集合框架的一种<strong>错误检测机制</strong>。</p>
+<p>当你在迭代遍历集合的过程中，如果检测到集合被<strong>结构性修改</strong>（添加、删除元素），就会立即抛出 <code>ConcurrentModificationException</code>，而不是等到迭代结束才发现问题。</p>
+<h3 id="结构性修改-vs-非结构性修改">结构性修改 vs 非结构性修改</h3>
+<pre tabindex="0"><code>结构性修改：
+  • add()、remove()、clear() 等改变集合大小的操作
+  • 集合的内部结构发生了变化
+
+非结构性修改：
+  • set() 替换已有元素（不改变集合大小）
+  • 修改集合中某个元素的属性（如果是可变对象）
+</code></pre><h3 id="触发-fail-fast-的经典场景">触发 fail-fast 的经典场景</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;A&#34;</span>);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;B&#34;</span>);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;C&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 用 foreach 遍历（底层就是迭代器）</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (String s : list) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#e6db74">&#34;B&#34;</span>.<span style="color:#a6e22e">equals</span>(s)) {
+</span></span><span style="display:flex;"><span>        list.<span style="color:#a6e22e">remove</span>(s);  <span style="color:#75715e">// ❌ ConcurrentModificationException！</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="modcount-计数器">modCount 计数器</h2>
+<p>fail-fast 的实现依赖于 <strong>modCount</strong> 这个字段。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// AbstractList 中的定义</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">transient</span> <span style="color:#66d9ef">int</span> modCount <span style="color:#f92672">=</span> 0;
+</span></span></code></pre></div><h3 id="modcount-的语义">modCount 的语义</h3>
+<pre tabindex="0"><code>modCount：记录集合被结构性修改的次数
+
+• 每次 add()、remove()、clear() → modCount++
+• 每次迭代器创建时 → 记录初始 modCount（expectedModCount）
+• 每次 next()/remove() 时 → 检查 modCount == expectedModCount
+</code></pre><h3 id="modcount-变化的时机">modCount 变化的时机</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ArrayList.add() 方法</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">add</span>(E e) {
+</span></span><span style="display:flex;"><span>    ensureCapacityInternal(size <span style="color:#f92672">+</span> 1);  <span style="color:#75715e">// 可能触发扩容</span>
+</span></span><span style="display:flex;"><span>    elementData<span style="color:#f92672">[</span>size<span style="color:#f92672">++]</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 最终调用的是 AbstractList 的以下方法</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">void</span> modCount<span style="color:#f92672">++</span>  <span style="color:#75715e">// 每次结构性修改</span>
+</span></span></code></pre></div><h2 id="迭代器的实现原理">迭代器的实现原理</h2>
+<h3 id="arraylist-的迭代器---itr">ArrayList 的迭代器 - Itr</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ArrayList.iterator() 返回的迭代器</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Itr</span> <span style="color:#66d9ef">implements</span> Iterator<span style="color:#f92672">&lt;</span>E<span style="color:#f92672">&gt;</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> cursor;          <span style="color:#75715e">// 下一个要返回的元素的索引</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> lastRet <span style="color:#f92672">=</span> <span style="color:#f92672">-</span>1;    <span style="color:#75715e">// 上一次返回的元素的索引，-1 表示没有</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> expectedModCount; <span style="color:#75715e">// 创建迭代器时记录的 modCount</span>
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    Itr() {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 创建迭代器时，保存当前的 modCount</span>
+</span></span><span style="display:flex;"><span>        expectedModCount <span style="color:#f92672">=</span> modCount;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">hasNext</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> cursor <span style="color:#f92672">!=</span> size;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@SuppressWarnings</span>(<span style="color:#e6db74">&#34;unchecked&#34;</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> E <span style="color:#a6e22e">next</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 核心检查！</span>
+</span></span><span style="display:flex;"><span>        checkForComodification();
+</span></span><span style="display:flex;"><span>        
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> cursor;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (i <span style="color:#f92672">&gt;=</span> size) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> NoSuchElementException();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        Object<span style="color:#f92672">[]</span> elementData <span style="color:#f92672">=</span> ArrayList.<span style="color:#a6e22e">this</span>.<span style="color:#a6e22e">elementData</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (i <span style="color:#f92672">&gt;=</span> elementData.<span style="color:#a6e22e">length</span>) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> ConcurrentModificationException();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        cursor <span style="color:#f92672">=</span> i <span style="color:#f92672">+</span> 1;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> (E) elementData<span style="color:#f92672">[</span>lastRet <span style="color:#f92672">=</span> i<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// fail-fast 检查</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">checkForComodification</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (modCount <span style="color:#f92672">!=</span> expectedModCount) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> ConcurrentModificationException();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">remove</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (lastRet <span style="color:#f92672">&lt;</span> 0) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalStateException();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        checkForComodification();
+</span></span><span style="display:flex;"><span>        
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> {
+</span></span><span style="display:flex;"><span>            ArrayList.<span style="color:#a6e22e">this</span>.<span style="color:#a6e22e">remove</span>(lastRet);
+</span></span><span style="display:flex;"><span>            cursor <span style="color:#f92672">=</span> lastRet;
+</span></span><span style="display:flex;"><span>            lastRet <span style="color:#f92672">=</span> <span style="color:#f92672">-</span>1;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 关键！同步 expectedModCount</span>
+</span></span><span style="display:flex;"><span>            expectedModCount <span style="color:#f92672">=</span> modCount;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">catch</span> (IndexOutOfBoundsException ex) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> ConcurrentModificationException();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="关键流程图">关键流程图</h3>
+<pre tabindex="0"><code>创建迭代器时：
+┌─────────────────────────────────────────────────┐
+│  expectedModCount = modCount（当前值）          │
+│  例如：expectedModCount = 5                      │
+└─────────────────────────────────────────────────┘
+
+迭代过程中：
+┌─────────────────────────────────────────────────┐
+│  next() 调用 checkForComodification()           │
+│  if (modCount != expectedModCount)              │
+│      throw ConcurrentModificationException       │
+└─────────────────────────────────────────────────┘
+
+正确删除后：
+┌─────────────────────────────────────────────────┐
+│  remove() 方法内部：                             │
+│  expectedModCount = modCount（同步）            │
+│  所以不会抛出异常                                │
+└─────────────────────────────────────────────────┘
+</code></pre><h2 id="为什么会抛出异常">为什么会抛出异常？</h2>
+<h3 id="场景还原">场景还原</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;A&#34;</span>);  <span style="color:#75715e">// modCount = 1</span>
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;B&#34;</span>);  <span style="color:#75715e">// modCount = 2</span>
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;C&#34;</span>);  <span style="color:#75715e">// modCount = 3</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Iterator<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> it <span style="color:#f92672">=</span> list.<span style="color:#a6e22e">iterator</span>();
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 此时：expectedModCount = modCount = 3</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// foreach 底层调用 it.next()</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (String s : list) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#e6db74">&#34;B&#34;</span>.<span style="color:#a6e22e">equals</span>(s)) {
+</span></span><span style="display:flex;"><span>        list.<span style="color:#a6e22e">remove</span>(s);  <span style="color:#75715e">// modCount = 4（结构性修改！）</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 但 expectedModCount 仍然是 3</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 下一次调用 it.next() 时</span>
+</span></span><span style="display:flex;"><span>it.<span style="color:#a6e22e">next</span>();
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// checkForComodification()</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// if (4 != 3) → throw ConcurrentModificationException</span>
+</span></span></code></pre></div><h3 id="示意图">示意图</h3>
+<pre tabindex="0"><code>                    modCount vs expectedModCount
+
+  ┌─────────────────────────────────────────────────────────┐
+  │                                                          │
+  │  list.add(&#34;A&#34;)    list.add(&#34;B&#34;)    list.add(&#34;C&#34;)         │
+  │       ↓               ↓               ↓                │
+  │  modCount=1       modCount=2       modCount=3           │
+  │                                                          │
+  │  创建迭代器：expectedModCount = modCount = 3             │
+  │                                                          │
+  │  list.remove(&#34;B&#34;)                                       │
+  │       ↓                                                  │
+  │  modCount=4   ← 改变了！                                 │
+  │                                                          │
+  │  下次 next() 时：                                        │
+  │  if (modCount != expectedModCount)                      │
+  │  if (4 != 3) → ConcurrentModificationException           │
+  │                                                          │
+  └─────────────────────────────────────────────────────────┘
+</code></pre><h2 id="正确删除元素的方式">正确删除元素的方式</h2>
+<h3 id="方式一使用迭代器的-remove">方式一：使用迭代器的 remove()</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;A&#34;</span>);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;B&#34;</span>);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;C&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Iterator<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> it <span style="color:#f92672">=</span> list.<span style="color:#a6e22e">iterator</span>();
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">while</span> (it.<span style="color:#a6e22e">hasNext</span>()) {
+</span></span><span style="display:flex;"><span>    String s <span style="color:#f92672">=</span> it.<span style="color:#a6e22e">next</span>();
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#e6db74">&#34;B&#34;</span>.<span style="color:#a6e22e">equals</span>(s)) {
+</span></span><span style="display:flex;"><span>        it.<span style="color:#a6e22e">remove</span>();  <span style="color:#75715e">// ✅ 正确：迭代器自己的 remove 方法</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// list: [&#34;A&#34;, &#34;C&#34;]</span>
+</span></span></code></pre></div><h3 id="方式二使用-removeifjdk-8">方式二：使用 removeIf()（JDK 8+）</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;A&#34;</span>);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;B&#34;</span>);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;C&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ JDK 8+ 推荐方式</span>
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">removeIf</span>(s <span style="color:#f92672">-&gt;</span> <span style="color:#e6db74">&#34;B&#34;</span>.<span style="color:#a6e22e">equals</span>(s));
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// list: [&#34;A&#34;, &#34;C&#34;]</span>
+</span></span></code></pre></div><h3 id="方式三倒序遍历避免索引问题">方式三：倒序遍历避免索引问题</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;A&#34;</span>);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;B&#34;</span>);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;C&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 倒序遍历，删除元素不影响前面的索引</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> list.<span style="color:#a6e22e">size</span>() <span style="color:#f92672">-</span> 1; i <span style="color:#f92672">&gt;=</span> 0; i<span style="color:#f92672">--</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#e6db74">&#34;B&#34;</span>.<span style="color:#a6e22e">equals</span>(list.<span style="color:#a6e22e">get</span>(i))) {
+</span></span><span style="display:flex;"><span>        list.<span style="color:#a6e22e">remove</span>(i);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="方式四使用-copyonwritearraylist">方式四：使用 CopyOnWriteArrayList</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 如果需要在遍历时删除，使用并发集合</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> CopyOnWriteArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;A&#34;</span>);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;B&#34;</span>);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;C&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (String s : list) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#e6db74">&#34;B&#34;</span>.<span style="color:#a6e22e">equals</span>(s)) {
+</span></span><span style="display:flex;"><span>        list.<span style="color:#a6e22e">remove</span>(s);  <span style="color:#75715e">// ✅ CopyOnWriteArrayList 不会抛异常</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="modcount-的使用位置">modCount 的使用位置</h2>
+<p>modCount 定义在 <strong>AbstractCollection</strong> 和 <strong>AbstractList</strong> 中：</p>
+<pre tabindex="0"><code>AbstractCollection
+    └── AbstractList (modCount 在这里定义)
+            ├── ArrayList
+            ├── LinkedList
+            ├── Vector
+            └── ...
+</code></pre><h3 id="哪些操作会修改-modcount">哪些操作会修改 modCount？</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// AbstractList.java</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">transient</span> <span style="color:#66d9ef">int</span> modCount <span style="color:#f92672">=</span> 0;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 结构性修改会 modCount++</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">add</span>(<span style="color:#66d9ef">int</span> index, E element) { modCount<span style="color:#f92672">++</span>; }
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> E <span style="color:#a6e22e">remove</span>(<span style="color:#66d9ef">int</span> index) { modCount<span style="color:#f92672">++</span>; }
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">clear</span>() { modCount<span style="color:#f92672">++</span>; }
+</span></span></code></pre></div><h3 id="哪些操作不会修改-modcount">哪些操作不会修改 modCount？</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 非结构性修改，不改变 modCount</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> E <span style="color:#a6e22e">set</span>(<span style="color:#66d9ef">int</span> index, E element) { }  <span style="color:#75715e">// 替换，不改变大小</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> E <span style="color:#a6e22e">get</span>(<span style="color:#66d9ef">int</span> index) { }             <span style="color:#75715e">// 获取，不改变结构</span>
+</span></span></code></pre></div><h2 id="fail-safe-vs-fail-fast">fail-safe vs fail-fast</h2>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>fail-fast</th>
+					<th>fail-safe</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>异常</td>
+					<td>ConcurrentModificationException</td>
+					<td>不抛异常</td>
+			</tr>
+			<tr>
+					<td>原理</td>
+					<td>检测 modCount</td>
+					<td>复制原集合遍历</td>
+			</tr>
+			<tr>
+					<td>内存</td>
+					<td>不需要额外内存</td>
+					<td>需要复制集合</td>
+			</tr>
+			<tr>
+					<td>一致性</td>
+					<td>遍历时无法感知修改</td>
+					<td>可能遍历到旧数据</td>
+			</tr>
+			<tr>
+					<td>典型实现</td>
+					<td>ArrayList、HashMap</td>
+					<td>CopyOnWriteArrayList、ConcurrentHashMap</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="fail-safe-示例">fail-safe 示例</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// CopyOnWriteArrayList 的迭代器遍历的是一份快照</span>
+</span></span><span style="display:flex;"><span>CopyOnWriteArrayList<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> CopyOnWriteArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;A&#34;</span>);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;B&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Iterator<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> it <span style="color:#f92672">=</span> list.<span style="color:#a6e22e">iterator</span>();
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;C&#34;</span>);  <span style="color:#75715e">// 修改了原集合</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">while</span> (it.<span style="color:#a6e22e">hasNext</span>()) {
+</span></span><span style="display:flex;"><span>    System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(it.<span style="color:#a6e22e">next</span>());  <span style="color:#75715e">// 仍然只输出 A、B</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 不会输出 C，因为迭代器遍历的是创建时的快照</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="常见面试题">常见面试题</h2>
+<h3 id="q1fail-fast-机制是什么">Q1：fail-fast 机制是什么？</h3>
+<p><strong>答</strong>：fail-fast 是 Java 集合的一种错误检测机制。当迭代器遍历集合时，如果检测到集合被结构性修改，会立即抛出 ConcurrentModificationException。实现依赖于 modCount 计数器，每次结构性修改 modCount++，迭代器创建时记录 expectedModCount，遍历时比较两者是否相等。</p>
+<h3 id="q2如何避免-concurrentmodificationexception">Q2：如何避免 ConcurrentModificationException？</h3>
+<p><strong>答</strong>：几种方式：</p>
+<ol>
+<li>使用迭代器的 remove() 方法删除元素</li>
+<li>使用 JDK 8+ 的 removeIf() 方法</li>
+<li>倒序遍历删除</li>
+<li>使用 CopyOnWriteArrayList 等 fail-safe 集合</li>
+</ol>
+<h3 id="q3modcount-为什么要用-transient-修饰">Q3：modCount 为什么要用 transient 修饰？</h3>
+<p><strong>答</strong>：modCount 是为了支持 fail-fast 机制，不参与序列化。transient 表示该字段不参与序列化，反序列化后 modCount 会被重置为 0，这符合设计意图（反序列化后的集合是&quot;新&quot;的）。</p>
+<h3 id="q4foreach-和-iterator-的关系">Q4：foreach 和 iterator 的关系？</h3>
+<p><strong>答</strong>：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 编译后等价于：</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (String s : list) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// ...</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 编译后的代码：</span>
+</span></span><span style="display:flex;"><span>Iterator<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> it <span style="color:#f92672">=</span> list.<span style="color:#a6e22e">iterator</span>();
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">while</span> (it.<span style="color:#a6e22e">hasNext</span>()) {
+</span></span><span style="display:flex;"><span>    String s <span style="color:#f92672">=</span> it.<span style="color:#a6e22e">next</span>();
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// ...</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><hr>
+<h2 id="总结">总结</h2>
+<ol>
+<li><strong>fail-fast</strong>：结构性修改集合时，迭代器检测到会抛异常</li>
+<li><strong>modCount</strong>：记录结构性修改次数的计数器</li>
+<li><strong>expectedModCount</strong>：迭代器创建时记录的 modCount 快照</li>
+<li><strong>正确删除</strong>：使用迭代器的 remove() 或 removeIf()</li>
+<li><strong>fail-safe</strong>：复制原集合遍历，不抛异常但可能遍历到旧数据</li>
+</ol>
+<hr>
+<h2 id="下篇预告">下篇预告</h2>
+<p>下一篇文章我们将对比分析 <strong>ArrayList vs LinkedList</strong>，包括：</p>
+<ul>
+<li>底层数据结构对比</li>
+<li>增删查改性能对比</li>
+<li>实战场景选型建议</li>
+</ul>
+<p>敬请期待！</p>
+<hr>
+<blockquote>
+<p>📚 <strong>推荐阅读</strong></p>
+<ul>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E4%BA%94-arraylist-vs-linkedlist-%E6%B7%B1%E5%BA%A6%E5%AF%B9%E6%AF%94/">ArrayList vs LinkedList 对比</a></li>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E5%85%AD-hashmap%E6%A0%B8%E5%BF%83%E5%8E%9F%E7%90%86/">HashMap 核心原理</a></li>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E4%B8%89-linkedlist%E5%8E%9F%E7%90%86/">LinkedList 原理</a></li>
+</ul>
+</blockquote>
+    </div>
+</article>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

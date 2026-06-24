@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Java集合框架(二) ArrayList原理与扩容机制 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<article class="page">
+    <header class="page-header">
+        <h1 class="page-title">Java集合框架(二) ArrayList原理与扩容机制</h1>
+    </header>
+
+    <div class="page-content">
+        <h2 id="前言">前言</h2>
+<p>上一篇文章我们 overview 了 Java 集合框架的整体架构。从这篇开始，我们深入各个集合的具体实现。</p>
+<p>第一个要讲的是 <strong>ArrayList</strong>，这是 Java 中最常用的集合之一。理解 ArrayList 的底层原理，对于写出高效的代码至关重要。</p>
+<h2 id="arraylist-底层结构">ArrayList 底层结构</h2>
+<p>ArrayList 的底层是一个 <strong>动态数组</strong>。</p>
+<pre tabindex="0"><code>┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│ 0 │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │ 7 │ 8 │ 9 │  ← 索引（从 0 开始）
+├───┼───┼───┼───┼───┼───┼───┼───┼───┼───┤
+│ A │ B │ C │ D │ E │ F │ G │ H │ I │ J │  ← 元素
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+  ↑
+ elementData[0] 存储 A
+</code></pre><h3 id="arraylist-的核心字段">ArrayList 的核心字段</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ArrayList</span><span style="color:#f92672">&lt;</span>E<span style="color:#f92672">&gt;</span> <span style="color:#66d9ef">extends</span> AbstractList<span style="color:#f92672">&lt;</span>E<span style="color:#f92672">&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">implements</span> List<span style="color:#f92672">&lt;</span>E<span style="color:#f92672">&gt;</span>, RandomAccess, Cloneable, java.<span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">Serializable</span> {
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 默认初始容量</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> DEFAULT_CAPACITY <span style="color:#f92672">=</span> 10;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 空数组（用于空实例）</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> Object<span style="color:#f92672">[]</span> EMPTY_ELEMENTDATA <span style="color:#f92672">=</span> {};
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 默认空数组（用于区分是否需要扩容）</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> Object<span style="color:#f92672">[]</span> DEFAULTCAPACITY_EMPTY_ELEMENTDATA <span style="color:#f92672">=</span> {};
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 存储元素的数组（核心！）</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">transient</span> Object<span style="color:#f92672">[]</span> elementData;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 实际元素数量</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">int</span> size;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="关键设计点">关键设计点</h3>
+<pre tabindex="0"><code>1. transient Object[] elementData
+   - 使用 transient 修饰，序列化时会过滤空位
+   - 只序列化 [0, size) 范围的元素
+
+2. DEFAULT_CAPACITY = 10
+   - 无参构造时不会立即分配 10 个空间
+   - 第一次 add 时才扩容到 10
+
+3. EMPTY_ELEMENTDATA vs DEFAULTCAPACITY_EMPTY_ELEMENTDATA
+   - 区分空 ArrayList 和 需要默认容量的空 ArrayList
+   - 用于优化扩容判断
+</code></pre><h2 id="构造方法解析">构造方法解析</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 1. 指定初始容量</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#a6e22e">ArrayList</span>(<span style="color:#66d9ef">int</span> initialCapacity) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (initialCapacity <span style="color:#f92672">&gt;</span> 0) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 创建指定大小的数组</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">elementData</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> Object<span style="color:#f92672">[</span>initialCapacity<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (initialCapacity <span style="color:#f92672">==</span> 0) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 空数组</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">elementData</span> <span style="color:#f92672">=</span> EMPTY_ELEMENTDATA;
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(<span style="color:#e6db74">&#34;Illegal Capacity: &#34;</span> <span style="color:#f92672">+</span> initialCapacity);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 2. 无参构造（重点！）</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#a6e22e">ArrayList</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 注意：这里不是 new Object[10]！</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">elementData</span> <span style="color:#f92672">=</span> DEFAULTCAPACITY_EMPTY_ELEMENTDATA;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 真正分配 10 个空间是在第一次 add 时</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 3. 从 Collection 构建</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#a6e22e">ArrayList</span>(Collection<span style="color:#f92672">&lt;?</span> <span style="color:#66d9ef">extends</span> E<span style="color:#f92672">&gt;</span> c) {
+</span></span><span style="display:flex;"><span>    elementData <span style="color:#f92672">=</span> c.<span style="color:#a6e22e">toArray</span>();
+</span></span><span style="display:flex;"><span>    size <span style="color:#f92672">=</span> elementData.<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 防止 c.toArray() 返回的不是 Object[]</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (elementData.<span style="color:#a6e22e">getClass</span>() <span style="color:#f92672">!=</span> Object<span style="color:#f92672">[]</span>.<span style="color:#a6e22e">class</span>) {
+</span></span><span style="display:flex;"><span>        elementData <span style="color:#f92672">=</span> Arrays.<span style="color:#a6e22e">copyOf</span>(elementData, size, Object<span style="color:#f92672">[]</span>.<span style="color:#a6e22e">class</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="add-方法与扩容机制">add() 方法与扩容机制</h2>
+<h3 id="核心-add-方法">核心 add() 方法</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">add</span>(E e) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 1. 确保容量足够（核心！是否需要扩容在这里判断）</span>
+</span></span><span style="display:flex;"><span>    ensureCapacityInternal(size <span style="color:#f92672">+</span> 1);
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 2. 将元素添加到数组末尾</span>
+</span></span><span style="display:flex;"><span>    elementData<span style="color:#f92672">[</span>size<span style="color:#f92672">++]</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="扩容判断详解">扩容判断详解</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 确保内部容量足够</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">ensureCapacityInternal</span>(<span style="color:#66d9ef">int</span> minCapacity) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 计算需要的最小容量</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 如果是空数组，取 DEFAULT_CAPACITY(10) 和 minCapacity 的较大值</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (elementData <span style="color:#f92672">==</span> DEFAULTCAPACITY_EMPTY_ELEMENTDATA) {
+</span></span><span style="display:flex;"><span>        minCapacity <span style="color:#f92672">=</span> Math.<span style="color:#a6e22e">max</span>(DEFAULT_CAPACITY, minCapacity);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 确认是否需要扩容</span>
+</span></span><span style="display:flex;"><span>    ensureExplicitCapacity(minCapacity);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">ensureExplicitCapacity</span>(<span style="color:#66d9ef">int</span> minCapacity) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// modCount++，用于 fail-fast 机制</span>
+</span></span><span style="display:flex;"><span>    modCount<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 如果需要的容量 &gt; 当前数组长度，则扩容</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (minCapacity <span style="color:#f92672">-</span> elementData.<span style="color:#a6e22e">length</span> <span style="color:#f92672">&gt;</span> 0) {
+</span></span><span style="display:flex;"><span>        grow(minCapacity);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="扩容核心---grow-方法">扩容核心 - grow() 方法</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">grow</span>(<span style="color:#66d9ef">int</span> minCapacity) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 当前容量</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> oldCapacity <span style="color:#f92672">=</span> elementData.<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 新容量 = 旧容量 + 旧容量/2 = 旧容量 * 1.5（位运算，等价于 oldCapacity * 1.5）</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> newCapacity <span style="color:#f92672">=</span> oldCapacity <span style="color:#f92672">+</span> (oldCapacity <span style="color:#f92672">&gt;&gt;</span> 1);
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 如果计算出的新容量小于所需最小容量，则使用最小容量</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (newCapacity <span style="color:#f92672">-</span> minCapacity <span style="color:#f92672">&lt;</span> 0) {
+</span></span><span style="display:flex;"><span>        newCapacity <span style="color:#f92672">=</span> minCapacity;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 如果新容量超出最大数组限制，处理溢出</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (newCapacity <span style="color:#f92672">-</span> MAX_ARRAY_SIZE <span style="color:#f92672">&gt;</span> 0) {
+</span></span><span style="display:flex;"><span>        newCapacity <span style="color:#f92672">=</span> hugeCapacity(minCapacity);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 核心操作：创建新数组并复制元素！</span>
+</span></span><span style="display:flex;"><span>    elementData <span style="color:#f92672">=</span> Arrays.<span style="color:#a6e22e">copyOf</span>(elementData, newCapacity);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="扩容图解">扩容图解</h3>
+<pre tabindex="0"><code>假设初始容量为 10，添加第 11 个元素时触发扩容：
+
+扩容前（oldCapacity = 10）：
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│ A │ B │ C │ D │ E │ F │ G │ H │ I │ J │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+
+扩容计算：newCapacity = 10 + 10/2 = 15
+
+扩容后（newCapacity = 15）：
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│ A │ B │ C │ D │ E │ F │ G │ H │ I │ J │   │   │   │   │   │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+                                                    ↑
+                                          新增的 5 个空位
+</code></pre><h3 id="扩容的代价">扩容的代价</h3>
+<pre tabindex="0"><code>扩容操作的成本很高：
+1. 创建新数组（内存分配）
+2. 复制所有元素（数组拷贝）
+
+最坏情况：如果不断往 ArrayList 添加元素，
+每次扩容都要复制整个数组，时间复杂度接近 O(n)
+
+所以！建议在创建 ArrayList 时预估容量：
+</code></pre><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ 低效：不断扩容</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> 100000; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>    list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;item&#34;</span> <span style="color:#f92672">+</span> i);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 高效：一步到位</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>(100000);
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> 100000; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>    list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;item&#34;</span> <span style="color:#f92672">+</span> i);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="指定位置添加-addint-index-e-element">指定位置添加 add(int index, E element)</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">add</span>(<span style="color:#66d9ef">int</span> index, E element) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 1. 检查索引合法性</span>
+</span></span><span style="display:flex;"><span>    rangeCheckForAdd(index);
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 2. 确保容量</span>
+</span></span><span style="display:flex;"><span>    ensureCapacityInternal(size <span style="color:#f92672">+</span> 1);
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 3. 将 index 及之后的元素向后移动一位</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//    System.arraycopy(源数组, 源起始位置, 目标数组, 目标起始位置, 长度)</span>
+</span></span><span style="display:flex;"><span>    System.<span style="color:#a6e22e">arraycopy</span>(elementData, index, elementData, index <span style="color:#f92672">+</span> 1, size <span style="color:#f92672">-</span> index);
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 4. 插入新元素</span>
+</span></span><span style="display:flex;"><span>    elementData<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> element;
+</span></span><span style="display:flex;"><span>    size<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="图解指定位置插入">图解指定位置插入</h3>
+<pre tabindex="0"><code>在 index=2 的位置插入 &#34;X&#34;：
+
+插入前：
+┌───┬───┬───┬───┬───┬───┐
+│ A │ B │ C │ D │ E │ F │
+└───┴───┴───┴───┴───┴───┘
+
+步骤 1：移动元素 index=2 及之后的元素
+┌───┬───┬───┬───┬───┬───┬───┐
+│ A │ B │ C │ D │ D │ E │ F │  ← C 被 D 覆盖了？
+└───┴───┴───┴───┴───┴───┴───┘
+
+步骤 2：插入新元素
+┌───┬───┬───┬───┬───┬───┬───┐
+│ A │ B │ X │ C │ D │ E │ F │
+└───┴───┴───┴───┴───┴───┴───┘
+</code></pre><blockquote>
+<p><strong>注意</strong>：这里的 <code>System.arraycopy</code> 是 native 方法，直接操作内存，是最高效的数组复制方式。</p>
+</blockquote>
+<h2 id="常用方法时间复杂度">常用方法时间复杂度</h2>
+<table>
+	<thead>
+			<tr>
+					<th>操作</th>
+					<th>方法</th>
+					<th>时间复杂度</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>在末尾添加</td>
+					<td>add(E)</td>
+					<td>O(1) 均摊</td>
+					<td>偶尔扩容，扩容时 O(n)</td>
+			</tr>
+			<tr>
+					<td>在末尾删除</td>
+					<td>removeLast()</td>
+					<td>O(1)</td>
+					<td>无参 remove 需要 O(n)</td>
+			</tr>
+			<tr>
+					<td>指定位置添加</td>
+					<td>add(int, E)</td>
+					<td>O(n)</td>
+					<td>需要移动元素</td>
+			</tr>
+			<tr>
+					<td>指定位置删除</td>
+					<td>remove(int)</td>
+					<td>O(n)</td>
+					<td>需要移动元素</td>
+			</tr>
+			<tr>
+					<td>按值查找</td>
+					<td>contains()</td>
+					<td>O(n)</td>
+					<td>遍历数组</td>
+			</tr>
+			<tr>
+					<td>按索引访问</td>
+					<td>get(int)</td>
+					<td>O(1)</td>
+					<td>直接数组寻址</td>
+			</tr>
+			<tr>
+					<td>按值删除</td>
+					<td>remove(E)</td>
+					<td>O(n)</td>
+					<td>先找 index，再移动</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="实战优化技巧">实战优化技巧</h2>
+<h3 id="1-预估容量避免扩容">1. 预估容量，避免扩容</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 从数据库查出 10000 条数据</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>User<span style="color:#f92672">&gt;</span> users <span style="color:#f92672">=</span> queryUsers();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ❌ 每次 add 都可能触发扩容</span>
+</span></span><span style="display:flex;"><span>ArrayList<span style="color:#f92672">&lt;</span>User<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 创建时指定容量（capacity 稍微留点余量）</span>
+</span></span><span style="display:flex;"><span>ArrayList<span style="color:#f92672">&lt;</span>User<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>(users.<span style="color:#a6e22e">size</span>() <span style="color:#f92672">*</span> 11 <span style="color:#f92672">/</span> 10);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">addAll</span>(users);
+</span></span></code></pre></div><h3 id="2-批量操作比单次操作高效">2. 批量操作比单次操作高效</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// ❌ 逐个添加</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (User user : users) {
+</span></span><span style="display:flex;"><span>    list.<span style="color:#a6e22e">add</span>(user);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 批量添加（只触发一次扩容）</span>
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">addAll</span>(users);
+</span></span></code></pre></div><h3 id="3-不同操作选择不同集合">3. 不同操作选择不同集合</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 场景 1：主要做遍历和随机访问</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ ArrayList 随机访问 O(1)</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 场景 2：主要做频繁的中间插入删除</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> LinkedList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ❌ ArrayList 中间插入 O(n)</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 场景 3：需要保证线程安全</span>
+</span></span><span style="display:flex;"><span>List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> Collections.<span style="color:#a6e22e">synchronizedList</span>(<span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>());
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 或使用 CopyOnWriteArrayList</span>
+</span></span></code></pre></div><h3 id="4-trimtosize-回收多余空间">4. trimToSize() 回收多余空间</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 当 ArrayList 添加大量元素后又删除了很多时</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 可以调用 trimToSize() 回收多余的数组空间</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>ArrayList<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>(10000);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">addAll</span>(millionData);
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">clear</span>();  <span style="color:#75715e">// 清空数据</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ❌ 此时 elementData.length 仍然是 10000</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>list.<span style="color:#a6e22e">trimToSize</span>();  <span style="color:#75715e">// 回收多余空间</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// ✅ 现在 elementData.length == 0</span>
+</span></span></code></pre></div><h2 id="常见面试题">常见面试题</h2>
+<h3 id="q1arraylist-的初始容量是多少">Q1：ArrayList 的初始容量是多少？</h3>
+<p><strong>答</strong>：准确说有两个概念：</p>
+<ul>
+<li>无参构造：<code>elementData</code> 初始化为空数组，第一次 add 时才扩容到 10</li>
+<li>有参构造：如果传 <code>new ArrayList&lt;&gt;(10)</code>，直接创建容量为 10 的数组</li>
+</ul>
+<h3 id="q2arraylist-和-linkedlist-的区别">Q2：ArrayList 和 LinkedList 的区别？</h3>
+<p><strong>答</strong>：</p>
+<table>
+	<thead>
+			<tr>
+					<th>维度</th>
+					<th>ArrayList</th>
+					<th>LinkedList</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>底层结构</td>
+					<td>动态数组</td>
+					<td>双向链表</td>
+			</tr>
+			<tr>
+					<td>随机访问</td>
+					<td>O(1)</td>
+					<td>O(n)</td>
+			</tr>
+			<tr>
+					<td>中间插入/删除</td>
+					<td>O(n)</td>
+					<td>O(1)</td>
+			</tr>
+			<tr>
+					<td>内存占用</td>
+					<td>连续内存，空间利用率高</td>
+					<td>每个节点需要额外存储前后指针</td>
+			</tr>
+			<tr>
+					<td>线程安全</td>
+					<td>否</td>
+					<td>否</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="q3arraylist-是线程安全的吗">Q3：ArrayList 是线程安全的吗？</h3>
+<p><strong>答</strong>：不是。ArrayList 的所有操作都没有 synchronized 修饰，不是线程安全的。如果需要线程安全：</p>
+<ul>
+<li><code>Collections.synchronizedList(new ArrayList&lt;&gt;())</code></li>
+<li><code>CopyOnWriteArrayList</code>（适合读多写少场景）</li>
+</ul>
+<hr>
+<h2 id="总结">总结</h2>
+<ol>
+<li><strong>底层是动态数组</strong>：通过 <code>Object[] elementData</code> 存储元素</li>
+<li><strong>扩容公式</strong>：<code>newCapacity = oldCapacity + oldCapacity / 2</code>（1.5 倍）</li>
+<li><strong>扩容代价高</strong>：需要创建新数组并复制所有元素</li>
+<li><strong>实战建议</strong>：预估容量，避免频繁扩容</li>
+</ol>
+<hr>
+<h2 id="下篇预告">下篇预告</h2>
+<p>下一篇文章我们将讲解 <strong>LinkedList 原理</strong>，包括：</p>
+<ul>
+<li>双向链表的节点结构</li>
+<li>add/remove/get 方法的源码解读</li>
+<li>LinkedList 如何实现 List 和 Deque 接口</li>
+</ul>
+<p>敬请期待！</p>
+<hr>
+<blockquote>
+<p>📚 <strong>推荐阅读</strong></p>
+<ul>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E4%B8%89-linkedlist%E5%8E%9F%E7%90%86/">LinkedList 原理</a></li>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E5%9B%9B-fail-fast%E6%9C%BA%E5%88%B6%E8%AF%A6%E8%A7%A3/">fail-fast 机制详解</a></li>
+<li><a href="/posts/java%E9%9B%86%E5%90%88%E6%A1%86%E6%9E%B6%E4%B8%80-%E5%85%A8%E6%99%AF%E5%9B%BE/">Java 集合框架全景图</a></li>
+</ul>
+</blockquote>
+    </div>
+</article>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>
