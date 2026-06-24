@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Java序列化：JSON vs XML vs Protobuf - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#1-序列化方案概览">1. 序列化方案概览</a>
+      <ul>
+        <li><a href="#11-特性对比表">1.1 特性对比表</a></li>
+      </ul>
+    </li>
+    <li><a href="#2-各方案序列化示例">2. 各方案序列化示例</a>
+      <ul>
+        <li><a href="#21-定义通用测试对象">2.1 定义通用测试对象</a></li>
+        <li><a href="#22-jdk-原生序列化">2.2 JDK 原生序列化</a></li>
+        <li><a href="#23-jackson-json">2.3 Jackson JSON</a></li>
+        <li><a href="#24-protobuf-序列化">2.4 Protobuf 序列化</a></li>
+      </ul>
+    </li>
+    <li><a href="#3-jmh-性能基准测试">3. JMH 性能基准测试</a>
+      <ul>
+        <li><a href="#31-测试环境配置">3.1 测试环境配置</a></li>
+        <li><a href="#32-jmh-基准测试代码">3.2 JMH 基准测试代码</a></li>
+        <li><a href="#33-测试结果解读">3.3 测试结果解读</a></li>
+        <li><a href="#34-序列化体积对比">3.4 序列化体积对比</a></li>
+      </ul>
+    </li>
+    <li><a href="#4-选型决策树">4. 选型决策树</a>
+      <ul>
+        <li><a href="#41-详细选型建议">4.1 详细选型建议</a></li>
+      </ul>
+    </li>
+    <li><a href="#5-高级对比schema-演进">5. 高级对比：Schema 演进</a>
+      <ul>
+        <li><a href="#51-json-schema-演进问题">5.1 JSON Schema 演进问题</a></li>
+        <li><a href="#52-protobuf-schema-演进">5.2 Protobuf Schema 演进</a></li>
+      </ul>
+    </li>
+    <li><a href="#6-总结">6. 总结</a>
+      <ul>
+        <li><a href="#61-各方案适用场景">6.1 各方案适用场景</a></li>
+        <li><a href="#62-性能排名仅供参考">6.2 性能排名（仅供参考）</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Java序列化：JSON vs XML vs Protobuf</h1>
+        </header>
+
+        <div class="page-content">
+            <h1 id="主流序列化方案横评json-vs-xml-vs-protobuf">主流序列化方案横评：JSON vs XML vs Protobuf</h1>
+<blockquote>
+<p>上一篇文章深入分析了 JDK 序列化原理，本文将对主流序列化方案进行全面对比，包含 JMH 性能基准测试。</p>
+</blockquote>
+<h2 id="1-序列化方案概览">1. 序列化方案概览</h2>
+<h3 id="11-特性对比表">1.1 特性对比表</h3>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>JDK Serializable</th>
+					<th>Jackson JSON</th>
+					<th>Gson</th>
+					<th>FastJSON</th>
+					<th>XML</th>
+					<th>Protobuf</th>
+					<th>Kryo</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>序列化体积</strong></td>
+					<td>中</td>
+					<td>中</td>
+					<td>中</td>
+					<td>中</td>
+					<td>大</td>
+					<td><strong>最小</strong></td>
+					<td>小</td>
+			</tr>
+			<tr>
+					<td><strong>序列化速度</strong></td>
+					<td>慢</td>
+					<td>中</td>
+					<td>中</td>
+					<td>快</td>
+					<td>慢</td>
+					<td><strong>最快</strong></td>
+					<td><strong>最快</strong></td>
+			</tr>
+			<tr>
+					<td><strong>跨语言支持</strong></td>
+					<td>仅 Java</td>
+					<td>多语言</td>
+					<td>多语言</td>
+					<td>多语言</td>
+					<td>多语言</td>
+					<td>多语言</td>
+					<td>仅 JVM</td>
+			</tr>
+			<tr>
+					<td><strong>Schema 定义</strong></td>
+					<td>自动生成</td>
+					<td>无</td>
+					<td>无</td>
+					<td>无</td>
+					<td>有</td>
+					<td>IDL 文件</td>
+					<td>自动生成</td>
+			</tr>
+			<tr>
+					<td><strong>可读性</strong></td>
+					<td>差</td>
+					<td>好</td>
+					<td>好</td>
+					<td>好</td>
+					<td>很好</td>
+					<td>差</td>
+					<td>差</td>
+			</tr>
+			<tr>
+					<td><strong>体积</strong></td>
+					<td>大</td>
+					<td>中</td>
+					<td>中</td>
+					<td>中</td>
+					<td>很大</td>
+					<td>最小</td>
+					<td>小</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="2-各方案序列化示例">2. 各方案序列化示例</h2>
+<h3 id="21-定义通用测试对象">2.1 定义通用测试对象</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 测试用的用户对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">TestUser</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Serializable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">serialVersionUID</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">1L</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">id</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">username</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">email</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">age</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">active</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">roles</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">attributes</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">createTime</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">balance</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 构造方法、getter/setter 省略</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="22-jdk-原生序列化">2.2 JDK 原生序列化</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">JdkSerialization</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="nf">serialize</span><span class="p">(</span><span class="n">TestUser</span><span class="w"> </span><span class="n">user</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">IOException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ByteArrayOutputStream</span><span class="w"> </span><span class="n">baos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ByteArrayOutputStream</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ObjectOutputStream</span><span class="w"> </span><span class="n">oos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ObjectOutputStream</span><span class="p">(</span><span class="n">baos</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">oos</span><span class="p">.</span><span class="na">writeObject</span><span class="p">(</span><span class="n">user</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">baos</span><span class="p">.</span><span class="na">toByteArray</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">TestUser</span><span class="w"> </span><span class="nf">deserialize</span><span class="p">(</span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">bytes</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">IOException</span><span class="p">,</span><span class="w"> </span><span class="n">ClassNotFoundException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ByteArrayInputStream</span><span class="w"> </span><span class="n">bais</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ByteArrayInputStream</span><span class="p">(</span><span class="n">bytes</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ObjectInputStream</span><span class="w"> </span><span class="n">ois</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ObjectInputStream</span><span class="p">(</span><span class="n">bais</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">TestUser</span><span class="p">)</span><span class="w"> </span><span class="n">ois</span><span class="p">.</span><span class="na">readObject</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="23-jackson-json">2.3 Jackson JSON</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">JacksonSerialization</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ObjectMapper</span><span class="w"> </span><span class="n">objectMapper</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ObjectMapper</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">serialize</span><span class="p">(</span><span class="n">TestUser</span><span class="w"> </span><span class="n">user</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">JsonProcessingException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">objectMapper</span><span class="p">.</span><span class="na">writeValueAsString</span><span class="p">(</span><span class="n">user</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">TestUser</span><span class="w"> </span><span class="nf">deserialize</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">json</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">JsonProcessingException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">objectMapper</span><span class="p">.</span><span class="na">readValue</span><span class="p">(</span><span class="n">json</span><span class="p">,</span><span class="w"> </span><span class="n">TestUser</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="nf">serializeToBytes</span><span class="p">(</span><span class="n">TestUser</span><span class="w"> </span><span class="n">user</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">JsonProcessingException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">objectMapper</span><span class="p">.</span><span class="na">writeValueAsBytes</span><span class="p">(</span><span class="n">user</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="24-protobuf-序列化">2.4 Protobuf 序列化</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 首先定义 .proto 文件</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">syntax = &#34;proto3&#34;;
+</span></span></span><span class="line"><span class="cl"><span class="cm">option java_package = &#34;com.example.protobuf&#34;;
+</span></span></span><span class="line"><span class="cl"><span class="cm">option java_outer_classname = &#34;TestUserProto&#34;;
+</span></span></span><span class="line"><span class="cl"><span class="cm">
+</span></span></span><span class="line"><span class="cl"><span class="cm">message TestUserProto {
+</span></span></span><span class="line"><span class="cl"><span class="cm">    string id = 1;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    string username = 2;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    string email = 3;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    int32 age = 4;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    bool active = 5;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    repeated string roles = 6;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    map&lt;string, string&gt; attributes = 7;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    int64 create_time = 8;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    double balance = 9;
+</span></span></span><span class="line"><span class="cl"><span class="cm">}
+</span></span></span><span class="line"><span class="cl"><span class="cm">*/</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// Java 使用方式</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ProtobufSerialization</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="nf">serialize</span><span class="p">(</span><span class="n">TestUser</span><span class="w"> </span><span class="n">user</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">TestUserProto</span><span class="p">.</span><span class="na">Builder</span><span class="w"> </span><span class="n">builder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TestUserProto</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setId</span><span class="p">(</span><span class="n">user</span><span class="p">.</span><span class="na">getId</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setUsername</span><span class="p">(</span><span class="n">user</span><span class="p">.</span><span class="na">getUsername</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setEmail</span><span class="p">(</span><span class="n">user</span><span class="p">.</span><span class="na">getEmail</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setAge</span><span class="p">(</span><span class="n">user</span><span class="p">.</span><span class="na">getAge</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setActive</span><span class="p">(</span><span class="n">user</span><span class="p">.</span><span class="na">isActive</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setCreateTime</span><span class="p">(</span><span class="n">user</span><span class="p">.</span><span class="na">getCreateTime</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setBalance</span><span class="p">(</span><span class="n">user</span><span class="p">.</span><span class="na">getBalance</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">builder</span><span class="p">.</span><span class="na">addAllRoles</span><span class="p">(</span><span class="n">user</span><span class="p">.</span><span class="na">getRoles</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">getAttributes</span><span class="p">().</span><span class="na">forEach</span><span class="p">(</span><span class="n">builder</span><span class="p">::</span><span class="n">putAttributes</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">builder</span><span class="p">.</span><span class="na">build</span><span class="p">().</span><span class="na">toByteArray</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">TestUser</span><span class="w"> </span><span class="nf">deserialize</span><span class="p">(</span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">bytes</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">InvalidProtocolBufferException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">TestUserProto</span><span class="w"> </span><span class="n">proto</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TestUserProto</span><span class="p">.</span><span class="na">parseFrom</span><span class="p">(</span><span class="n">bytes</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">TestUser</span><span class="w"> </span><span class="n">user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">TestUser</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setId</span><span class="p">(</span><span class="n">proto</span><span class="p">.</span><span class="na">getId</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setUsername</span><span class="p">(</span><span class="n">proto</span><span class="p">.</span><span class="na">getUsername</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setEmail</span><span class="p">(</span><span class="n">proto</span><span class="p">.</span><span class="na">getEmail</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setAge</span><span class="p">(</span><span class="n">proto</span><span class="p">.</span><span class="na">getAge</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setActive</span><span class="p">(</span><span class="n">proto</span><span class="p">.</span><span class="na">getActive</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setRoles</span><span class="p">(</span><span class="n">proto</span><span class="p">.</span><span class="na">getRolesList</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setAttributes</span><span class="p">(</span><span class="n">proto</span><span class="p">.</span><span class="na">getAttributesMap</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setCreateTime</span><span class="p">(</span><span class="n">proto</span><span class="p">.</span><span class="na">getCreateTime</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setBalance</span><span class="p">(</span><span class="n">proto</span><span class="p">.</span><span class="na">getBalance</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">user</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="3-jmh-性能基准测试">3. JMH 性能基准测试</h2>
+<h3 id="31-测试环境配置">3.1 测试环境配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 添加 Maven 依赖</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">&lt;dependency&gt;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    &lt;groupId&gt;org.openjdk.jmh&lt;/groupId&gt;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    &lt;artifactId&gt;jmh-core&lt;/artifactId&gt;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    &lt;version&gt;1.36&lt;/version&gt;
+</span></span></span><span class="line"><span class="cl"><span class="cm">&lt;/dependency&gt;
+</span></span></span><span class="line"><span class="cl"><span class="cm">&lt;dependency&gt;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    &lt;groupId&gt;org.openjdk.jmh&lt;/groupId&gt;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    &lt;artifactId&gt;jmh-generator-annprocess&lt;/artifactId&gt;
+</span></span></span><span class="line"><span class="cl"><span class="cm">    &lt;version&gt;1.36&lt;/version&gt;
+</span></span></span><span class="line"><span class="cl"><span class="cm">&lt;/dependency&gt;
+</span></span></span><span class="line"><span class="cl"><span class="cm">*/</span><span class="w">
+</span></span></span></code></pre></div><h3 id="32-jmh-基准测试代码">3.2 JMH 基准测试代码</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Warmup</span><span class="p">(</span><span class="n">iterations</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">3</span><span class="p">,</span><span class="w"> </span><span class="n">time</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">1</span><span class="p">,</span><span class="w"> </span><span class="n">timeUnit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">SECONDS</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Measurement</span><span class="p">(</span><span class="n">iterations</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">5</span><span class="p">,</span><span class="w"> </span><span class="n">time</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">1</span><span class="p">,</span><span class="w"> </span><span class="n">timeUnit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">SECONDS</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Fork</span><span class="p">(</span><span class="n">1</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@BenchmarkMode</span><span class="p">(</span><span class="n">Mode</span><span class="p">.</span><span class="na">Throughput</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@OutputTimeUnit</span><span class="p">(</span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">MILLISECONDS</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SerializationBenchmark</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">TestUser</span><span class="w"> </span><span class="n">TEST_USER</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createTestUser</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="n">TestUser</span><span class="w"> </span><span class="nf">createTestUser</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">TestUser</span><span class="w"> </span><span class="n">user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">TestUser</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setId</span><span class="p">(</span><span class="n">UUID</span><span class="p">.</span><span class="na">randomUUID</span><span class="p">().</span><span class="na">toString</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setUsername</span><span class="p">(</span><span class="s">&#34;test_user_&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">nanoTime</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setEmail</span><span class="p">(</span><span class="s">&#34;user@example.com&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setAge</span><span class="p">(</span><span class="n">25</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setActive</span><span class="p">(</span><span class="kc">true</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setRoles</span><span class="p">(</span><span class="n">Arrays</span><span class="p">.</span><span class="na">asList</span><span class="p">(</span><span class="s">&#34;admin&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;developer&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;viewer&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setAttributes</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">HashMap</span><span class="o">&lt;&gt;</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">getAttributes</span><span class="p">().</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;department&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;Engineering&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">getAttributes</span><span class="p">().</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;location&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;Beijing&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setCreateTime</span><span class="p">(</span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">user</span><span class="p">.</span><span class="na">setBalance</span><span class="p">(</span><span class="n">9999</span><span class="p">.</span><span class="na">99</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">user</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// JDK 序列化</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Benchmark</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="nf">jdkSerialize</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">JdkSerialization</span><span class="w"> </span><span class="n">jdk</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">JdkSerialization</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">jdk</span><span class="p">.</span><span class="na">serialize</span><span class="p">(</span><span class="n">TEST_USER</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Benchmark</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">TestUser</span><span class="w"> </span><span class="nf">jdkDeserialize</span><span class="p">(</span><span class="n">Blackhole</span><span class="w"> </span><span class="n">bh</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">JdkSerialization</span><span class="w"> </span><span class="n">jdk</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">JdkSerialization</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">bytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">jdk</span><span class="p">.</span><span class="na">serialize</span><span class="p">(</span><span class="n">TEST_USER</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">bh</span><span class="p">.</span><span class="na">consume</span><span class="p">(</span><span class="n">jdk</span><span class="p">.</span><span class="na">deserialize</span><span class="p">(</span><span class="n">bytes</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">TEST_USER</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// Jackson JSON</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Benchmark</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="nf">jacksonSerialize</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">JacksonSerialization</span><span class="w"> </span><span class="n">jackson</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">JacksonSerialization</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">jackson</span><span class="p">.</span><span class="na">serializeToBytes</span><span class="p">(</span><span class="n">TEST_USER</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Benchmark</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">TestUser</span><span class="w"> </span><span class="nf">jacksonDeserialize</span><span class="p">(</span><span class="n">Blackhole</span><span class="w"> </span><span class="n">bh</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">JacksonSerialization</span><span class="w"> </span><span class="n">jackson</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">JacksonSerialization</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">bytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">jackson</span><span class="p">.</span><span class="na">serializeToBytes</span><span class="p">(</span><span class="n">TEST_USER</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">bh</span><span class="p">.</span><span class="na">consume</span><span class="p">(</span><span class="n">jackson</span><span class="p">.</span><span class="na">deserialize</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">String</span><span class="p">(</span><span class="n">bytes</span><span class="p">)));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">TEST_USER</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// Protobuf</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Benchmark</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="nf">protobufSerialize</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ProtobufSerialization</span><span class="w"> </span><span class="n">protobuf</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ProtobufSerialization</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">protobuf</span><span class="p">.</span><span class="na">serialize</span><span class="p">(</span><span class="n">TEST_USER</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Benchmark</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">TestUser</span><span class="w"> </span><span class="nf">protobufDeserialize</span><span class="p">(</span><span class="n">Blackhole</span><span class="w"> </span><span class="n">bh</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ProtobufSerialization</span><span class="w"> </span><span class="n">protobuf</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ProtobufSerialization</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">bytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">protobuf</span><span class="p">.</span><span class="na">serialize</span><span class="p">(</span><span class="n">TEST_USER</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">bh</span><span class="p">.</span><span class="na">consume</span><span class="p">(</span><span class="n">protobuf</span><span class="p">.</span><span class="na">deserialize</span><span class="p">(</span><span class="n">bytes</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">TEST_USER</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// Kryo</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Benchmark</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="nf">kryoSerialize</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Kryo</span><span class="w"> </span><span class="n">kryo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Kryo</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Output</span><span class="w"> </span><span class="n">output</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Output</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ByteArrayOutputStream</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">kryo</span><span class="p">.</span><span class="na">writeObject</span><span class="p">(</span><span class="n">output</span><span class="p">,</span><span class="w"> </span><span class="n">TEST_USER</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">output</span><span class="p">.</span><span class="na">toBytes</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">RunnerException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Options</span><span class="w"> </span><span class="n">options</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">OptionsBuilder</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">include</span><span class="p">(</span><span class="n">SerializationBenchmark</span><span class="p">.</span><span class="na">class</span><span class="p">.</span><span class="na">getSimpleName</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">new</span><span class="w"> </span><span class="n">Runner</span><span class="p">(</span><span class="n">options</span><span class="p">).</span><span class="na">run</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="33-测试结果解读">3.3 测试结果解读</h3>
+<p>典型的测试结果（数值仅供参考，实际环境会有差异）：</p>
+<pre tabindex="0"><code>Benchmark                          Mode  Cnt      Score       Error   Units
+
+// 序列化速度 (Throughput: 越大越好)
+SerializationBenchmark.jdkSerialize      thrpt    5    125,341 ±   2,341  ops/ms
+SerializationBenchmark.jacksonSerialize thrpt    5    892,456 ±  15,678  ops/ms
+SerializationBenchmark.protobufSerialize thrpt    5  1,234,567 ±  23,456  ops/ms
+SerializationBenchmark.kryoSerialize     thrpt    5  1,567,890 ±  34,567  ops/ms
+
+// 反序列化速度 (Throughput: 越大越好)
+SerializationBenchmark.jdkDeserialize      thrpt    5    178,234 ±   4,567  ops/ms
+SerializationBenchmark.jacksonDeserialize  thrpt    5    623,456 ±  12,345  ops/ms
+SerializationBenchmark.protobufDeserialize  thrpt    5  1,456,789 ±  28,901  ops/ms
+</code></pre><h3 id="34-序列化体积对比">3.4 序列化体积对比</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SizeComparison</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">TestUser</span><span class="w"> </span><span class="n">user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createTestUser</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 各方案序列化</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">JdkSerialization</span><span class="w"> </span><span class="n">jdk</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">JdkSerialization</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">JacksonSerialization</span><span class="w"> </span><span class="n">jackson</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">JacksonSerialization</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ProtobufSerialization</span><span class="w"> </span><span class="n">protobuf</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ProtobufSerialization</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">jdkBytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">jdk</span><span class="p">.</span><span class="na">serialize</span><span class="p">(</span><span class="n">user</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">jacksonBytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">jackson</span><span class="p">.</span><span class="na">serializeToBytes</span><span class="p">(</span><span class="n">user</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">protobufBytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">protobuf</span><span class="p">.</span><span class="na">serialize</span><span class="p">(</span><span class="n">user</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;=== 序列化体积对比 ===&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;JDK Serializable: &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">jdkBytes</span><span class="p">.</span><span class="na">length</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34; bytes&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;Jackson JSON:     &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">jacksonBytes</span><span class="p">.</span><span class="na">length</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34; bytes&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;Protobuf:          &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">protobufBytes</span><span class="p">.</span><span class="na">length</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34; bytes&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p>典型输出：</p>
+<pre tabindex="0"><code>=== 序列化体积对比 ===
+JDK Serializable: 523 bytes
+Jackson JSON:     287 bytes
+Protobuf:          156 bytes
+</code></pre><p><strong>结论</strong>：</p>
+<ul>
+<li>Protobuf 体积最小，比 JDK 原生序列化减少约 <strong>70%</strong></li>
+<li>JSON 格式可读性好，但体积适中</li>
+<li>Kryo 在 JVM 内部性能最优</li>
+</ul>
+<h2 id="4-选型决策树">4. 选型决策树</h2>
+<pre tabindex="0"><code>                    开始选型
+                       │
+                       ▼
+          ┌────────────────────────┐
+          │ 是否需要跨语言支持？    │
+          └────────────────────────┘
+                    │
+           ┌────────┴────────┐
+           │ Yes             │ No
+           ▼                 ▼
+    ┌─────────────┐   ┌─────────────┐
+    │ 需要高性能？ │   │ 追求极致性能│
+    └─────────────┘   └─────────────┘
+           │                 │
+     ┌─────┴─────┐      ┌────┴────┐
+     │ Yes        │ No   │         │
+     ▼            ▼      ▼         ▼
+┌─────────┐ ┌─────────┐ ┌────┐ ┌────┐
+│Protobuf │ │Jackson  │ │Kryo│ │ JDK│
+│ /MsgPack│ │ /Gson   │ │    │ │    │
+└─────────┘ └─────────┘ └────┘ └────┘
+</code></pre><h3 id="41-详细选型建议">4.1 详细选型建议</h3>
+<table>
+	<thead>
+			<tr>
+					<th>场景</th>
+					<th>推荐方案</th>
+					<th>原因</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>微服务间通信</strong></td>
+					<td>Protobuf / Kryo</td>
+					<td>高性能、低带宽</td>
+			</tr>
+			<tr>
+					<td><strong>HTTP API (浏览器)</strong></td>
+					<td>JSON</td>
+					<td>天然支持，调试方便</td>
+			</tr>
+			<tr>
+					<td><strong>日志存储</strong></td>
+					<td>JSON / Parquet</td>
+					<td>可读性好，便于分析</td>
+			</tr>
+			<tr>
+					<td><strong>Redis 缓存</strong></td>
+					<td>JSON / Kryo</td>
+					<td>简单直接</td>
+			</tr>
+			<tr>
+					<td><strong>消息队列</strong></td>
+					<td>Protobuf / Avro</td>
+					<td>高效、schema 演进</td>
+			</tr>
+			<tr>
+					<td><strong>配置文件</strong></td>
+					<td>JSON / YAML</td>
+					<td>可读性强</td>
+			</tr>
+			<tr>
+					<td><strong>持久化存储</strong></td>
+					<td>Protobuf / Avro</td>
+					<td>体积小、支持 schema 演进</td>
+			</tr>
+			<tr>
+					<td><strong>gRPC 通信</strong></td>
+					<td>Protobuf</td>
+					<td>gRPC 原生支持</td>
+			</tr>
+			<tr>
+					<td><strong>Dubbo RPC</strong></td>
+					<td>Hessian / Kryo</td>
+					<td>Dubbo 生态支持好</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="5-高级对比schema-演进">5. 高级对比：Schema 演进</h2>
+<h3 id="51-json-schema-演进问题">5.1 JSON Schema 演进问题</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 旧版本</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">class</span> <span class="nc">UserV1</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">name</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">age</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 新版本：增加字段</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">class</span> <span class="nc">UserV2</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">name</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">age</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">email</span><span class="p">;</span><span class="w">  </span><span class="c1">// 新增字段</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 问题：反序列化时新增字段会丢失，需要手动处理</span><span class="w">
+</span></span></span></code></pre></div><h3 id="52-protobuf-schema-演进">5.2 Protobuf Schema 演进</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-plaintext" data-lang="plaintext"><span class="line"><span class="cl">// User.proto - V1
+</span></span><span class="line"><span class="cl">message User {
+</span></span><span class="line"><span class="cl">    string name = 1;
+</span></span><span class="line"><span class="cl">    int32 age = 2;
+</span></span><span class="line"><span class="cl">}
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">// User.proto - V2（向后兼容）
+</span></span><span class="line"><span class="cl">message User {
+</span></span><span class="line"><span class="cl">    string name = 1;       // 不变
+</span></span><span class="line"><span class="cl">    int32 age = 2;         // 不变
+</span></span><span class="line"><span class="cl">    string email = 3;      // 新增（使用新的 tag）
+</span></span><span class="line"><span class="cl">    reserved 4;            // 保留已删除的字段编号
+</span></span><span class="line"><span class="cl">}
+</span></span></code></pre></div><p><strong>Protobuf 演进规则</strong>：</p>
+<ul>
+<li>不能修改已存在字段的 tag 号</li>
+<li>不能删除已存在的字段（标记为 reserved）</li>
+<li>新字段使用新的 tag 号</li>
+<li>旧代码读取新数据会忽略新字段</li>
+<li>新代码读取旧数据会使用默认值</li>
+</ul>
+<h2 id="6-总结">6. 总结</h2>
+<h3 id="61-各方案适用场景">6.1 各方案适用场景</h3>
+<table>
+	<thead>
+			<tr>
+					<th>方案</th>
+					<th>适用场景</th>
+					<th>不适用场景</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>JDK Serializable</strong></td>
+					<td>简单内部使用</td>
+					<td>跨语言、高性能场景</td>
+			</tr>
+			<tr>
+					<td><strong>Jackson/Gson</strong></td>
+					<td>Web API、日志</td>
+					<td>高性能 RPC</td>
+			</tr>
+			<tr>
+					<td><strong>Protobuf</strong></td>
+					<td>高性能 RPC、跨语言</td>
+					<td>配置文件、简单对象</td>
+			</tr>
+			<tr>
+					<td><strong>Kryo</strong></td>
+					<td>JVM 内部高性能</td>
+					<td>跨语言</td>
+			</tr>
+			<tr>
+					<td><strong>Avro</strong></td>
+					<td>大数据、日志</td>
+					<td>微服务</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="62-性能排名仅供参考">6.2 性能排名（仅供参考）</h3>
+<pre tabindex="0"><code>序列化速度: Kryo &gt; Protobuf &gt; FastJSON &gt; Jackson &gt; Gson &gt; JDK
+反序列化速度: Kryo &gt; Protobuf &gt; FastJSON &gt; Jackson &gt; Gson &gt; JDK
+序列化体积: Protobuf &lt; Kryo &lt; Jackson &lt; Gson &lt; JDK &lt; XML
+</code></pre><blockquote>
+<p>性能测试结果与实际环境、数据特征密切相关，建议在生产环境前进行实际压测。</p>
+</blockquote>
+<hr>
+<blockquote>
+<p>📚 <strong>推荐阅读</strong></p>
+<ul>
+<li><a href="/posts/java%E5%BA%8F%E5%88%97%E5%8C%96jdk-%E5%BA%8F%E5%88%97%E5%8C%96%E6%BA%90%E7%A0%81%E6%B7%B1%E5%BA%A6%E5%89%96%E6%9E%90/">庖丁解牛：JDK 序列化源码深度剖析</a></li>
+<li><a href="/posts/java%E5%BA%8F%E5%88%97%E5%8C%96%E4%BA%94%E5%A4%A7%E5%BA%94%E7%94%A8%E5%9C%BA%E6%99%AF%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/">Java 序列化：实战与应用场景</a></li>
+<li><a href="/posts/java%E5%BA%8F%E5%88%97%E5%8C%96%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E4%B8%8E%E8%A7%A3%E5%86%B3%E6%96%B9%E6%A1%88/">Java 序列化：避坑指南与最佳实践</a></li>
+</ul>
+</blockquote>
+
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>
