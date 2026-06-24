@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>NIO Buffer 深度解析 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#buffer-概述">Buffer 概述</a></li>
+    <li><a href="#buffer-类型">Buffer 类型</a></li>
+    <li><a href="#buffer-数据结构">Buffer 数据结构</a>
+      <ul>
+        <li><a href="#四个关键索引">四个关键索引</a></li>
+      </ul>
+    </li>
+    <li><a href="#bytebuffer-创建">ByteBuffer 创建</a>
+      <ul>
+        <li><a href="#堆内存-vs-直接内存">堆内存 vs 直接内存</a></li>
+      </ul>
+    </li>
+    <li><a href="#写操作">写操作</a>
+      <ul>
+        <li><a href="#put-方法">put() 方法</a></li>
+        <li><a href="#写入过程">写入过程</a></li>
+      </ul>
+    </li>
+    <li><a href="#读操作">读操作</a>
+      <ul>
+        <li><a href="#get-方法">get() 方法</a></li>
+      </ul>
+    </li>
+    <li><a href="#flip-方法关键">flip() 方法（关键）</a>
+      <ul>
+        <li><a href="#flip-转换过程">flip() 转换过程</a></li>
+      </ul>
+    </li>
+    <li><a href="#clear-方法">clear() 方法</a>
+      <ul>
+        <li><a href="#clear-转换过程">clear() 转换过程</a></li>
+      </ul>
+    </li>
+    <li><a href="#compact-方法">compact() 方法</a>
+      <ul>
+        <li><a href="#compact-转换过程">compact() 转换过程</a></li>
+      </ul>
+    </li>
+    <li><a href="#常用方法总结">常用方法总结</a></li>
+    <li><a href="#实战示例文件复制">实战示例：文件复制</a></li>
+    <li><a href="#总结">总结</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">NIO Buffer 深度解析</h1>
+        </header>
+
+        <div class="page-content">
+            <h1 id="nio-buffer-深度解析">NIO Buffer 深度解析</h1>
+<h2 id="buffer-概述">Buffer 概述</h2>
+<p>Buffer 是 NIO 的核心组件，用于在通道（Channel）和程序之间传输数据。</p>
+<pre tabindex="0"><code>                    ┌─────────────┐
+                    │   Channel   │
+                    └──────┬──────┘
+                           │
+                    ┌──────▼──────┐
+                    │   Buffer   │
+                    │  [读写数据] │
+                    └──────┬──────┘
+                           │
+                    ┌──────▼──────┐
+                    │    程序     │
+                    └─────────────┘
+</code></pre><h2 id="buffer-类型">Buffer 类型</h2>
+<table>
+	<thead>
+			<tr>
+					<th>Buffer 类型</th>
+					<th>对应数据类型</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>ByteBuffer</td>
+					<td>byte</td>
+			</tr>
+			<tr>
+					<td>CharBuffer</td>
+					<td>char</td>
+			</tr>
+			<tr>
+					<td>ShortBuffer</td>
+					<td>short</td>
+			</tr>
+			<tr>
+					<td>IntBuffer</td>
+					<td>int</td>
+			</tr>
+			<tr>
+					<td>LongBuffer</td>
+					<td>long</td>
+			</tr>
+			<tr>
+					<td>FloatBuffer</td>
+					<td>float</td>
+			</tr>
+			<tr>
+					<td>DoubleBuffer</td>
+					<td>double</td>
+			</tr>
+			<tr>
+					<td>MappedByteBuffer</td>
+					<td>内存映射文件</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="buffer-数据结构">Buffer 数据结构</h2>
+<p>Buffer 内部结构包含四个关键索引：</p>
+<pre tabindex="0"><code>┌────────────────────────────────────────────┐
+│                ByteBuffer                   │
+├────────────────────────────────────────────┤
+│                                            │
+│   ┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐       │
+│   │  │  │  │  │  │  │  │  │  │  │       │
+│   └──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘       │
+│    ↑                    ↑                  │
+│  position             capacity             │
+│                                            │
+│   ┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐       │
+│   │▓▓│▓▓│  │  │  │  │  │  │  │  │       │
+│   └──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘       │
+│    ↑    ↑                                │
+│  mark  limit                             │
+│                                            │
+│   ■ = 已写入数据                          │
+│   □ = 可用空间                            │
+│                                            │
+└────────────────────────────────────────────┘
+</code></pre><h3 id="四个关键索引">四个关键索引</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">abstract</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Buffer</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 当前位置，下一个读写操作的起始位置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">position</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 界限，表示可以读写的最大位置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">limit</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 容量，缓冲区的总大小</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">capacity</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 标记位置，用于恢复 position</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">mark</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="bytebuffer-创建">ByteBuffer 创建</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. 使用 allocate（堆内存）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ByteBuffer</span><span class="w"> </span><span class="n">heapBuffer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ByteBuffer</span><span class="p">.</span><span class="na">allocate</span><span class="p">(</span><span class="n">1024</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 使用 allocateDirect（直接内存，OS 级缓冲区）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ByteBuffer</span><span class="w"> </span><span class="n">directBuffer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ByteBuffer</span><span class="p">.</span><span class="na">allocateDirect</span><span class="p">(</span><span class="n">1024</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. 包装已有数组</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">array</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="kt">byte</span><span class="o">[</span><span class="n">1024</span><span class="o">]</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ByteBuffer</span><span class="w"> </span><span class="n">wrappedBuffer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ByteBuffer</span><span class="p">.</span><span class="na">wrap</span><span class="p">(</span><span class="n">array</span><span class="p">);</span><span class="w">
+</span></span></span></code></pre></div><h3 id="堆内存-vs-直接内存">堆内存 vs 直接内存</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// allocate 内部实现</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="n">ByteBuffer</span><span class="w"> </span><span class="nf">allocate</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">capacity</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">capacity</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalArgumentException</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 创建基于堆内存的 ByteBuffer</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HeapByteBuffer</span><span class="p">(</span><span class="n">capacity</span><span class="p">,</span><span class="w"> </span><span class="n">capacity</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// allocateDirect 内部实现</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="n">ByteBuffer</span><span class="w"> </span><span class="nf">allocateDirect</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">capacity</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 创建直接内存缓冲区，由 unsafe 操作</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DirectByteBuffer</span><span class="p">(</span><span class="n">capacity</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>HeapByteBuffer</th>
+					<th>DirectByteBuffer</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>存储位置</td>
+					<td>JVM 堆内存</td>
+					<td>OS 直接内存</td>
+			</tr>
+			<tr>
+					<td>创建速度</td>
+					<td>快</td>
+					<td>慢</td>
+			</tr>
+			<tr>
+					<td>读写速度</td>
+					<td>较慢（需要复制）</td>
+					<td>快（零拷贝）</td>
+			</tr>
+			<tr>
+					<td>GC</td>
+					<td>会</td>
+					<td>不会（手动回收）</td>
+			</tr>
+			<tr>
+					<td>内存占用</td>
+					<td>较大</td>
+					<td>较小</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="写操作">写操作</h2>
+<h3 id="put-方法">put() 方法</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">ByteBuffer</span><span class="w"> </span><span class="n">buffer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ByteBuffer</span><span class="p">.</span><span class="na">allocate</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 写入单个字节</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">buffer</span><span class="p">.</span><span class="na">put</span><span class="p">((</span><span class="kt">byte</span><span class="p">)</span><span class="w"> </span><span class="n">1</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">buffer</span><span class="p">.</span><span class="na">put</span><span class="p">((</span><span class="kt">byte</span><span class="p">)</span><span class="w"> </span><span class="n">2</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 写入字节数组</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">buffer</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="p">{</span><span class="n">3</span><span class="p">,</span><span class="w"> </span><span class="n">4</span><span class="p">,</span><span class="w"> </span><span class="n">5</span><span class="p">});</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 写入指定位置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">buffer</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">7</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="kt">byte</span><span class="p">)</span><span class="w"> </span><span class="n">10</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="n">buffer</span><span class="p">.</span><span class="na">position</span><span class="p">());</span><span class="w">  </span><span class="c1">// 5</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="n">buffer</span><span class="p">.</span><span class="na">limit</span><span class="p">());</span><span class="w">     </span><span class="c1">// 10</span><span class="w">
+</span></span></span></code></pre></div><h3 id="写入过程">写入过程</h3>
+<pre tabindex="0"><code>初始状态:
+position=0, limit=10, capacity=10
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│  │  │  │  │  │  │  │  │  │  │
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+
+put(1), put(2), put(new byte[]{3,4,5}) 后:
+position=5, limit=10, capacity=10
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│① │② │③ │④ │⑤ │  │  │  │  │  │
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+</code></pre><h2 id="读操作">读操作</h2>
+<h3 id="get-方法">get() 方法</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">ByteBuffer</span><span class="w"> </span><span class="n">buffer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ByteBuffer</span><span class="p">.</span><span class="na">allocate</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">buffer</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="p">{</span><span class="n">1</span><span class="p">,</span><span class="w"> </span><span class="n">2</span><span class="p">,</span><span class="w"> </span><span class="n">3</span><span class="p">,</span><span class="w"> </span><span class="n">4</span><span class="p">,</span><span class="w"> </span><span class="n">5</span><span class="p">});</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">buffer</span><span class="p">.</span><span class="na">flip</span><span class="p">();</span><span class="w">  </span><span class="c1">// 切换到读模式</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 读取单个字节</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kt">byte</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">buffer</span><span class="p">.</span><span class="na">get</span><span class="p">();</span><span class="w">  </span><span class="c1">// 1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 读取到字节数组</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">arr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="kt">byte</span><span class="o">[</span><span class="n">2</span><span class="o">]</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">buffer</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">arr</span><span class="p">);</span><span class="w">  </span><span class="c1">// arr = [2, 3]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 读取指定位置（不影响 position）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kt">byte</span><span class="w"> </span><span class="n">b2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">buffer</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">4</span><span class="p">);</span><span class="w">  </span><span class="c1">// 5</span><span class="w">
+</span></span></span></code></pre></div><h2 id="flip-方法关键">flip() 方法（关键）</h2>
+<p>flip() 用于切换读写模式：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// flip() 源码</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Buffer</span><span class="w"> </span><span class="nf">flip</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">limit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">position</span><span class="p">;</span><span class="w">    </span><span class="c1">// 设置界限为当前位置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">position</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">        </span><span class="c1">// 重置位置为 0</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">mark</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">;</span><span class="w">          </span><span class="c1">// 清除标记</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">this</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="flip-转换过程">flip() 转换过程</h3>
+<pre tabindex="0"><code>写入后（准备 flip）:
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│① │② │③ │④ │⑤ │  │  │  │  │  │
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+ ↑                    ↑
+position=5          limit=10
+
+flip() 后（准备读取）:
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│① │② │③ │④ │⑤ │  │  │  │  │  │
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+ ↑        ↑
+position=0   limit=5
+</code></pre><h2 id="clear-方法">clear() 方法</h2>
+<p>clear() 用于清空缓冲区，准备重新写入：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// clear() 源码</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Buffer</span><span class="w"> </span><span class="nf">clear</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">position</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">limit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">capacity</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">mark</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">this</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="clear-转换过程">clear() 转换过程</h3>
+<pre tabindex="0"><code>读取后（准备 clear）:
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│① │② │③ │④ │⑤ │  │  │  │  │  │
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+              ↑    ↑
+        position=5  limit=5
+
+clear() 后（准备写入）:
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│① │② │③ │④ │⑤ │  │  │  │  │  │
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+ ↑                    ↑
+position=0          limit=10
+</code></pre><h2 id="compact-方法">compact() 方法</h2>
+<p>compact() 保留未读数据，准备继续写入：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// compact() 源码</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">ByteBuffer</span><span class="w"> </span><span class="nf">compact</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">System</span><span class="p">.</span><span class="na">arraycopy</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">src</span><span class="p">,</span><span class="w"> </span><span class="n">src</span><span class="p">.</span><span class="na">position</span><span class="p">(),</span><span class="w">    </span><span class="c1">// 源：未读数据起始位置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">src</span><span class="p">,</span><span class="w"> </span><span class="n">0</span><span class="p">,</span><span class="w">                 </span><span class="c1">// 目标：从 0 开始</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">src</span><span class="p">.</span><span class="na">remaining</span><span class="p">()</span><span class="w">          </span><span class="c1">// 长度：剩余未读数据</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">position</span><span class="p">(</span><span class="n">remaining</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">limit</span><span class="p">(</span><span class="n">capacity</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">this</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="compact-转换过程">compact() 转换过程</h3>
+<pre tabindex="0"><code>compact() 前（读取了前3个字节）:
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│① │② │③ │④ │⑤ │⑥ │⑦ │  │  │  │
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+              ↑    ↑
+        position=3  limit=7
+
+compact() 后（未读数据前移）:
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│④ │⑤ │⑥ │⑦ │  │  │  │  │  │  │
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+ ↑                    ↑
+position=4          limit=10
+</code></pre><h2 id="常用方法总结">常用方法总结</h2>
+<table>
+	<thead>
+			<tr>
+					<th>方法</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>flip()</td>
+					<td>切换为读模式</td>
+			</tr>
+			<tr>
+					<td>clear()</td>
+					<td>清空，准备写入</td>
+			</tr>
+			<tr>
+					<td>compact()</td>
+					<td>压缩未读数据，准备继续写入</td>
+			</tr>
+			<tr>
+					<td>rewind()</td>
+					<td>重置 position，准备重新读取</td>
+			</tr>
+			<tr>
+					<td>mark()</td>
+					<td>标记当前位置</td>
+			</tr>
+			<tr>
+					<td>reset()</td>
+					<td>恢复到 mark 位置</td>
+			</tr>
+			<tr>
+					<td>remaining()</td>
+					<td>剩余可读写元素数</td>
+			</tr>
+			<tr>
+					<td>hasRemaining()</td>
+					<td>是否还有可读写元素</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="实战示例文件复制">实战示例：文件复制</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">copyFile</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">src</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">dst</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">IOException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">FileChannel</span><span class="w"> </span><span class="n">srcChannel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">FileChannel</span><span class="p">.</span><span class="na">open</span><span class="p">(</span><span class="n">Paths</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">src</span><span class="p">),</span><span class="w"> </span><span class="n">StandardOpenOption</span><span class="p">.</span><span class="na">READ</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">FileChannel</span><span class="w"> </span><span class="n">dstChannel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">FileChannel</span><span class="p">.</span><span class="na">open</span><span class="p">(</span><span class="n">Paths</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">dst</span><span class="p">),</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">StandardOpenOption</span><span class="p">.</span><span class="na">CREATE</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">StandardOpenOption</span><span class="p">.</span><span class="na">WRITE</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ByteBuffer</span><span class="w"> </span><span class="n">buffer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ByteBuffer</span><span class="p">.</span><span class="na">allocateDirect</span><span class="p">(</span><span class="n">8192</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">srcChannel</span><span class="p">.</span><span class="na">read</span><span class="p">(</span><span class="n">buffer</span><span class="p">)</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">buffer</span><span class="p">.</span><span class="na">flip</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">dstChannel</span><span class="p">.</span><span class="na">write</span><span class="p">(</span><span class="n">buffer</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">buffer</span><span class="p">.</span><span class="na">clear</span><span class="p">();</span><span class="w">  </span><span class="c1">// 准备下一轮读取</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">srcChannel</span><span class="p">.</span><span class="na">close</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">dstChannel</span><span class="p">.</span><span class="na">close</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="总结">总结</h2>
+<ul>
+<li>Buffer 是 NIO 的基础，包含 position、limit、capacity、mark 四个索引</li>
+<li>flip() 切换读写模式，clear() 清空缓冲区</li>
+<li>allocate() 使用堆内存，allocateDirect() 使用直接内存</li>
+<li>理解 Buffer 状态转换是掌握 NIO 的关键</li>
+</ul>
+<blockquote>
+<p>📚 <strong>推荐阅读</strong></p>
+<ul>
+<li><a href="/posts/nio-channel-%E9%80%9A%E9%81%93%E6%9C%BA%E5%88%B6/">NIO Channel 通道机制</a></li>
+</ul>
+</blockquote>
+
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>
