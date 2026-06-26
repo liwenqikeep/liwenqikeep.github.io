@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>JVM 垃圾回收机制 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一对象存活判定">一、对象存活判定</a>
+      <ul>
+        <li><a href="#11-引用计数法reference-counting">1.1 引用计数法（Reference Counting）</a></li>
+        <li><a href="#12-可达性分析reachability-analysis">1.2 可达性分析（Reachability Analysis）</a></li>
+        <li><a href="#13-对象引用类型">1.3 对象引用类型</a></li>
+        <li><a href="#14-finalize-与对象自救">1.4 finalize() 与对象自救</a></li>
+      </ul>
+    </li>
+    <li><a href="#二经典-gc-算法">二、经典 GC 算法</a>
+      <ul>
+        <li><a href="#21-标记-清除mark-sweep">2.1 标记-清除（Mark-Sweep）</a></li>
+        <li><a href="#22-标记-复制mark-copy">2.2 标记-复制（Mark-Copy）</a></li>
+        <li><a href="#23-标记-整理mark-compact">2.3 标记-整理（Mark-Compact）</a></li>
+        <li><a href="#24-分代收集理论generational-collection">2.4 分代收集理论（Generational Collection）</a></li>
+      </ul>
+    </li>
+    <li><a href="#三三色标记算法tri-color-marking">三、三色标记算法（Tri-color Marking）</a>
+      <ul>
+        <li><a href="#31-基本概念">3.1 基本概念</a></li>
+        <li><a href="#32-并发标记的问题对象消失">3.2 并发标记的问题——对象消失</a></li>
+        <li><a href="#33-解决方案">3.3 解决方案</a></li>
+      </ul>
+    </li>
+    <li><a href="#四经典垃圾收集器">四、经典垃圾收集器</a>
+      <ul>
+        <li><a href="#41-serial-收集器">4.1 Serial 收集器</a></li>
+        <li><a href="#42-parnew-收集器">4.2 ParNew 收集器</a></li>
+        <li><a href="#43-parallel-scavenge--parallel-old-收集器">4.3 Parallel Scavenge / Parallel Old 收集器</a></li>
+        <li><a href="#44-cms-收集器concurrent-mark-sweep">4.4 CMS 收集器（Concurrent Mark Sweep）</a></li>
+        <li><a href="#45-g1-收集器garbage-first">4.5 G1 收集器（Garbage First）</a></li>
+        <li><a href="#46-zgc-收集器">4.6 ZGC 收集器</a></li>
+      </ul>
+    </li>
+    <li><a href="#五总结">五、总结</a>
+      <ul>
+        <li><a href="#收集器选型指南">收集器选型指南</a></li>
+        <li><a href="#gc-核心参数速查">GC 核心参数速查</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">JVM 垃圾回收机制</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>垃圾回收（GC）是 JVM 最核心的能力之一。自动管理内存让 Java 开发者的生产力大幅提升，但 GC 同时也是很多性能问题的根源——理解 GC 原理，才能在排查问题和调优时游刃有余。</p>
+<p>本文从判定方法、经典算法到具体收集器，系统梳理 GC 的完整知识体系。</p>
+<h2 id="一对象存活判定">一、对象存活判定</h2>
+<p>在 GC 回收堆中对象之前，首先要判定哪些对象还&quot;活着&quot;，哪些已经&quot;死了&quot;。</p>
+<h3 id="11-引用计数法reference-counting">1.1 引用计数法（Reference Counting）</h3>
+<p><strong>原理：</strong> 每个对象维护一个引用计数器，被引用时 +1，引用失效时 -1，计数为 0 时即可回收。</p>
+<pre tabindex="0"><code>  对象A               对象B               对象C
+  引用计数: 2        引用计数: 1         引用计数: 0  ← 可回收
+    ↑   ↑              ↑
+  栈引用 对象B       对象C
+</code></pre><p><strong>缺点（为什么主流 JVM 不用它）：</strong></p>
+<ul>
+<li>循环引用问题：两个对象互相引用但没有外部引用时，计数永远不为 0</li>
+<li>每次引用赋值都要同步更新计数器，有额外性能开销</li>
+</ul>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 循环引用示例——引用计数法无法回收</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">CircularReferenceDemo</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MyObject</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MyObject</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MyObject</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MyObject</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">a</span><span class="p">.</span><span class="na">instance</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">b</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">b</span><span class="p">.</span><span class="na">instance</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">a</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 此时 a 和 b 互相引用，引用计数均为 1，无法被回收</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="12-可达性分析reachability-analysis">1.2 可达性分析（Reachability Analysis）</h3>
+<p><strong>原理：</strong> 从一组称为 <strong>GC Roots</strong> 的根对象开始，向下搜索引用链，不可达的对象即为可回收对象。</p>
+<pre tabindex="0"><code>GC Roots
+  ├── 虚拟机栈中引用的对象（局部变量、参数等）
+  ├── 静态属性引用的对象（类的静态变量）
+  ├── 常量引用的对象（字符串常量池）
+  ├── 本地方法栈中 JNI 引用的对象
+  └── JVM 内部引用（基本数据类型对应的 Class 对象、常驻异常对象等）
+</code></pre><pre tabindex="0"><code>GC Roots ──▶ 对象A ──▶ 对象B ──▶ 对象C
+                │
+                └──▶ 对象D ──▶ 对象E (E 不再被任何存活对象引用)
+                                    │
+                                    ▼
+                                 可回收
+</code></pre><p><strong>什么样的对象可以作为 GC Roots？</strong></p>
+<ul>
+<li>虚拟机栈（栈帧中的本地变量表）中引用的对象</li>
+<li>方法区中静态属性引用的对象</li>
+<li>方法区中常量引用的对象</li>
+<li>本地方法栈中 JNI（即 Native 方法）引用的对象</li>
+<li>JVM 内部的引用（Class 对象、系统类加载器等）</li>
+<li>所有被同步锁（synchronized）持有的对象</li>
+</ul>
+<h3 id="13-对象引用类型">1.3 对象引用类型</h3>
+<p>Java 提供了四种引用类型，影响 GC 的回收决策：</p>
+<table>
+	<thead>
+			<tr>
+					<th>引用类型</th>
+					<th>回收时机</th>
+					<th>用途</th>
+					<th>类名</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>强引用（Strong）</td>
+					<td>永不回收</td>
+					<td>普通 new 对象</td>
+					<td>默认</td>
+			</tr>
+			<tr>
+					<td>软引用（Soft）</td>
+					<td>OOM 前回收</td>
+					<td>缓存</td>
+					<td><code>SoftReference</code></td>
+			</tr>
+			<tr>
+					<td>弱引用（Weak）</td>
+					<td>下次 GC 即回收</td>
+					<td>ThreadLocal、WeakHashMap</td>
+					<td><code>WeakReference</code></td>
+			</tr>
+			<tr>
+					<td>虚引用（Phantom）</td>
+					<td>任何时候都可能回收</td>
+					<td>对象回收跟踪</td>
+					<td><code>PhantomReference</code></td>
+			</tr>
+	</tbody>
+</table>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 软引用示例——适合做缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">SoftReference</span><span class="o">&lt;</span><span class="kt">byte</span><span class="o">[]&gt;</span><span class="w"> </span><span class="n">cache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SoftReference</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="kt">byte</span><span class="o">[</span><span class="n">10</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">1024</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">1024</span><span class="o">]</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cache</span><span class="p">.</span><span class="na">get</span><span class="p">();</span><span class="w"> </span><span class="c1">// 如果未被 GC 回收则返回对象，否则返回 null</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 弱引用示例——下次 GC 即回收</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">WeakReference</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">ref</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">WeakReference</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">Object</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">System</span><span class="p">.</span><span class="na">gc</span><span class="p">();</span><span class="w"> </span><span class="c1">// 执行 GC 后 ref.get() 返回 null</span><span class="w">
+</span></span></span></code></pre></div><h3 id="14-finalize-与对象自救">1.4 finalize() 与对象自救</h3>
+<p>JVM 中一个对象的&quot;死亡&quot;需要经过两次标记：</p>
+<pre tabindex="0"><code>第一次标记：可达性分析发现不可达
+    │
+    ▼
+是否需要执行 finalize()？
+├── 否（类未覆盖 finalize 或已执行过）→ 直接回收
+└── 是 → 放入 F-Queue 队列，由 Finalizer 线程执行
+        │
+        ▼
+第二次标记：在 finalize() 中是否重新建立引用？
+├── 是 → 对象自救成功，从队列移除
+└── 否 → 真正回收
+</code></pre><blockquote>
+<p><strong>注意：</strong> <code>finalize()</code> 不推荐使用（JDK 9 已标记为弃用）。它的执行时机不可控，且性能差。对象自救只是一种语言机制演示，实际代码中永远不应该依赖它。</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">FinalizeEscapeGC</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="n">FinalizeEscapeGC</span><span class="w"> </span><span class="n">SAVE_HOOK</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">isAlive</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;我还活着&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">finalize</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">super</span><span class="p">.</span><span class="na">finalize</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;finalize 执行&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SAVE_HOOK</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">;</span><span class="w"> </span><span class="c1">// 自救：重新建立引用</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">InterruptedException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SAVE_HOOK</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FinalizeEscapeGC</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SAVE_HOOK</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">gc</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Thread</span><span class="p">.</span><span class="na">sleep</span><span class="p">(</span><span class="n">500</span><span class="p">);</span><span class="w"> </span><span class="c1">// 等待 Finalizer 线程执行</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">SAVE_HOOK</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">SAVE_HOOK</span><span class="p">.</span><span class="na">isAlive</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;已死亡&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 第二次自救尝试——失败，因为 finalize 只会执行一次</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SAVE_HOOK</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">gc</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Thread</span><span class="p">.</span><span class="na">sleep</span><span class="p">(</span><span class="n">500</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">SAVE_HOOK</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">SAVE_HOOK</span><span class="p">.</span><span class="na">isAlive</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;已死亡&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="二经典-gc-算法">二、经典 GC 算法</h2>
+<h3 id="21-标记-清除mark-sweep">2.1 标记-清除（Mark-Sweep）</h3>
+<p>最基础的收集算法。</p>
+<pre tabindex="0"><code>初始状态：    标记后：        清除后：
+[A][B][C]    [✓A][✓B][✓C]    [  ][  ][  ]
+[D][E][F]    [✓D][E][✓F]     [  ][E][  ]
+[G][H][I]    [G][✓H][I]      [G][  ][I]
+   ↓                              ↓
+存活: D,G,I                   内存碎片化
+</code></pre><p><strong>优点：</strong> 实现简单，不需要对象移动
+<strong>缺点：</strong></p>
+<ul>
+<li>执行效率不稳定，标记和清除两个过程效率随对象数量增长而下降</li>
+<li>产生大量内存碎片，可能导致无法分配大对象而提前触发 Full GC</li>
+</ul>
+<h3 id="22-标记-复制mark-copy">2.2 标记-复制（Mark-Copy）</h3>
+<p>将可用内存按容量划分为大小相等的两块，每次只使用其中一块。GC 时将存活对象复制到另一块，然后清理当前块。</p>
+<pre tabindex="0"><code>使用中：        GC 后：
+[A][B][C]      [  ][  ][  ]
+[D][E][F]      [D][E][  ]
+[↑      ]      [↑      ]
+ from            to（变为新的 from）
+</code></pre><p><strong>优点：</strong> 无内存碎片，分配速度快（指针碰撞）
+<strong>缺点：</strong> 内存利用率低（可用内存减半）</p>
+<p><strong>优化——Appel 式回收（HotSpot 新生代采用）：</strong></p>
+<ul>
+<li>将新生代分为：一个较大的 Eden 区和两个较小的 Survivor 区（默认 8:1:1）</li>
+<li>每次使用 Eden 和一个 Survivor</li>
+<li>GC 时将存活对象复制到另一个 Survivor</li>
+<li>当 Survivor 空间不足时，需要老年代分配担保（Handle Promotion）</li>
+</ul>
+<pre tabindex="0"><code>Eden: 80%   |   Survivor From: 10%   |   Survivor To: 10%
+  ↓ GC
+存活对象复制到 To 区
+  ↓
+清空 Eden 和 From，交换 From/To 角色
+</code></pre><h3 id="23-标记-整理mark-compact">2.3 标记-整理（Mark-Compact）</h3>
+<p>标记阶段同标记-清除，但后续将所有存活对象向一端移动，直接清理端边界以外的内存。</p>
+<pre tabindex="0"><code>初始状态：    标记后：        整理后：        清理后：
+[A][B][C]    [✓A][✓B][✓C]    [D][G][H]      [D][G][H][  ]
+[D][E][F]    [✓D][E][✓F]     [  ][  ][  ]   [  ][  ][  ]
+[G][H][I]    [G][✓H][I]      [  ][  ][  ]   [  ][ ][  ]
+存活: D,G,H                     ↑
+                        存活对象集中到一端
+</code></pre><p><strong>优点：</strong> 无内存碎片，内存利用率高
+<strong>缺点：</strong> 对象移动需要 Stop The World，且移动对象需要更新引用</p>
+<h3 id="24-分代收集理论generational-collection">2.4 分代收集理论（Generational Collection）</h3>
+<p>HotSpot 的实践原则：</p>
+<pre tabindex="0"><code>┌───────────────────────────────────────────────┐
+│                   堆                            │
+│  ┌─────────────────────┬─────────────────────┐ │
+│  │     新生代（Young）   │     老年代（Old）     │ │
+│  ├─────────┬─────┬─────┤                     │ │
+│  │  Eden   │ S0  │  S1 │                     │ │
+│  └─────────┴─────┴─────┘                     │ │
+│        复制算法              标记-整理/标记-清除  │ │
+└───────────────────────────────────────────────┘
+</code></pre><p><strong>三条假说：</strong></p>
+<ol>
+<li><strong>弱分代假说（Weak Generational Hypothesis）</strong>：绝大多数对象朝生夕灭</li>
+<li><strong>强分代假说（Strong Generational Hypothesis）</strong>：熬过多次 GC 的对象越来越难回收</li>
+<li><strong>跨代引用假说（Intergenerational Reference）</strong>：跨代引用相对于同代引用极少</li>
+</ol>
+<p><strong>跨代引用的处理——记忆集（Remembered Set）：</strong></p>
+<ul>
+<li>在新生代建立一个全局数据结构（卡表 Card Table）</li>
+<li>老年代对象引用新生代对象时，标记对应的卡片为 dirty</li>
+<li>GC 时只需扫描 dirty card，无需扫描整个老年代</li>
+</ul>
+<h2 id="三三色标记算法tri-color-marking">三、三色标记算法（Tri-color Marking）</h2>
+<h3 id="31-基本概念">3.1 基本概念</h3>
+<p>现代 GC 收集器（CMS、G1）的并发标记阶段均基于三色标记算法：</p>
+<table>
+	<thead>
+			<tr>
+					<th>颜色</th>
+					<th>含义</th>
+					<th>已扫描引用</th>
+					<th>已访问所有子对象</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>白色（White）</td>
+					<td>尚未被 GC 访问</td>
+					<td>否</td>
+					<td>否</td>
+			</tr>
+			<tr>
+					<td>灰色（Gray）</td>
+					<td>已被 GC 访问，但子对象未扫描完</td>
+					<td>是</td>
+					<td>否</td>
+			</tr>
+			<tr>
+					<td>黑色（Black）</td>
+					<td>已被 GC 访问，子对象已扫描完</td>
+					<td>是</td>
+					<td>是</td>
+			</tr>
+	</tbody>
+</table>
+<pre tabindex="0"><code>初始状态：所有对象均为白色
+    │
+    ▼
+从 GC Roots 开始遍历，将根对象标记为灰色
+    │
+    ▼
+从灰色对象中取出一个，遍历其引用：
+├── 引用的白色对象 → 标记为灰色
+└── 当前对象的所有引用遍历完毕 → 标记为黑色
+    │
+    ▼
+重复直到没有灰色对象
+    │
+    ▼
+剩余的白色对象 → 可回收
+</code></pre><h3 id="32-并发标记的问题对象消失">3.2 并发标记的问题——对象消失</h3>
+<p>当 GC 线程与用户线程并发执行时，可能出现<strong>对象消失</strong>问题：本应存活的对象被错误标记为白色。</p>
+<pre tabindex="0"><code>正确的标记：
+               黑色对象
+                  │(引用)
+                  ▼
+               白色对象 → (应被标记为存活)
+
+并发问题：
+用户线程在 GC 标记过程中：
+1. 黑色对象新增了对白色对象的引用
+2. 同时又删除了原本指向该白色对象的所有灰色引用
+            ↓
+白色对象变成&#34;被黑色引用但不可达&#34;的悬浮对象 → 被错误回收
+</code></pre><h3 id="33-解决方案">3.3 解决方案</h3>
+<p>要解决并发标记时的对象消失问题，必须破坏以下两个条件中的<strong>任意一个</strong>：</p>
+<pre tabindex="0"><code>对象消失的条件（需同时满足）：
+1. 赋值器插入了一条从黑色对象到白色对象的新引用
+2. 赋值器删除了全部从灰色对象到该白色对象的直接或间接引用
+</code></pre><p><strong>方案一：增量更新（Incremental Update）——CMS 使用</strong></p>
+<p>破坏条件 1：当黑色对象插入新引用指向白色对象时，将黑色对象重新标记为灰色。</p>
+<pre tabindex="0"><code>黑色对象新增引用白色对象
+    ↓
+将黑色对象变回灰色，重新扫描
+    ↓
+黑色对象 → 灰色（重新扫描其引用链，确保白色对象不被遗漏）
+</code></pre><p><strong>方案二：原始快照（SATB, Snapshot At The Beginning）——G1 使用</strong></p>
+<p>破坏条件 2：当灰色对象删除指向白色对象的引用时，记录这个引用，在并发标记结束后以快照为准重新扫描。</p>
+<pre tabindex="0"><code>灰色对象删除指向白色对象的引用
+    ↓
+SATB 在删除前记录该引用
+    ↓
+标记结束后，以 GC 开始时的快照为准重新扫描被删除的引用
+    ↓
+白色对象仍被视为存活
+</code></pre><p><strong>对比：</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>增量更新（CMS）</th>
+					<th>原始快照 SATB（G1）</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>关注点</td>
+					<td>引用插入</td>
+					<td>引用删除</td>
+			</tr>
+			<tr>
+					<td>额外扫描</td>
+					<td>重新扫描黑色对象</td>
+					<td>扫描 SATB 队列</td>
+			</tr>
+			<tr>
+					<td>浮动垃圾</td>
+					<td>少</td>
+					<td>稍多（基于快照的残留）</td>
+			</tr>
+			<tr>
+					<td>实现复杂度</td>
+					<td>较低</td>
+					<td>较高</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="四经典垃圾收集器">四、经典垃圾收集器</h2>
+<h3 id="41-serial-收集器">4.1 Serial 收集器</h3>
+<p>单线程、新生代、复制算法。</p>
+<pre tabindex="0"><code>GC 线程：   [Thread-0] ──── 工作 ────▶
+用户线程：                  ❌ STW
+</code></pre><ul>
+<li>特点：单线程工作，GC 时必须暂停所有用户线程（Stop The World）</li>
+<li>适用场景：客户端模式、单核环境、小内存应用</li>
+<li>参数：<code>-XX:+UseSerialGC</code></li>
+</ul>
+<h3 id="42-parnew-收集器">4.2 ParNew 收集器</h3>
+<p>Serial 的多线程版本，新生代、复制算法。</p>
+<pre tabindex="0"><code>GC 线程：   [Thread-0] ──┤
+           [Thread-1] ──┤ 并行工作
+           [Thread-2] ──┤
+用户线程：                  ❌ STW
+</code></pre><ul>
+<li>特点：多线程并行执行，仍需要 STW</li>
+<li>适用场景：服务端模式，与 CMS 配合使用</li>
+<li>参数：<code>-XX:+UseParNewGC</code>（JDK 9 后已弃用）</li>
+</ul>
+<h3 id="43-parallel-scavenge--parallel-old-收集器">4.3 Parallel Scavenge / Parallel Old 收集器</h3>
+<p>吞吐量优先收集器，新生代复制算法 + 老年代标记-整理。</p>
+<p><strong>核心关注点：吞吐量</strong></p>
+<pre tabindex="0"><code>吞吐量 = 用户代码运行时间 / (用户代码运行时间 + GC 时间)
+</code></pre><p><strong>参数控制：</strong></p>
+<ul>
+<li><code>-XX:MaxGCPauseMillis</code>：最大停顿时间目标（毫秒）</li>
+<li><code>-XX:GCTimeRatio</code>：吞吐量大小（0~100，默认 99，即允许 1% 的 GC 时间）</li>
+<li><code>-XX:+UseAdaptiveSizePolicy</code>：自适应调整策略（GC Ergonomics）</li>
+</ul>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>Parallel Scavenge</th>
+					<th>Parallel Old</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>适用分代</td>
+					<td>新生代</td>
+					<td>老年代</td>
+			</tr>
+			<tr>
+					<td>算法</td>
+					<td>复制</td>
+					<td>标记-整理</td>
+			</tr>
+			<tr>
+					<td>线程</td>
+					<td>多线程</td>
+					<td>多线程</td>
+			</tr>
+			<tr>
+					<td>关注点</td>
+					<td>吞吐量优先</td>
+					<td>吞吐量优先</td>
+			</tr>
+	</tbody>
+</table>
+<ul>
+<li>参数：<code>-XX:+UseParallelGC</code> 或 <code>-XX:+UseParallelOldGC</code></li>
+</ul>
+<h3 id="44-cms-收集器concurrent-mark-sweep">4.4 CMS 收集器（Concurrent Mark Sweep）</h3>
+<p>以<strong>最短回收停顿时间</strong>为目标的收集器，老年代、标记-清除算法。</p>
+<pre tabindex="0"><code>GC 阶段：                       用户线程：
+1. 初始标记（STW）────────────▶ ❌ 暂停
+   标记 GC Roots 直接关联的对象
+   
+2. 并发标记 ──────────────────▶ ✅ 并发
+   从 GC Roots 开始三色标记遍历
+
+3. 重新标记（STW）────────────▶ ❌ 暂停
+   修正并发标记期间变动的引用
+
+4. 并发清除 ──────────────────▶ ✅ 并发
+   清除死亡对象
+
+5. 并发重置 ──────────────────▶ ✅ 并发
+   重置数据结构，等待下次 GC
+</code></pre><p><strong>优点：</strong> 并发收集、低延迟
+<strong>缺点：</strong></p>
+<ol>
+<li><strong>CPU 敏感</strong>：并发阶段占用 CPU 资源</li>
+<li><strong>浮动垃圾</strong>：并发标记阶段产生的垃圾无法在本次 GC 中处理</li>
+<li><strong>内存碎片</strong>：标记-清除算法导致的内存碎片</li>
+<li><strong>Concurrent Mode Failure</strong>：老年代空间不足时，退化为 Serial Old 收集（Full GC 且 STW）</li>
+</ol>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 触发 Concurrent Mode Failure</span>
+</span></span><span class="line"><span class="cl">-XX:CMSInitiatingOccupancyFraction<span class="o">=</span><span class="m">75</span>  <span class="c1"># 设置触发阈值（默认 92%）</span>
+</span></span><span class="line"><span class="cl">-XX:+UseCMSInitiatingOccupancyOnly     <span class="c1"># 仅使用此阈值（不自动调整）</span>
+</span></span></code></pre></div><h3 id="45-g1-收集器garbage-first">4.5 G1 收集器（Garbage First）</h3>
+<p>JDK 7 引入，JDK 9 成为默认收集器。将堆划分为多个大小相等的 <strong>Region</strong>，新生代和老年代不再是物理隔离。</p>
+<p><strong>Region 布局：</strong></p>
+<pre tabindex="0"><code>┌────┬────┬────┬────┬────┬────┬────┬────┐
+│ E  │ E  │ S  │ O  │ O  │ H  │ O  │ O  │
+├────┼────┼────┼────┼────┼────┼────┼────┤
+│ O  │ E  │ E  │ E  │ S  │ O  │ O  │ H  │
+├────┼────┼────┼────┼────┼────┼────┼────┤
+│ O  │ O  │ E  │ E  │ O  │ O  │ O  │ O  │
+└────┴────┴────┴────┴────┴────┴────┴────┘
+E: Eden    S: Survivor    O: Old    H: Humongous（大对象）
+</code></pre><p><strong>G1 的特点：</strong></p>
+<ul>
+<li><strong>可预测的停顿时间模型</strong>：<code>-XX:MaxGCPauseMillis</code>（默认 200ms）</li>
+<li><strong>Region 化</strong>：每个 Region 的大小为 1MB~32MB（2 的幂）</li>
+<li><strong>优先回收收益最大的 Region</strong>（&ldquo;Garbage First&rdquo; 的由来）</li>
+<li><strong>整体是标记-整理算法</strong>：不会产生 CMS 的内存碎片问题</li>
+</ul>
+<p><strong>G1 的 GC 周期：</strong></p>
+<pre tabindex="0"><code>Young GC（新生代回收） ──▶ 并发标记周期（当堆使用率达阈值）──▶ Mixed GC
+    │                           │                              │
+  复制算法                  初始标记(STW)                 混合回收年轻代+老年代
+                           并发标记
+                           重新标记(STW)
+                           清理(STW)
+</code></pre><p><strong>关键参数：</strong></p>
+<ul>
+<li><code>-XX:+UseG1GC</code></li>
+<li><code>-XX:MaxGCPauseMillis=200</code>：目标停顿时间</li>
+<li><code>-XX:G1HeapRegionSize=4m</code>：Region 大小</li>
+<li><code>-XX:InitiatingHeapOccupancyPercent=45</code>：触发并发标记的堆占用率</li>
+<li><code>-XX:G1MixedGCLiveThresholdPercent=85</code>：Mixed GC 中 Region 的存活对象阈值</li>
+</ul>
+<h3 id="46-zgc-收集器">4.6 ZGC 收集器</h3>
+<p>JDK 11 引入的<strong>低延迟</strong>收集器（JDK 15 转正），GC 停顿时间不超过 <strong>10ms</strong>，且与堆大小无关。</p>
+<p><strong>核心技术：</strong></p>
+<ol>
+<li>
+<p><strong>染色指针（Colored Pointers）</strong></p>
+<ul>
+<li>在 64 位指针中，将高 4 位用于标记状态</li>
+<li>对象本身不需要 Mark Word，标记信息直接存在于引用中</li>
+</ul>
+<pre tabindex="0"><code>64-bit 指针布局：
+[0000][42-bit 地址][4-bit 预留][4-bit 元数据]
+ ↑                                      ↑
+颜色位                               Finalizable/Remapped/Marked0/Marked1
+</code></pre></li>
+<li>
+<p><strong>读屏障（Load Barrier）</strong></p>
+<ul>
+<li>应用程序读取对象引用时触发</li>
+<li>如果发现指针状态异常，在读取时修正（自愈）</li>
+<li>并发标记的核心支撑</li>
+</ul>
+</li>
+<li>
+<p><strong>基于 Region 的并发整理</strong></p>
+<ul>
+<li>与 G1 类似，但 Region 大小可变（动态）</li>
+<li>并发移动对象，不需要 STW</li>
+</ul>
+</li>
+</ol>
+<p><strong>ZGC vs G1：</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>G1</th>
+					<th>ZGC</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>最大停顿</td>
+					<td>~200ms</td>
+					<td>&lt;10ms</td>
+			</tr>
+			<tr>
+					<td>停顿与堆大小关系</td>
+					<td>成正比</td>
+					<td>基本无关</td>
+			</tr>
+			<tr>
+					<td>算法</td>
+					<td>增量更新 + SATB</td>
+					<td>染色指针 + 读屏障</td>
+			</tr>
+			<tr>
+					<td>JDK 版本</td>
+					<td>JDK 7+</td>
+					<td>JDK 11+（实验）/ JDK 15+（正式）</td>
+			</tr>
+			<tr>
+					<td>适用场景</td>
+					<td>通用</td>
+					<td>大堆低延迟</td>
+			</tr>
+	</tbody>
+</table>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 启用 ZGC</span>
+</span></span><span class="line"><span class="cl">-XX:+UseZGC
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># ZGC 关键参数</span>
+</span></span><span class="line"><span class="cl">-Xmx16g               <span class="c1"># ZGC 推荐配置足够大的堆</span>
+</span></span><span class="line"><span class="cl">-XX:ConcGCThreads<span class="o">=</span><span class="m">4</span>   <span class="c1"># 并发 GC 线程数</span>
+</span></span><span class="line"><span class="cl">-XX:ZCollectionInterval<span class="o">=</span><span class="m">120</span>  <span class="c1"># 最大 GC 间隔（秒）</span>
+</span></span></code></pre></div><h2 id="五总结">五、总结</h2>
+<h3 id="收集器选型指南">收集器选型指南</h3>
+<table>
+	<thead>
+			<tr>
+					<th>场景</th>
+					<th>推荐收集器</th>
+					<th>组合参数</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>单核/小内存/客户端</td>
+					<td>Serial</td>
+					<td><code>-XX:+UseSerialGC</code></td>
+			</tr>
+			<tr>
+					<td>高吞吐量/后台计算</td>
+					<td>Parallel</td>
+					<td><code>-XX:+UseParallelGC</code></td>
+			</tr>
+			<tr>
+					<td>低延迟/响应式服务</td>
+					<td>G1（JDK 9+ 默认）</td>
+					<td><code>-XX:+UseG1GC</code></td>
+			</tr>
+			<tr>
+					<td>极低延迟/大堆</td>
+					<td>ZGC</td>
+					<td><code>-XX:+UseZGC</code></td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="gc-核心参数速查">GC 核心参数速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>参数</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>-Xms</code> / <code>-Xmx</code></td>
+					<td>堆最小/最大大小</td>
+			</tr>
+			<tr>
+					<td><code>-Xmn</code></td>
+					<td>新生代大小</td>
+			</tr>
+			<tr>
+					<td><code>-XX:NewRatio</code></td>
+					<td>老年代/新生代比例（默认 2）</td>
+			</tr>
+			<tr>
+					<td><code>-XX:SurvivorRatio</code></td>
+					<td>Eden/Survivor 比例（默认 8）</td>
+			</tr>
+			<tr>
+					<td><code>-XX:+PrintGCDetails</code></td>
+					<td>打印 GC 详细日志</td>
+			</tr>
+			<tr>
+					<td><code>-XX:+PrintGCDateStamps</code></td>
+					<td>GC 时间戳</td>
+			</tr>
+			<tr>
+					<td><code>-Xloggc:gc.log</code></td>
+					<td>GC 日志输出文件</td>
+			</tr>
+			<tr>
+					<td><code>-XX:+HeapDumpOnOutOfMemoryError</code></td>
+					<td>OOM 时自动堆转储</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>相关阅读：</strong></p>
+<ul>
+<li><a href="/posts/jvm-%E5%86%85%E5%AD%98%E5%8C%BA%E5%9F%9F%E4%B8%8E%E5%86%85%E5%AD%98%E6%BA%A2%E5%87%BA/">JVM 内存区域与内存溢出</a></li>
+<li><a href="/posts/jvm-%E7%B1%BB%E5%8A%A0%E8%BD%BD%E6%9C%BA%E5%88%B6/">JVM 类加载机制</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

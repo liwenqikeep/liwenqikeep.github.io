@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Java 字节码详解 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一class-文件结构">一、Class 文件结构</a>
+      <ul>
+        <li><a href="#11-总体结构">1.1 总体结构</a></li>
+        <li><a href="#12-魔数与版本号">1.2 魔数与版本号</a></li>
+        <li><a href="#13-常量池">1.3 常量池</a></li>
+        <li><a href="#14-访问标志access-flags">1.4 访问标志（Access Flags）</a></li>
+        <li><a href="#15-字段表和方法表">1.5 字段表和方法表</a></li>
+      </ul>
+    </li>
+    <li><a href="#二字节码指令集">二、字节码指令集</a>
+      <ul>
+        <li><a href="#21-数据类型与指令前缀">2.1 数据类型与指令前缀</a></li>
+        <li><a href="#22-常用指令分类">2.2 常用指令分类</a></li>
+      </ul>
+    </li>
+    <li><a href="#三使用-javap-查看字节码">三、使用 javap 查看字节码</a>
+      <ul>
+        <li><a href="#31-简单示例">3.1 简单示例</a></li>
+        <li><a href="#32-i-与-i-的字节码差异">3.2 i++ 与 ++i 的字节码差异</a></li>
+        <li><a href="#33-try-finally-的字节码实现">3.3 try-finally 的字节码实现</a></li>
+        <li><a href="#34-自动拆装箱">3.4 自动拆装箱</a></li>
+        <li><a href="#35-字符串拼接-运算符">3.5 字符串拼接（+ 运算符）</a></li>
+      </ul>
+    </li>
+    <li><a href="#四invokedynamic-与-lambda">四、invokedynamic 与 Lambda</a>
+      <ul>
+        <li><a href="#41-为什么需要-invokedynamic">4.1 为什么需要 invokedynamic</a></li>
+        <li><a href="#42-lambda-的字节码实现">4.2 Lambda 的字节码实现</a></li>
+        <li><a href="#43-匿名内部类-vs-lambda-的字节码差异">4.3 匿名内部类 vs Lambda 的字节码差异</a></li>
+      </ul>
+    </li>
+    <li><a href="#五字节码操作框架">五、字节码操作框架</a></li>
+    <li><a href="#六总结">六、总结</a>
+      <ul>
+        <li><a href="#字节码速查表">字节码速查表</a></li>
+        <li><a href="#实用命令">实用命令</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Java 字节码详解</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>Java 字节码是 JVM 执行的指令集。理解字节码不仅能帮你深入理解 JVM 的工作原理，还能在排查疑难问题时多一个底层视角——比如分析语法糖的底层实现、定位编译器优化问题、理解 Lambda 表达式的执行机制等。</p>
+<h2 id="一class-文件结构">一、Class 文件结构</h2>
+<p>每个 Class 文件对应一个 Java 类或接口的完整定义。它是一组以 <strong>8 位字节</strong>为基础单位的二进制流，按紧凑的格式排列。</p>
+<h3 id="11-总体结构">1.1 总体结构</h3>
+<pre tabindex="0"><code>ClassFile {
+    u4             magic;                 // 魔数：0xCAFEBABE
+    u2             minor_version;         // 次版本号
+    u2             major_version;         // 主版本号
+    u2             constant_pool_count;   // 常量池大小
+    cp_info        constant_pool[constant_pool_count-1]; // 常量池
+    u2             access_flags;          // 类/接口的访问标志
+    u2             this_class;            // 当前类索引
+    u2             super_class;           // 父类索引
+    u2             interfaces_count;      // 接口计数器
+    u2             interfaces[interfaces_count]; // 接口索引集合
+    u2             fields_count;          // 字段计数器
+    field_info     fields[fields_count];  // 字段表
+    u2             methods_count;         // 方法计数器
+    method_info    methods[methods_count];// 方法表
+    u2             attributes_count;      // 属性计数器
+    attribute_info attributes[attributes_count]; // 属性表
+}
+</code></pre><h3 id="12-魔数与版本号">1.2 魔数与版本号</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 每个 Class 文件的前 4 个字节：0xCAFEBABE</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 紧接着的 4 个字节标识版本号（minor + major）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 常见的版本号对应关系：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// JDK 1.1  → major=45</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// JDK 1.5  → major=49</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// JDK 1.8  → major=52</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// JDK 11   → major=55</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// JDK 17   → major=61</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// JDK 21   → major=65</span><span class="w">
+</span></span></span></code></pre></div><h3 id="13-常量池">1.3 常量池</h3>
+<p>常量池是 Class 文件中<strong>最复杂也最重要</strong>的数据结构，它存放两大类常量：</p>
+<ol>
+<li><strong>字面量</strong>：文本字符串、被声明为 <code>final</code> 的常量值</li>
+<li><strong>符号引用</strong>：类和接口的全限定名、字段的名称和描述符、方法的名称和描述符</li>
+</ol>
+<p><strong>常量池中的常见常量类型：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="err">┌─────────────────┬────────────────────────────────┐</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">常量类型</span><span class="w">         </span><span class="err">│</span><span class="w"> </span><span class="n">标志</span><span class="err">（</span><span class="n">tag</span><span class="err">）</span><span class="w">                    </span><span class="err">│</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">├─────────────────┼────────────────────────────────┤</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_Utf8</span><span class="w">   </span><span class="err">│</span><span class="w"> </span><span class="n">1</span><span class="w">     </span><span class="c1">// UTF-8 编码的字符串     │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_Integer</span><span class="err">│</span><span class="w"> </span><span class="n">3</span><span class="w">     </span><span class="c1">// int 常量               │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_Float</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="n">4</span><span class="w">     </span><span class="c1">// float 常量             │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_Long</span><span class="w">   </span><span class="err">│</span><span class="w"> </span><span class="n">5</span><span class="w">     </span><span class="c1">// long 常量              │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_Double</span><span class="w"> </span><span class="err">│</span><span class="w"> </span><span class="n">6</span><span class="w">     </span><span class="c1">// double 常量            │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_Class</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="n">7</span><span class="w">     </span><span class="c1">// 类或接口的符号引用      │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_String</span><span class="w"> </span><span class="err">│</span><span class="w"> </span><span class="n">8</span><span class="w">     </span><span class="c1">// 字符串类型字面量        │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_Fieldref</span><span class="err">│</span><span class="w"> </span><span class="n">9</span><span class="w">    </span><span class="c1">// 字段的符号引用          │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_Methodref</span><span class="err">│</span><span class="n">10</span><span class="w">   </span><span class="c1">// 类中方法的符号引用      │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_InterfaceMethodref</span><span class="err">│</span><span class="n">11</span><span class="w"> </span><span class="c1">// 接口中方法的符号引用│</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_NameAndType</span><span class="err">│</span><span class="n">12</span><span class="w"> </span><span class="c1">// 字段/方法的名称和类型    │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_MethodHandle</span><span class="err">│</span><span class="n">15</span><span class="w"> </span><span class="c1">// 方法句柄               │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_MethodType</span><span class="err">│</span><span class="n">16</span><span class="w">   </span><span class="c1">// 方法类型               │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">│</span><span class="w"> </span><span class="n">CONSTANT_InvokeDynamic</span><span class="err">│</span><span class="n">18</span><span class="w"> </span><span class="c1">// 动态调用点            │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="err">└─────────────────┴────────────────────────────────┘</span><span class="w">
+</span></span></span></code></pre></div><h3 id="14-访问标志access-flags">1.4 访问标志（Access Flags）</h3>
+<p>用于标识类或接口的访问信息：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 取值（可组合，用位运算）：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ACC_PUBLIC</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="n">0x0001</span><span class="w">  </span><span class="c1">// public</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ACC_FINAL</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="n">0x0010</span><span class="w">  </span><span class="c1">// final</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ACC_SUPER</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="n">0x0020</span><span class="w">  </span><span class="c1">// 使用 invokespecial 语义（JDK 1.2 后必须为真）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ACC_INTERFACE</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">0x0200</span><span class="w">  </span><span class="c1">// 接口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ACC_ABSTRACT</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">0x0400</span><span class="w">  </span><span class="c1">// 抽象类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ACC_SYNTHETIC</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">0x1000</span><span class="w">  </span><span class="c1">// 编译器自动生成的类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ACC_ANNOTATION</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">0x2000</span><span class="w">  </span><span class="c1">// 注解</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ACC_ENUM</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="n">0x4000</span><span class="w">  </span><span class="c1">// 枚举</span><span class="w">
+</span></span></span></code></pre></div><h3 id="15-字段表和方法表">1.5 字段表和方法表</h3>
+<p>字段表描述类或接口中声明的变量：</p>
+<pre tabindex="0"><code>field_info {
+    u2             access_flags;      // 访问标志（public/static/volatile 等）
+    u2             name_index;        // 字段名在常量池中的索引
+    u2             descriptor_index;  // 字段描述符在常量池中的索引
+    u2             attributes_count;  // 属性数量
+    attribute_info attributes[attributes_count];
+}
+</code></pre><p>方法表结构与字段表类似，但方法体（字节码指令）存储在 <code>Code</code> 属性中。</p>
+<p><strong>描述符（Descriptor）：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 字段描述符</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kt">int</span><span class="o">[]</span><span class="w">         </span><span class="err">→</span><span class="w">   </span><span class="o">[</span><span class="n">I</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">Object</span><span class="w">        </span><span class="err">→</span><span class="w">   </span><span class="n">Ljava</span><span class="o">/</span><span class="n">lang</span><span class="o">/</span><span class="n">Object</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">String</span><span class="o">[][]</span><span class="w">    </span><span class="err">→</span><span class="w">   </span><span class="o">[[</span><span class="n">Ljava</span><span class="o">/</span><span class="n">lang</span><span class="o">/</span><span class="n">String</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 方法描述符</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kt">void</span><span class="w"> </span><span class="nf">run</span><span class="p">()</span><span class="w">              </span><span class="err">→</span><span class="w">   </span><span class="p">()</span><span class="n">V</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kt">int</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">)</span><span class="w">       </span><span class="err">→</span><span class="w">   </span><span class="p">(</span><span class="n">II</span><span class="p">)</span><span class="n">I</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">String</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="p">)</span><span class="w"> </span><span class="err">→</span><span class="w">   </span><span class="p">(</span><span class="n">ILjava</span><span class="o">/</span><span class="n">lang</span><span class="o">/</span><span class="n">String</span><span class="p">;)</span><span class="n">Ljava</span><span class="o">/</span><span class="n">lang</span><span class="o">/</span><span class="n">String</span><span class="p">;</span><span class="w">
+</span></span></span></code></pre></div><h2 id="二字节码指令集">二、字节码指令集</h2>
+<p>JVM 的指令集基于<strong>栈架构</strong>，大多数指令都不包含操作数，操作数取自操作数栈。</p>
+<h3 id="21-数据类型与指令前缀">2.1 数据类型与指令前缀</h3>
+<p>字节码指令通常包含数据类型信息：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="n">l</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">long</span><span class="p">,</span><span class="w"> </span><span class="n">f</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">float</span><span class="p">,</span><span class="w"> </span><span class="n">d</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">double</span><span class="p">,</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reference</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">char</span><span class="p">,</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">short</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 例子：将常量加载到操作数栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">iconst_1</span><span class="w">    </span><span class="c1">// 将 int 类型常量 1 压入栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">lconst_1</span><span class="w">    </span><span class="c1">// 将 long 类型常量 1 压入栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">fconst_1</span><span class="w">    </span><span class="c1">// 将 float 类型常量 1 压入栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">dconst_1</span><span class="w">    </span><span class="c1">// 将 double 类型常量 1 压入栈</span><span class="w">
+</span></span></span></code></pre></div><h3 id="22-常用指令分类">2.2 常用指令分类</h3>
+<p><strong>加载和存储指令：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 将局部变量加载到操作数栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">iload</span><span class="p">,</span><span class="w"> </span><span class="n">lload</span><span class="p">,</span><span class="w"> </span><span class="n">fload</span><span class="p">,</span><span class="w"> </span><span class="n">dload</span><span class="p">,</span><span class="w"> </span><span class="n">aload</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">iload_0</span><span class="w">    </span><span class="c1">// 将第 0 个局部变量（int）压入栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 将操作数栈顶值存储到局部变量表</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">istore</span><span class="p">,</span><span class="w"> </span><span class="n">lstore</span><span class="p">,</span><span class="w"> </span><span class="n">fstore</span><span class="p">,</span><span class="w"> </span><span class="n">dstore</span><span class="p">,</span><span class="w"> </span><span class="n">astore</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">istore_1</span><span class="w">   </span><span class="c1">// 将栈顶 int 值存入第 1 个局部变量</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 将常量加载到操作数栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">bipush</span><span class="w">     </span><span class="c1">// byte 扩展成 int 入栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">sipush</span><span class="w">     </span><span class="c1">// short 扩展成 int 入栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ldc</span><span class="w">        </span><span class="c1">// 从常量池中加载常量到栈（String、Class 等）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">iconst_0</span><span class="w">   </span><span class="c1">// int 常量 0 入栈（另有 iconst_1 ~ iconst_5）</span><span class="w">
+</span></span></span></code></pre></div><p><strong>算术指令：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">iadd</span><span class="p">,</span><span class="w"> </span><span class="n">ladd</span><span class="p">,</span><span class="w"> </span><span class="n">fadd</span><span class="p">,</span><span class="w"> </span><span class="n">dadd</span><span class="w">      </span><span class="c1">// 加法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">isub</span><span class="p">,</span><span class="w"> </span><span class="n">lsub</span><span class="p">,</span><span class="w"> </span><span class="n">fsub</span><span class="p">,</span><span class="w"> </span><span class="n">dsub</span><span class="w">      </span><span class="c1">// 减法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">imul</span><span class="p">,</span><span class="w"> </span><span class="n">lmul</span><span class="p">,</span><span class="w"> </span><span class="n">fmul</span><span class="p">,</span><span class="w"> </span><span class="n">dmul</span><span class="w">      </span><span class="c1">// 乘法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">idiv</span><span class="p">,</span><span class="w"> </span><span class="n">ldiv</span><span class="p">,</span><span class="w"> </span><span class="n">fdiv</span><span class="p">,</span><span class="w"> </span><span class="n">ddiv</span><span class="w">      </span><span class="c1">// 除法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">irem</span><span class="p">,</span><span class="w"> </span><span class="n">lrem</span><span class="p">,</span><span class="w"> </span><span class="n">frem</span><span class="p">,</span><span class="w"> </span><span class="n">drem</span><span class="w">      </span><span class="c1">// 取模</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ineg</span><span class="p">,</span><span class="w"> </span><span class="n">lneg</span><span class="p">,</span><span class="w"> </span><span class="n">fneg</span><span class="p">,</span><span class="w"> </span><span class="n">dneg</span><span class="w">      </span><span class="c1">// 取反</span><span class="w">
+</span></span></span></code></pre></div><p><strong>对象操作指令：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="k">new</span><span class="w">              </span><span class="c1">// 创建对象（分配内存，未调用构造器）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">newarray</span><span class="w">         </span><span class="c1">// 创建基本类型数组</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">anewarray</span><span class="w">        </span><span class="c1">// 创建引用类型数组</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">getfield</span><span class="w">         </span><span class="c1">// 获取实例字段</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">putfield</span><span class="w">         </span><span class="c1">// 设置实例字段</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">getstatic</span><span class="w">        </span><span class="c1">// 获取静态字段</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">putstatic</span><span class="w">        </span><span class="c1">// 设置静态字段</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">instanceof</span><span class="w">       </span><span class="c1">// 检查对象是否为指定类型</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">checkcast</span><span class="w">        </span><span class="c1">// 类型强制转换</span><span class="w">
+</span></span></span></code></pre></div><p><strong>方法调用指令：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">invokevirtual</span><span class="w">      </span><span class="c1">// 调用实例方法（基于虚方法分派，最常见的调用指令）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">invokespecial</span><span class="w">      </span><span class="c1">// 调用构造器、私有方法、父类方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">invokestatic</span><span class="w">       </span><span class="c1">// 调用静态方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">invokeinterface</span><span class="w">    </span><span class="c1">// 调用接口方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">invokedynamic</span><span class="w">      </span><span class="c1">// 动态解析调用点（JDK 7+，Lambda 表达式的核心）</span><span class="w">
+</span></span></span></code></pre></div><p><strong>控制转移指令：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">ifeq</span><span class="p">,</span><span class="w"> </span><span class="n">ifne</span><span class="p">,</span><span class="w"> </span><span class="n">iflt</span><span class="p">,</span><span class="w"> </span><span class="n">ifge</span><span class="p">,</span><span class="w"> </span><span class="n">ifgt</span><span class="p">,</span><span class="w"> </span><span class="n">ifle</span><span class="w">       </span><span class="c1">// if (x ==/!=/&lt; 等) 0</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">if_icmpeq</span><span class="p">,</span><span class="w"> </span><span class="n">if_icmpne</span><span class="p">,</span><span class="w"> </span><span class="n">if_icmplt</span><span class="w"> </span><span class="n">等</span><span class="w">       </span><span class="c1">// 比较两个 int 值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ifnull</span><span class="p">,</span><span class="w"> </span><span class="n">ifnonnull</span><span class="w">                        </span><span class="c1">// 与 null 比较</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">goto</span><span class="w">                                     </span><span class="c1">// 无条件跳转</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">tableswitch</span><span class="p">,</span><span class="w"> </span><span class="n">lookupswitch</span><span class="w">                </span><span class="c1">// switch 语句</span><span class="w">
+</span></span></span></code></pre></div><p><strong>返回指令：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="k">return</span><span class="w">       </span><span class="c1">// void 方法返回</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ireturn</span><span class="w">      </span><span class="c1">// int 方法返回</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">lreturn</span><span class="w">      </span><span class="c1">// long 方法返回</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">freturn</span><span class="w">      </span><span class="c1">// float 方法返回</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">dreturn</span><span class="w">      </span><span class="c1">// double 方法返回</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">areturn</span><span class="w">      </span><span class="c1">// 引用类型方法返回</span><span class="w">
+</span></span></span></code></pre></div><h2 id="三使用-javap-查看字节码">三、使用 javap 查看字节码</h2>
+<p><code>javap</code> 是 JDK 自带的字节码查看工具。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 将 .class 文件反汇编为字节码</span>
+</span></span><span class="line"><span class="cl">javap -c HelloWorld.class
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 查看详细信息（常量池、行号等）</span>
+</span></span><span class="line"><span class="cl">javap -verbose HelloWorld.class
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 查看方法字节码</span>
+</span></span><span class="line"><span class="cl">javap -c -p HelloWorld.class  <span class="c1"># -p 显示私有方法</span>
+</span></span></code></pre></div><h3 id="31-简单示例">3.1 简单示例</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 源码</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">HelloWorld</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">2</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">b</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="n">c</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>字节码：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">java</span><span class="p">.</span><span class="na">lang</span><span class="p">.</span><span class="na">String</span><span class="o">[]</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Code</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">       </span><span class="n">0</span><span class="p">:</span><span class="w"> </span><span class="n">iconst_1</span><span class="w">               </span><span class="c1">// 将 int 常量 1 压入操作数栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">       </span><span class="n">1</span><span class="p">:</span><span class="w"> </span><span class="n">istore_1</span><span class="w">               </span><span class="c1">// 栈顶值弹出，存入局部变量表 slot 1（a）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">       </span><span class="n">2</span><span class="p">:</span><span class="w"> </span><span class="n">iconst_2</span><span class="w">               </span><span class="c1">// 将 int 常量 2 压入操作数栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">       </span><span class="n">3</span><span class="p">:</span><span class="w"> </span><span class="n">istore_2</span><span class="w">               </span><span class="c1">// 存入局部变量表 slot 2（b）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">       </span><span class="n">4</span><span class="p">:</span><span class="w"> </span><span class="n">iload_1</span><span class="w">                </span><span class="c1">// 将 slot 1（a）加载到栈顶</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">       </span><span class="n">5</span><span class="p">:</span><span class="w"> </span><span class="n">iload_2</span><span class="w">                </span><span class="c1">// 将 slot 2（b）加载到栈顶</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">       </span><span class="n">6</span><span class="p">:</span><span class="w"> </span><span class="n">iadd</span><span class="w">                   </span><span class="c1">// 弹出栈顶两个 int，相加后结果入栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">       </span><span class="n">7</span><span class="p">:</span><span class="w"> </span><span class="n">istore_3</span><span class="w">               </span><span class="c1">// 存入局部变量表 slot 3（c）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">       </span><span class="n">8</span><span class="p">:</span><span class="w"> </span><span class="n">getstatic</span><span class="w"> </span><span class="err">#</span><span class="n">7</span><span class="w">           </span><span class="c1">// 获取 System.out（#7 常量池引用）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="n">11</span><span class="p">:</span><span class="w"> </span><span class="n">iload_3</span><span class="w">                </span><span class="c1">// 将 slot 3（c）加载到栈顶</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="n">12</span><span class="p">:</span><span class="w"> </span><span class="n">invokevirtual</span><span class="w"> </span><span class="err">#</span><span class="n">13</span><span class="w">      </span><span class="c1">// 调用 println（#13 常量池引用）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="n">15</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w">
+</span></span></span></code></pre></div><pre tabindex="0"><code>执行流程可视化：
+
+iconst_1 → [1]          a = 1
+         栈: 1
+
+istore_1 → []           a 存入 slot 1
+         栈: (空)
+
+iconst_2 → [2]          
+         栈: 2
+
+istore_2 → []           b 存入 slot 2
+         栈: (空)
+
+iload_1  → [1]          
+         栈: 1
+
+iload_2  → [1, 2]       a 和 b 都在栈上
+         栈: 1 → 2
+
+iadd     → [3]          a + b
+         栈: 3
+
+istore_3 → []           c 存入 slot 3
+         栈: (空)
+</code></pre><h3 id="32-i-与-i-的字节码差异">3.2 i++ 与 ++i 的字节码差异</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">IncrementDemo</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// i++：先取 i 的值，再自增</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">postIncrement</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ++i：先自增，再取 i 的值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">preIncrement</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="o">++</span><span class="n">i</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>postIncrement 字节码：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nl">0</span><span class="p">:</span><span class="w"> </span><span class="n">iload_1</span><span class="w">              </span><span class="c1">// 读取 i</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">1</span><span class="p">:</span><span class="w"> </span><span class="n">iinc</span><span class="w"> </span><span class="n">1</span><span class="p">,</span><span class="w"> </span><span class="n">1</span><span class="w">            </span><span class="c1">// 局部变量 slot1 直接 +1（不通过操作数栈）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">4</span><span class="p">:</span><span class="w"> </span><span class="n">ireturn</span><span class="w">              </span><span class="c1">// 返回的是栈顶的原始值（即自增前的 i）</span><span class="w">
+</span></span></span></code></pre></div><p><strong>preIncrement 字节码：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nl">0</span><span class="p">:</span><span class="w"> </span><span class="n">iinc</span><span class="w"> </span><span class="n">1</span><span class="p">,</span><span class="w"> </span><span class="n">1</span><span class="w">            </span><span class="c1">// 先自增（局部变量 slot1 +1）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">3</span><span class="p">:</span><span class="w"> </span><span class="n">iload_1</span><span class="w">              </span><span class="c1">// 再读取 i</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">4</span><span class="p">:</span><span class="w"> </span><span class="n">ireturn</span><span class="w">              </span><span class="c1">// 返回的是自增后的值</span><span class="w">
+</span></span></span></code></pre></div><p><strong>关键点：</strong> <code>iinc</code> 是直接操作局部变量表的指令，不经过操作数栈。<code>i++</code> 在读取值之后自增，<code>++i</code> 在自增之后读取值。这就是两者语义差异的字节码根源。</p>
+<h3 id="33-try-finally-的字节码实现">3.3 try-finally 的字节码实现</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">TryFinallyDemo</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">method</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;finally&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>字节码：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nl">0</span><span class="p">:</span><span class="w"> </span><span class="n">iconst_1</span><span class="w">               </span><span class="c1">// 将 1 压入栈（准备返回）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">1</span><span class="p">:</span><span class="w"> </span><span class="n">istore_1</span><span class="w">               </span><span class="c1">// 存入局部变量表 slot 1（暂存返回值）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">2</span><span class="p">:</span><span class="w"> </span><span class="n">getstatic</span><span class="w"> </span><span class="err">#</span><span class="n">7</span><span class="w">           </span><span class="c1">// System.out</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">5</span><span class="p">:</span><span class="w"> </span><span class="n">ldc</span><span class="w"> </span><span class="err">#</span><span class="n">13</span><span class="w">                </span><span class="c1">// &#34;finally&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">7</span><span class="p">:</span><span class="w"> </span><span class="n">invokevirtual</span><span class="w"> </span><span class="err">#</span><span class="n">15</span><span class="w">      </span><span class="c1">// println</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">10</span><span class="p">:</span><span class="w"> </span><span class="n">iload_1</span><span class="w">               </span><span class="c1">// 加载暂存的返回值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">11</span><span class="p">:</span><span class="w"> </span><span class="n">ireturn</span><span class="w">               </span><span class="c1">// 返回</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 异常路径（任意异常发生时）：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">12</span><span class="p">:</span><span class="w"> </span><span class="n">astore_2</span><span class="w">              </span><span class="c1">// 异常对象存入 slot 2</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">13</span><span class="p">:</span><span class="w"> </span><span class="n">getstatic</span><span class="w"> </span><span class="err">#</span><span class="n">7</span><span class="w">          </span><span class="c1">// System.out</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">16</span><span class="p">:</span><span class="w"> </span><span class="n">ldc</span><span class="w"> </span><span class="err">#</span><span class="n">13</span><span class="w">               </span><span class="c1">// &#34;finally&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">18</span><span class="p">:</span><span class="w"> </span><span class="n">invokevirtual</span><span class="w"> </span><span class="err">#</span><span class="n">15</span><span class="w">     </span><span class="c1">// println</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">21</span><span class="p">:</span><span class="w"> </span><span class="n">aload_2</span><span class="w">               </span><span class="c1">// 加载异常对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">22</span><span class="p">:</span><span class="w"> </span><span class="n">athrow</span><span class="w">                </span><span class="c1">// 抛出异常</span><span class="w">
+</span></span></span></code></pre></div><p><strong>关键点：</strong></p>
+<ul>
+<li><code>return 1</code> 先把 1 存到局部变量表，然后执行 finally，再从局部变量表加载返回值返回</li>
+<li>finally 块在正常路径和异常路径中都被<strong>复制了一份</strong></li>
+<li>这就是为什么 <code>finally</code> 无论如何都会执行</li>
+</ul>
+<h3 id="34-自动拆装箱">3.4 自动拆装箱</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">BoxingDemo</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">demo</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Integer</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">100</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">a</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>字节码：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nl">0</span><span class="p">:</span><span class="w"> </span><span class="n">bipush</span><span class="w"> </span><span class="n">100</span><span class="w">              </span><span class="c1">// 100 入栈</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">2</span><span class="p">:</span><span class="w"> </span><span class="n">invokestatic</span><span class="w"> </span><span class="err">#</span><span class="n">16</span><span class="w">        </span><span class="c1">// Integer.valueOf(int) → 自动装箱</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">5</span><span class="p">:</span><span class="w"> </span><span class="n">astore_1</span><span class="w">                </span><span class="c1">// 存入 slot 1 (a)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">6</span><span class="p">:</span><span class="w"> </span><span class="n">aload_1</span><span class="w">                 </span><span class="c1">// 加载 a</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">7</span><span class="p">:</span><span class="w"> </span><span class="n">invokevirtual</span><span class="w"> </span><span class="err">#</span><span class="n">22</span><span class="w">       </span><span class="c1">// Integer.intValue() → 自动拆箱</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">10</span><span class="p">:</span><span class="w"> </span><span class="n">istore_2</span><span class="w">               </span><span class="c1">// 存入 slot 2 (b)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">11</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w">
+</span></span></span></code></pre></div><p><strong>关键点：</strong> 自动装箱调用了 <code>Integer.valueOf()</code>，拆箱调用了 <code>Integer.intValue()</code>。这就是 <code>Integer a = 100</code> 编译后的真相。</p>
+<h3 id="35-字符串拼接-运算符">3.5 字符串拼接（+ 运算符）</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">StringConcatDemo</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">concat</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">b</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>JDK 8 字节码：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nl">0</span><span class="p">:</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="err">#</span><span class="n">2</span><span class="w">                  </span><span class="c1">// new StringBuilder</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">3</span><span class="p">:</span><span class="w"> </span><span class="n">dup</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">4</span><span class="p">:</span><span class="w"> </span><span class="n">invokespecial</span><span class="w"> </span><span class="err">#</span><span class="n">3</span><span class="w">        </span><span class="c1">// StringBuilder.&lt;init&gt;()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">7</span><span class="p">:</span><span class="w"> </span><span class="n">aload_1</span><span class="w">                 </span><span class="c1">// 加载 a</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">8</span><span class="p">:</span><span class="w"> </span><span class="n">invokevirtual</span><span class="w"> </span><span class="err">#</span><span class="n">4</span><span class="w">        </span><span class="c1">// StringBuilder.append(String)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">11</span><span class="p">:</span><span class="w"> </span><span class="n">aload_2</span><span class="w">                </span><span class="c1">// 加载 b</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">12</span><span class="p">:</span><span class="w"> </span><span class="n">invokevirtual</span><span class="w"> </span><span class="err">#</span><span class="n">4</span><span class="w">       </span><span class="c1">// StringBuilder.append(String)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">15</span><span class="p">:</span><span class="w"> </span><span class="n">invokevirtual</span><span class="w"> </span><span class="err">#</span><span class="n">5</span><span class="w">       </span><span class="c1">// StringBuilder.toString()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">18</span><span class="p">:</span><span class="w"> </span><span class="n">areturn</span><span class="w">
+</span></span></span></code></pre></div><p><strong>关键点：</strong> 在 JDK 8 中，<code>a + b</code> 实际是创建 <code>StringBuilder</code> 并调用 <code>append()</code>。JDK 9 之后改为 <code>invokedynamic</code> + <code>StringConcatFactory</code>。</p>
+<h2 id="四invokedynamic-与-lambda">四、invokedynamic 与 Lambda</h2>
+<h3 id="41-为什么需要-invokedynamic">4.1 为什么需要 invokedynamic</h3>
+<p>JDK 7 之前只有 4 种方法调用指令，都无法做到&quot;运行时动态确定调用目标&quot;。引入 <code>invokedynamic</code> 是为了支持<strong>动态语言</strong>以及后来的 <strong>Lambda 表达式</strong>。</p>
+<h3 id="42-lambda-的字节码实现">4.2 Lambda 的字节码实现</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">LambdaDemo</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">demo</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Runnable</span><span class="w"> </span><span class="n">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;hello&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">r</span><span class="p">.</span><span class="na">run</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>字节码：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nl">0</span><span class="p">:</span><span class="w"> </span><span class="n">invokedynamic</span><span class="w"> </span><span class="err">#</span><span class="n">2</span><span class="p">,</span><span class="w">  </span><span class="n">0</span><span class="w">   </span><span class="c1">// InvokeDynamic #0:run:()Ljava/lang/Runnable;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">5</span><span class="p">:</span><span class="w"> </span><span class="n">astore_1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">6</span><span class="p">:</span><span class="w"> </span><span class="n">aload_1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">7</span><span class="p">:</span><span class="w"> </span><span class="n">invokeinterface</span><span class="w"> </span><span class="err">#</span><span class="n">3</span><span class="p">,</span><span class="w"> </span><span class="n">1</span><span class="w">  </span><span class="c1">// Runnable.run()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nl">12</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w">
+</span></span></span></code></pre></div><p><strong>关键点：</strong> Lambda 表达式不会在编译时生成匿名内部类，而是通过 <code>invokedynamic</code> 指令，在运行时通过 <code>LambdaMetafactory</code> 动态生成实现类。这使得：</p>
+<ul>
+<li>Lambda 的创建成本转移到首次调用时</li>
+<li>后续调用可以复用已生成的实现</li>
+<li>JIT 编译器可以更好地内联优化</li>
+</ul>
+<h3 id="43-匿名内部类-vs-lambda-的字节码差异">4.3 匿名内部类 vs Lambda 的字节码差异</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 匿名内部类（编译后会生成单独的 .class 文件）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">Runnable</span><span class="w"> </span><span class="n">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Runnable</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">run</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;hello&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">};</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// Lambda（不生成单独的 .class 文件）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">Runnable</span><span class="w"> </span><span class="n">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;hello&#34;</span><span class="p">);</span><span class="w">
+</span></span></span></code></pre></div><p>匿名内部类会在编译时生成 <code>LambdaDemo$1.class</code> 文件，而 Lambda 不会——它是运行时通过 <code>invokedynamic</code> 动态生成的。</p>
+<h2 id="五字节码操作框架">五、字节码操作框架</h2>
+<p>除了使用 <code>javap</code> 查看字节码外，还有几个常用的字节码操作框架：</p>
+<table>
+	<thead>
+			<tr>
+					<th>框架</th>
+					<th>用途</th>
+					<th>特点</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>ASM</strong></td>
+					<td>字节码生成与修改</td>
+					<td>最底层，性能最好，CGLib 和 Spring 底层使用</td>
+			</tr>
+			<tr>
+					<td><strong>Javassist</strong></td>
+					<td>字节码修改</td>
+					<td>提供高级 API，学习成本低</td>
+			</tr>
+			<tr>
+					<td><strong>ByteBuddy</strong></td>
+					<td>字节码生成</td>
+					<td>现代框架，API 优雅，Mockito 使用</td>
+			</tr>
+			<tr>
+					<td><strong>CGLib</strong></td>
+					<td>动态代理</td>
+					<td>基于 ASM，Spring AOP 可选实现</td>
+			</tr>
+	</tbody>
+</table>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ByteBuddy 示例：动态生成类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">new</span><span class="w"> </span><span class="n">ByteBuddy</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">.</span><span class="na">subclass</span><span class="p">(</span><span class="n">Object</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">.</span><span class="na">method</span><span class="p">(</span><span class="n">named</span><span class="p">(</span><span class="s">&#34;toString&#34;</span><span class="p">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">.</span><span class="na">intercept</span><span class="p">(</span><span class="n">FixedValue</span><span class="p">.</span><span class="na">value</span><span class="p">(</span><span class="s">&#34;Hello ByteBuddy&#34;</span><span class="p">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">.</span><span class="na">make</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">.</span><span class="na">load</span><span class="p">(</span><span class="n">getClass</span><span class="p">().</span><span class="na">getClassLoader</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">.</span><span class="na">getLoaded</span><span class="p">();</span><span class="w">
+</span></span></span></code></pre></div><h2 id="六总结">六、总结</h2>
+<h3 id="字节码速查表">字节码速查表</h3>
+<table>
+	<thead>
+			<tr>
+					<th>类别</th>
+					<th>常见指令</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>常量入栈</td>
+					<td><code>iconst_0~5</code>, <code>bipush</code>, <code>ldc</code></td>
+			</tr>
+			<tr>
+					<td>局部变量操作</td>
+					<td><code>iload/istore</code>, <code>aload/astore</code></td>
+			</tr>
+			<tr>
+					<td>算术</td>
+					<td><code>iadd</code>, <code>isub</code>, <code>imul</code>, <code>idiv</code></td>
+			</tr>
+			<tr>
+					<td>对象</td>
+					<td><code>new</code>, <code>getfield/putfield</code>, <code>getstatic/putstatic</code></td>
+			</tr>
+			<tr>
+					<td>方法调用</td>
+					<td><code>invokevirtual</code>, <code>invokespecial</code>, <code>invokestatic</code>, <code>invokeinterface</code>, <code>invokedynamic</code></td>
+			</tr>
+			<tr>
+					<td>控制流</td>
+					<td><code>ifeq</code>, <code>if_icmpeq</code>, <code>goto</code>, <code>tableswitch</code></td>
+			</tr>
+			<tr>
+					<td>返回</td>
+					<td><code>return</code>, <code>ireturn</code>, <code>areturn</code></td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="实用命令">实用命令</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 查看字节码</span>
+</span></span><span class="line"><span class="cl">javap -c -p -verbose ClassName
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 保存字节码到文件</span>
+</span></span><span class="line"><span class="cl">javap -c -p ClassName &gt; bytecode.txt
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 同时查看行号对应关系</span>
+</span></span><span class="line"><span class="cl">javap -c -l ClassName
+</span></span></code></pre></div><hr>
+<p><strong>相关阅读：</strong></p>
+<ul>
+<li><a href="/posts/jvm-%E7%B1%BB%E5%8A%A0%E8%BD%BD%E6%9C%BA%E5%88%B6/">JVM 类加载机制</a></li>
+<li><a href="/posts/jit-%E5%8D%B3%E6%97%B6%E7%BC%96%E8%AF%91%E4%B8%8A%E7%BC%96%E8%AF%91%E8%BF%87%E7%A8%8B%E4%B8%8E%E5%88%86%E5%B1%82%E7%BC%96%E8%AF%91/">JIT 即时编译（上）：编译过程与分层编译</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

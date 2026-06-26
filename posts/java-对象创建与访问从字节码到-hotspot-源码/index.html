@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Java 对象创建与访问：从字节码到 HotSpot 源码 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一一切始于-new-指令">一、一切始于 new 指令</a>
+      <ul>
+        <li><a href="#11-字节码层面">1.1 字节码层面</a></li>
+        <li><a href="#12-hotspot-字节码解释器中的-new">1.2 HotSpot 字节码解释器中的 new</a></li>
+      </ul>
+    </li>
+    <li><a href="#二类加载检查">二、类加载检查</a>
+      <ul>
+        <li><a href="#21-常量池解析">2.1 常量池解析</a></li>
+        <li><a href="#22-初始化触发">2.2 初始化触发</a></li>
+      </ul>
+    </li>
+    <li><a href="#三内存分配">三、内存分配</a>
+      <ul>
+        <li><a href="#31-对象大小确定">3.1 对象大小确定</a></li>
+        <li><a href="#32-tlabthread-local-allocation-buffer">3.2 TLAB（Thread Local Allocation Buffer）</a></li>
+        <li><a href="#33-堆分配指针碰撞-vs-空闲列表">3.3 堆分配：指针碰撞 vs 空闲列表</a></li>
+        <li><a href="#34-分配并发安全">3.4 分配并发安全</a></li>
+      </ul>
+    </li>
+    <li><a href="#四对象内存初始化">四、对象内存初始化</a>
+      <ul>
+        <li><a href="#41-零值填充">4.1 零值填充</a></li>
+        <li><a href="#42-对象头设置">4.2 对象头设置</a></li>
+        <li><a href="#43-对象头初始化源码">4.3 对象头初始化源码</a></li>
+        <li><a href="#44-对象内存布局总览">4.4 对象内存布局总览</a></li>
+      </ul>
+    </li>
+    <li><a href="#五对象访问定位">五、对象访问定位</a>
+      <ul>
+        <li><a href="#51-oop-klass-二分模型">5.1 OOP-Klass 二分模型</a></li>
+        <li><a href="#52-klass-层次结构">5.2 Klass 层次结构</a></li>
+        <li><a href="#53-直接指针访问">5.3 直接指针访问</a></li>
+        <li><a href="#54-指针压缩compressed-oops">5.4 指针压缩（Compressed OOPs）</a></li>
+        <li><a href="#55-实例字段的访问偏移量">5.5 实例字段的访问偏移量</a></li>
+      </ul>
+    </li>
+    <li><a href="#六完整的对象创建流程总结">六、完整的对象创建流程总结</a></li>
+    <li><a href="#七总结">七、总结</a>
+      <ul>
+        <li><a href="#各环节源码路径速查">各环节源码路径速查</a></li>
+        <li><a href="#内存相关-jvm-参数">内存相关 JVM 参数</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Java 对象创建与访问：从字节码到 HotSpot 源码</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>当你在 Java 代码中写下一个 <code>new</code> 关键字时，JVM 在背后做了多少工作？</p>
+<p>从字节码指令到操作系统分配内存，这中间经过了一条完整且精心设计的链路。本文将逐层深入，从字节码出发，沿着 HotSpot 源码的执行路径，完整还原一个 Java 对象从无到有的全过程。</p>
+<h2 id="一一切始于-new-指令">一、一切始于 new 指令</h2>
+<h3 id="11-字节码层面">1.1 字节码层面</h3>
+<p>先看一段最简单的 Java 代码：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ObjectCreation</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">obj</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Object</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p>用 <code>javap -c -p -verbose</code> 看到的字节码：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">java</span><span class="p">.</span><span class="na">lang</span><span class="p">.</span><span class="na">String</span><span class="o">[]</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">descriptor</span><span class="p">:</span><span class="w"> </span><span class="p">(</span><span class="o">[</span><span class="n">Ljava</span><span class="o">/</span><span class="n">lang</span><span class="o">/</span><span class="n">String</span><span class="p">;)</span><span class="n">V</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">flags</span><span class="p">:</span><span class="w"> </span><span class="n">ACC_PUBLIC</span><span class="p">,</span><span class="w"> </span><span class="n">ACC_STATIC</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Code</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">stack</span><span class="o">=</span><span class="n">2</span><span class="p">,</span><span class="w"> </span><span class="n">locals</span><span class="o">=</span><span class="n">2</span><span class="p">,</span><span class="w"> </span><span class="n">args_size</span><span class="o">=</span><span class="n">1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">           </span><span class="n">0</span><span class="p">:</span><span class="w"> </span><span class="k">new</span><span class="w">           </span><span class="err">#</span><span class="n">7</span><span class="w">      </span><span class="c1">// class java/lang/Object</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">           </span><span class="n">3</span><span class="p">:</span><span class="w"> </span><span class="n">dup</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">           </span><span class="n">4</span><span class="p">:</span><span class="w"> </span><span class="n">invokespecial</span><span class="w"> </span><span class="err">#</span><span class="n">1</span><span class="w">      </span><span class="c1">// Method java/lang/Object.&#34;&lt;init&gt;&#34;:()V</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">           </span><span class="n">7</span><span class="p">:</span><span class="w"> </span><span class="n">astore_1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">           </span><span class="n">8</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w">
+</span></span></span></code></pre></div><p><code>new</code> 指令只是第一步，它负责在堆上分配内存（相当于 C 语言的 <code>malloc</code>），但此时对象的字段都还是零值，构造器（<code>&lt;init&gt;</code>）还没有执行。<code>dup</code> 复制引用用于构造器调用，<code>invokespecial</code> 执行构造器，<code>astore_1</code> 将引用存入局部变量表。</p>
+<h3 id="12-hotspot-字节码解释器中的-new">1.2 HotSpot 字节码解释器中的 new</h3>
+<p>在 HotSpot 源码中，<code>new</code> 指令的解释执行入口在 <a href="http://hg.openjdk.java.net/jdk8/jdk8/hotspot/file/87ee5ee27509/src/share/vm/interpreter/bytecodeInterpreter.cpp"><code>bytecodeInterpreter.cpp</code></a> 中，核心路径如下：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// bytecodeInterpreter.cpp (JDK 8 HotSpot)
+</span></span></span><span class="line"><span class="cl"><span class="n">CASE</span><span class="p">(</span><span class="n">_new</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="n">u2</span> <span class="n">index</span> <span class="o">=</span> <span class="n">Bytes</span><span class="o">::</span><span class="n">get_Java_u2</span><span class="p">(</span><span class="n">pc</span> <span class="o">+</span> <span class="mi">1</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 从常量池中获取类信息
+</span></span></span><span class="line"><span class="cl">    <span class="n">ConstantPoolEntry</span><span class="o">*</span> <span class="n">cp</span> <span class="o">=</span> <span class="n">istate</span><span class="o">-&gt;</span><span class="n">constants</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 如果类尚未解析，触发类加载
+</span></span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">cp</span><span class="o">-&gt;</span><span class="n">is_resolved</span><span class="p">(</span><span class="n">index</span><span class="p">))</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="c1">// 通过 SystemDictionary 解析类
+</span></span></span><span class="line"><span class="cl">        <span class="n">CALL_VM</span><span class="p">(</span><span class="n">InterpreterRuntime</span><span class="o">::</span><span class="n">_new</span><span class="p">(</span><span class="n">THREAD</span><span class="p">,</span> <span class="p">(</span><span class="n">ConstantPool</span><span class="o">*</span><span class="p">)</span><span class="n">cp</span><span class="p">,</span> <span class="n">index</span><span class="p">),</span>
+</span></span><span class="line"><span class="cl">                <span class="n">handle_exception</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">        <span class="c1">// 确保类已初始化
+</span></span></span><span class="line"><span class="cl">        <span class="n">CALL_VM</span><span class="p">(</span><span class="n">InterpreterRuntime</span><span class="o">::</span><span class="n">initialize_for_new</span><span class="p">(</span><span class="n">THREAD</span><span class="p">,</span> <span class="p">(</span><span class="n">ConstantPool</span><span class="o">*</span><span class="p">)</span><span class="n">cp</span><span class="p">,</span> <span class="n">index</span><span class="p">),</span>
+</span></span><span class="line"><span class="cl">                <span class="n">handle_exception</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 获取 Klass（类的元数据），分配对象
+</span></span></span><span class="line"><span class="cl">    <span class="n">Klass</span><span class="o">*</span> <span class="n">klass</span> <span class="o">=</span> <span class="n">cp</span><span class="o">-&gt;</span><span class="n">resolved_klass_at</span><span class="p">(</span><span class="n">index</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 核心分配逻辑
+</span></span></span><span class="line"><span class="cl">    <span class="n">oop</span> <span class="n">obj</span> <span class="o">=</span> <span class="n">InstanceKlass</span><span class="o">::</span><span class="n">allocate_instance</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="n">THREAD</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 将对象引用压入操作数栈
+</span></span></span><span class="line"><span class="cl">    <span class="n">SET_STACK_OBJECT</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>关键调用链：</p>
+<pre tabindex="0"><code>new 字节码
+  → InterpreterRuntime::_new()    // 类加载检查
+  → InstanceKlass::allocate_instance()  // 实际分配
+</code></pre><h2 id="二类加载检查">二、类加载检查</h2>
+<h3 id="21-常量池解析">2.1 常量池解析</h3>
+<p>当 <code>new</code> 指令首次执行时，类还未被加载到 JVM 中。HotSpot 在 <a href="http://hg.openjdk.java.net/jdk8/jdk8/hotspot/file/87ee5ee27509/src/share/vm/interpreter/interpreterRuntime.cpp"><code>InterpreterRuntime::_new()</code></a> 中触发类解析：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// interpreterRuntime.cpp
+</span></span></span><span class="line"><span class="cl"><span class="n">IRT_ENTRY</span><span class="p">(</span><span class="kt">void</span><span class="p">,</span> <span class="n">InterpreterRuntime</span><span class="o">::</span><span class="n">_new</span><span class="p">(</span><span class="n">JavaThread</span><span class="o">*</span> <span class="kr">thread</span><span class="p">,</span> <span class="n">ConstantPool</span><span class="o">*</span> <span class="n">pool</span><span class="p">,</span> <span class="kt">int</span> <span class="n">index</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">    <span class="n">Klass</span><span class="o">*</span> <span class="n">k</span> <span class="o">=</span> <span class="n">pool</span><span class="o">-&gt;</span><span class="n">klass_at</span><span class="p">(</span><span class="n">index</span><span class="p">,</span> <span class="n">CHECK</span><span class="p">);</span>  <span class="c1">// 触发类解析
+</span></span></span><span class="line"><span class="cl">    <span class="c1">// 如果类已经解析过，直接返回
+</span></span></span><span class="line"><span class="cl"><span class="n">IRT_END</span>
+</span></span></code></pre></div><p>而 <code>ConstantPool::klass_at()</code> 最终会调用 <code>SystemDictionary::resolve_or_fail()</code>，触发完整的类加载过程：</p>
+<pre tabindex="0"><code>ConstantPool::klass_at()
+  → SystemDictionary::resolve_or_fail()
+    → SystemDictionary::resolve_instance_class_or_null()
+      → ClassFileParser::parseClassFile()  // 解析 .class 文件
+        → 返回 InstanceKlass（类的运行时元数据）
+</code></pre><h3 id="22-初始化触发">2.2 初始化触发</h3>
+<p>类加载完成后，还需要确保类已经完成<strong>初始化</strong>（<code>&lt;clinit&gt;</code> 已执行）。HotSpot 通过 <code>InstanceKlass::initialize()</code> 检查：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// instanceKlass.cpp
+</span></span></span><span class="line"><span class="cl"><span class="kt">void</span> <span class="n">InstanceKlass</span><span class="o">::</span><span class="n">initialize</span><span class="p">(</span><span class="n">TRAPS</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="k">this</span><span class="o">-&gt;</span><span class="n">is_initialized</span><span class="p">())</span> <span class="k">return</span><span class="p">;</span>  <span class="c1">// 已初始化，直接返回
+</span></span></span><span class="line"><span class="cl">    <span class="c1">// 1. 如果父类未初始化，先初始化父类
+</span></span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="k">this</span><span class="o">-&gt;</span><span class="n">super</span><span class="p">()</span> <span class="o">!=</span> <span class="nb">NULL</span> <span class="o">&amp;&amp;</span> <span class="o">!</span><span class="k">this</span><span class="o">-&gt;</span><span class="n">super</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">is_initialized</span><span class="p">())</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="k">this</span><span class="o">-&gt;</span><span class="n">super</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">initialize</span><span class="p">(</span><span class="n">CHECK</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 2. 执行 &lt;clinit&gt; 方法
+</span></span></span><span class="line"><span class="cl">    <span class="k">this</span><span class="o">-&gt;</span><span class="n">link_class</span><span class="p">(</span><span class="n">CHECK</span><span class="p">);</span>  <span class="c1">// 确保已链接
+</span></span></span><span class="line"><span class="cl">    <span class="k">this</span><span class="o">-&gt;</span><span class="n">call_class_initializer</span><span class="p">(</span><span class="n">THREAD</span><span class="p">);</span>  <span class="c1">// 调用 &lt;clinit&gt;
+</span></span></span><span class="line"><span class="cl">    <span class="c1">// 3. 设置初始化完成标志
+</span></span></span><span class="line"><span class="cl">    <span class="k">this</span><span class="o">-&gt;</span><span class="n">set_initialized</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>这里保证了 JVM 规范中六种<strong>主动引用</strong>场景——<code>new</code> 就是第一种，会触发类的初始化。</p>
+<h2 id="三内存分配">三、内存分配</h2>
+<p>类确认已初始化后，进入真正的内存分配阶段。HotSpot 的分配路径在 <code>InstanceKlass::allocate_instance()</code>：</p>
+<h3 id="31-对象大小确定">3.1 对象大小确定</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// instanceKlass.cpp
+</span></span></span><span class="line"><span class="cl"><span class="n">instanceOop</span> <span class="n">InstanceKlass</span><span class="o">::</span><span class="n">allocate_instance</span><span class="p">(</span><span class="n">TRAPS</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 1. 获取对象大小（在类加载时已经计算好）
+</span></span></span><span class="line"><span class="cl">    <span class="kt">int</span> <span class="n">size</span> <span class="o">=</span> <span class="n">size_helper</span><span class="p">();</span>  <span class="c1">// 以 HeapWord 为单位
+</span></span></span><span class="line"><span class="cl">    <span class="c1">// 2. 分配内存
+</span></span></span><span class="line"><span class="cl">    <span class="n">Klass</span><span class="o">*</span> <span class="n">klass</span> <span class="o">=</span> <span class="k">this</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    <span class="n">HeapWord</span><span class="o">*</span> <span class="n">result</span> <span class="o">=</span> <span class="n">CollectedHeap</span><span class="o">::</span><span class="n">allocate_from_tlab</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">CHECK_NULL</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">==</span> <span class="nb">NULL</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="c1">// TLAB 分配失败，退化为堆分配
+</span></span></span><span class="line"><span class="cl">        <span class="n">result</span> <span class="o">=</span> <span class="n">CollectedHeap</span><span class="o">::</span><span class="n">allocate_outside_tlab</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">CHECK_NULL</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 3. 将 HeapWord* 包装为 oop 并初始化对象头
+</span></span></span><span class="line"><span class="cl">    <span class="n">instanceOop</span> <span class="n">obj</span> <span class="o">=</span> <span class="p">(</span><span class="n">instanceOop</span><span class="p">)</span><span class="n">result</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    <span class="n">obj</span><span class="o">-&gt;</span><span class="n">set_mark</span><span class="p">(</span><span class="n">markOopDesc</span><span class="o">::</span><span class="n">prototype</span><span class="p">());</span>
+</span></span><span class="line"><span class="cl">    <span class="n">obj</span><span class="o">-&gt;</span><span class="n">set_klass</span><span class="p">(</span><span class="n">klass</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="n">obj</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><h3 id="32-tlabthread-local-allocation-buffer">3.2 TLAB（Thread Local Allocation Buffer）</h3>
+<p>TLAB 是 HotSpot 最重要的优化之一——每个线程在堆中预分配一块缓冲区，线程内对象分配<strong>无需同步</strong>。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// collectedHeap.inline.hpp
+</span></span></span><span class="line"><span class="cl"><span class="n">HeapWord</span><span class="o">*</span> <span class="n">CollectedHeap</span><span class="o">::</span><span class="n">allocate_from_tlab</span><span class="p">(</span><span class="n">Klass</span><span class="o">*</span> <span class="n">klass</span><span class="p">,</span> <span class="kt">int</span> <span class="n">size</span><span class="p">,</span> <span class="n">TRAPS</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="n">Thread</span><span class="o">*</span> <span class="kr">thread</span> <span class="o">=</span> <span class="n">THREAD</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="n">UseTLAB</span><span class="p">)</span> <span class="p">{</span>  <span class="c1">// 默认开启
+</span></span></span><span class="line"><span class="cl">        <span class="n">HeapWord</span><span class="o">*</span> <span class="n">obj</span> <span class="o">=</span> <span class="kr">thread</span><span class="o">-&gt;</span><span class="n">tlab</span><span class="p">().</span><span class="n">allocate</span><span class="p">(</span><span class="n">size</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">        <span class="k">if</span> <span class="p">(</span><span class="n">obj</span> <span class="o">!=</span> <span class="nb">NULL</span><span class="p">)</span> <span class="k">return</span> <span class="n">obj</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">        <span class="c1">// TLAB 空间不足，尝试重新填充
+</span></span></span><span class="line"><span class="cl">        <span class="k">return</span> <span class="kr">thread</span><span class="o">-&gt;</span><span class="n">tlab</span><span class="p">().</span><span class="n">allocate_or_fill_slow</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="n">size</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="nb">NULL</span><span class="p">;</span>  <span class="c1">// 未开启 TLAB，走堆分配
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p><strong>TLAB 的分配逻辑 (<code>threadLocalAllocBuffer.cpp</code>)：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// threadLocalAllocBuffer.cpp
+</span></span></span><span class="line"><span class="cl"><span class="n">HeapWord</span><span class="o">*</span> <span class="n">ThreadLocalAllocBuffer</span><span class="o">::</span><span class="n">allocate</span><span class="p">(</span><span class="n">size_t</span> <span class="n">size</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// top 指向当前可用位置，end 指向 TLAB 边界
+</span></span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="n">pointer_delta</span><span class="p">(</span><span class="n">end</span><span class="p">(),</span> <span class="n">_top</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="n">size</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="n">HeapWord</span><span class="o">*</span> <span class="n">obj</span> <span class="o">=</span> <span class="n">_top</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">        <span class="n">_top</span> <span class="o">=</span> <span class="n">obj</span> <span class="o">+</span> <span class="n">size</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">        <span class="k">return</span> <span class="n">obj</span><span class="p">;</span>  <span class="c1">// 简单移动指针，无锁！
+</span></span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="nb">NULL</span><span class="p">;</span>  <span class="c1">// TLAB 空间不足
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p><strong>TLAB 的核心参数：</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>参数</th>
+					<th>默认值</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>-XX:+UseTLAB</code></td>
+					<td>true</td>
+					<td>启用 TLAB</td>
+			</tr>
+			<tr>
+					<td><code>-XX:TLABSize</code></td>
+					<td>0（自动计算）</td>
+					<td>TLAB 初始大小</td>
+			</tr>
+			<tr>
+					<td><code>-XX:TLABRefillWasteFraction</code></td>
+					<td>64</td>
+					<td>TLAB 重填充浪费比例</td>
+			</tr>
+			<tr>
+					<td><code>-XX:ResizeTLAB</code></td>
+					<td>true</td>
+					<td>是否动态调整 TLAB 大小</td>
+			</tr>
+	</tbody>
+</table>
+<p>当 TLAB 空间不足以分配当前对象时，TLAB 有两种处理方式：</p>
+<ol>
+<li><strong>浪费剩余空间，申请新 TLAB</strong> — 如果剩余空间浪费比例小于 <code>TLABRefillWasteFraction</code></li>
+<li><strong>直接在堆上分配（不浪费 TLAB）</strong> — 如果废弃比例过大</li>
+</ol>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// threadLocalAllocBuffer.cpp
+</span></span></span><span class="line"><span class="cl"><span class="n">HeapWord</span><span class="o">*</span> <span class="n">ThreadLocalAllocBuffer</span><span class="o">::</span><span class="n">allocate_or_fill_slow</span><span class="p">(</span><span class="n">Klass</span><span class="o">*</span> <span class="n">klass</span><span class="p">,</span> <span class="n">size_t</span> <span class="n">size</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 计算剩余空间浪费比例
+</span></span></span><span class="line"><span class="cl">    <span class="n">size_t</span> <span class="n">waste</span> <span class="o">=</span> <span class="n">pointer_delta</span><span class="p">(</span><span class="n">end</span><span class="p">(),</span> <span class="n">_top</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="n">waste</span> <span class="o">&lt;</span> <span class="p">(</span><span class="n">size_t</span><span class="p">)</span><span class="n">_refill_waste_limit</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="c1">// 浪费小，重新填充 TLAB（丢弃现有 TLAB）
+</span></span></span><span class="line"><span class="cl">        <span class="k">this</span><span class="o">-&gt;</span><span class="n">clear</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl">        <span class="k">this</span><span class="o">-&gt;</span><span class="n">fill</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="n">size</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">        <span class="k">return</span> <span class="k">this</span><span class="o">-&gt;</span><span class="n">allocate</span><span class="p">(</span><span class="n">size</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="c1">// 浪费大，直接在堆上分配（保留当前 TLAB 的剩余空间）
+</span></span></span><span class="line"><span class="cl">        <span class="k">return</span> <span class="nb">NULL</span><span class="p">;</span>  <span class="c1">// 走 allocate_outside_tlab
+</span></span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><h3 id="33-堆分配指针碰撞-vs-空闲列表">3.3 堆分配：指针碰撞 vs 空闲列表</h3>
+<p>当 TLAB 分配失败后，进入 <code>CollectedHeap::allocate_outside_tlab()</code>。这里的选择取决于垃圾收集器：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// 不同 GC 的分配逻辑
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">// 1. Serial / ParNew 等（使用标记-复制/标记-整理）
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    堆内存规整 → 指针碰撞（Bump-the-Pointer）
+</span></span></span><span class="line"><span class="cl"><span class="n">HeapWord</span><span class="o">*</span> <span class="n">result</span> <span class="o">=</span> <span class="n">_heap</span><span class="o">-&gt;</span><span class="n">allocate_from_contiguous_space</span><span class="p">(</span><span class="n">size</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="c1">// 只需移动 top 指针，CAS 保证线程安全
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">// 2. CMS（使用标记-清除）
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    堆内存碎片化 → 空闲列表（Free List）
+</span></span></span><span class="line"><span class="cl"><span class="n">HeapWord</span><span class="o">*</span> <span class="n">result</span> <span class="o">=</span> <span class="n">_heap</span><span class="o">-&gt;</span><span class="n">allocate_from_free_list</span><span class="p">(</span><span class="n">size</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="c1">// 遍历空闲列表找到合适的块
+</span></span></span></code></pre></div><p>对于 G1 收集器，分配还要考虑 Region：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// G1CollectedHeap.cpp
+</span></span></span><span class="line"><span class="cl"><span class="n">HeapWord</span><span class="o">*</span> <span class="n">G1CollectedHeap</span><span class="o">::</span><span class="n">allocate_new_tlab</span><span class="p">(</span><span class="n">size_t</span> <span class="n">min_size</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">                                             <span class="n">size_t</span> <span class="n">requested_size</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">                                             <span class="n">size_t</span><span class="o">*</span> <span class="n">actual_size</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// G1 在分配新 TLAB 时，需要保证 Region 内有连续空间
+</span></span></span><span class="line"><span class="cl">    <span class="n">HeapRegion</span><span class="o">*</span> <span class="n">hr</span> <span class="o">=</span> <span class="n">_hrm</span><span class="o">-&gt;</span><span class="n">allocate_region</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// ...
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p><strong>指针碰撞（Bump-the-Pointer）</strong></p>
+<pre tabindex="0"><code>分配前：
+┌────┬────┬────┬────┬────┬────┬────┬────┐
+│   已分配对象   │                free                │
+└────┴────┴────┴────┴────┴────┴────┴────┘
+                  ↑
+                 top → 下一个可用位置
+
+分配后：
+┌────┬────┬────┬────┬────┬────┬────┬────┐
+│   已分配对象   │ new obj │          free          │
+└────┴────┴────┴────┴────┴────┴────┴────┘
+                           ↑
+                          top
+</code></pre><p><strong>空闲列表（Free List）：</strong></p>
+<pre tabindex="0"><code>分配前：
+┌────┬────┬────┬────┬────┬────┬────┬────┐
+│  A  │free1│  B  │free2│  C  │free3│     │
+└────┴────┴────┴────┴────┴────┴────┴────┘
+              ↑            ↑
+          16 bytes      32 bytes
+
+分配 24 bytes → 选中 free2 → 拆分：
+┌────┬────┬────┬────┬────┬────┬────┬────┐
+│  A  │free1│  B  │new obj│  C  │ 8B  │     │
+└────┴────┴────┴────┴────┴────┴────┴────┘
+                           ↑
+                      剩余 8 字节放回空闲列表
+</code></pre><h3 id="34-分配并发安全">3.4 分配并发安全</h3>
+<p>对于非 TLAB 的堆分配，需要处理线程安全问题。HotSpot 使用 <strong>CAS + 失败重试</strong>：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// 指针碰撞场景的 CAS 分配
+</span></span></span><span class="line"><span class="cl"><span class="n">HeapWord</span><span class="o">*</span> <span class="n">ContiguousSpace</span><span class="o">::</span><span class="n">par_allocate</span><span class="p">(</span><span class="n">size_t</span> <span class="n">size</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="n">HeapWord</span><span class="o">*</span> <span class="n">old_top</span> <span class="o">=</span> <span class="n">_top</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">        <span class="n">HeapWord</span><span class="o">*</span> <span class="n">new_top</span> <span class="o">=</span> <span class="n">old_top</span> <span class="o">+</span> <span class="n">size</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">        <span class="k">if</span> <span class="p">(</span><span class="n">new_top</span> <span class="o">&lt;=</span> <span class="n">_end</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">            <span class="c1">// CAS 更新 top 指针
+</span></span></span><span class="line"><span class="cl">            <span class="k">if</span> <span class="p">(</span><span class="n">Atomic</span><span class="o">::</span><span class="n">cmpxchg_ptr</span><span class="p">(</span><span class="n">_top</span><span class="p">,</span> <span class="n">old_top</span><span class="p">,</span> <span class="n">new_top</span><span class="p">)</span> <span class="o">==</span> <span class="n">old_top</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">                <span class="k">return</span> <span class="n">old_top</span><span class="p">;</span>  <span class="c1">// 分配成功
+</span></span></span><span class="line"><span class="cl">            <span class="p">}</span>
+</span></span><span class="line"><span class="cl">            <span class="c1">// CAS 失败，重试
+</span></span></span><span class="line"><span class="cl">        <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">            <span class="k">return</span> <span class="nb">NULL</span><span class="p">;</span>  <span class="c1">// 空间不足
+</span></span></span><span class="line"><span class="cl">        <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><h2 id="四对象内存初始化">四、对象内存初始化</h2>
+<h3 id="41-零值填充">4.1 零值填充</h3>
+<p>在 C++ 层面，HotSpot 分配的内存通过 <code>CollectedHeap</code> 的 <code>allocate()</code> 返回，此时内存尚未清零。零值填充在分配时完成，取决于不同的 GC 实现：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// 以 Parallel GC 为例
+</span></span></span><span class="line"><span class="cl"><span class="n">HeapWord</span><span class="o">*</span> <span class="n">ParallelScavengeHeap</span><span class="o">::</span><span class="n">mem_allocate</span><span class="p">(</span><span class="n">size_t</span> <span class="n">size</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="n">HeapWord</span><span class="o">*</span> <span class="n">result</span> <span class="o">=</span> <span class="n">_young_gen</span><span class="o">-&gt;</span><span class="n">allocate</span><span class="p">(</span><span class="n">size</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">!=</span> <span class="nb">NULL</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="c1">// 对象分配后，确保已清零
+</span></span></span><span class="line"><span class="cl">        <span class="c1">// Parallel GC 使用预清零的内存（precleaned），或在分配时 memset
+</span></span></span><span class="line"><span class="cl">        <span class="n">Copy</span><span class="o">::</span><span class="n">fill_to_words</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>  <span class="c1">// 零值填充
+</span></span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="n">result</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p><strong>这意味着什么：</strong></p>
+<ul>
+<li>对象的 <code>boolean</code> 字段初始为 <code>false</code></li>
+<li><code>int</code> 字段初始为 <code>0</code></li>
+<li>引用类型字段初始为 <code>null</code></li>
+<li>这一切发生在构造器执行之前</li>
+</ul>
+<h3 id="42-对象头设置">4.2 对象头设置</h3>
+<p>对象头由两部分组成：<strong>Mark Word</strong> 和 <strong>Klass Pointer</strong>。</p>
+<p><strong>Mark Word（<code>markOop.hpp</code>）：</strong></p>
+<p>Mark Word 是对象头的核心，在 64 位 JVM 中占 8 字节，其格式随对象状态变化：</p>
+<pre tabindex="0"><code>64位 Mark Word（无锁状态）：
+|------------------------------------------------------------------------|
+|  unused:25  |  identity_hashcode:31  |  unused:1  |  age:4  |  biased_lock:1  |  lock:2  |
+|------------------------------------------------------------------------|
+
+各状态下的 Mark Word 复用：
+┌──────────────┬──────────────────────────────────────────────────────┐
+│ 对象状态       │ Mark Word 内容                                      │
+├──────────────┼──────────────────────────────────────────────────────┤
+│ 无锁          │ biased_lock=0 | lock=01 → 存储 hashcode + GC age    │
+│ 偏向锁        │ biased_lock=1 | lock=01 → 存储线程 ID + epoch + age │
+│ 轻量级锁      │ lock=00 → 指向栈中锁记录的指针                       │
+│ 重量级锁      │ lock=10 → 指向管程 Monitor 的指针                   │
+│ GC 标记       │ lock=11 → 标记信息（GC 转发指针等）                  │
+└──────────────┴──────────────────────────────────────────────────────┘
+</code></pre><p>在对象分配时，初始的 Mark Word 通过 <code>markOopDesc::prototype()</code> 设置：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// markOop.hpp
+</span></span></span><span class="line"><span class="cl"><span class="k">static</span> <span class="n">markOop</span> <span class="nf">prototype</span><span class="p">()</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="n">markOop</span><span class="p">(</span> <span class="n">no_hash_in_place</span> <span class="o">|</span> <span class="n">no_lock_in_place</span> <span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p><strong>Klass Pointer（类型指针）：</strong></p>
+<p>指向方法区的 <code>InstanceKlass</code> 元数据，记录对象所属的类信息：</p>
+<ul>
+<li>64 位 JVM 默认开启指针压缩时占 <strong>4 字节</strong>（堆大小 &lt; 32GB）</li>
+<li>64 位 JVM 关闭指针压缩时占 <strong>8 字节</strong></li>
+</ul>
+<h3 id="43-对象头初始化源码">4.3 对象头初始化源码</h3>
+<p>回到 <code>InstanceKlass::allocate_instance()</code>，对象头初始化的完整逻辑：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// instanceKlass.cpp — 简化核心路径
+</span></span></span><span class="line"><span class="cl"><span class="n">instanceOop</span> <span class="n">InstanceKlass</span><span class="o">::</span><span class="n">allocate_instance</span><span class="p">(</span><span class="n">TRAPS</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="kt">int</span> <span class="n">size</span> <span class="o">=</span> <span class="n">size_helper</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl">    <span class="n">Klass</span><span class="o">*</span> <span class="n">klass</span> <span class="o">=</span> <span class="k">this</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c1">// 1. 从 TLAB 或堆分配原始内存
+</span></span></span><span class="line"><span class="cl">    <span class="n">HeapWord</span><span class="o">*</span> <span class="n">result</span> <span class="o">=</span> <span class="n">CollectedHeap</span><span class="o">::</span><span class="n">allocate_from_tlab</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">CHECK_NULL</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">==</span> <span class="nb">NULL</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="n">result</span> <span class="o">=</span> <span class="n">CollectedHeap</span><span class="o">::</span><span class="n">allocate_outside_tlab</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">CHECK_NULL</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c1">// 2. 包装为 OOP
+</span></span></span><span class="line"><span class="cl">    <span class="n">instanceOop</span> <span class="n">obj</span> <span class="o">=</span> <span class="p">(</span><span class="n">instanceOop</span><span class="p">)</span><span class="n">result</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c1">// 3. 设置 Mark Word — 初始化为无锁状态的原型
+</span></span></span><span class="line"><span class="cl">    <span class="n">obj</span><span class="o">-&gt;</span><span class="n">set_mark</span><span class="p">(</span><span class="n">markOopDesc</span><span class="o">::</span><span class="n">prototype</span><span class="p">());</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c1">// 4. 设置 Klass Pointer — 指向方法区的 InstanceKlass
+</span></span></span><span class="line"><span class="cl">    <span class="n">obj</span><span class="o">-&gt;</span><span class="n">set_klass</span><span class="p">(</span><span class="n">klass</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c1">// 5. 注意：实例数据已经在分配阶段清零（零值初始化）
+</span></span></span><span class="line"><span class="cl">    <span class="c1">//    不需要额外操作
+</span></span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="n">obj</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><h3 id="44-对象内存布局总览">4.4 对象内存布局总览</h3>
+<p>以一个简单的 <code>Point</code> 类为例：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Point</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">x</span><span class="p">;</span><span class="w">     </span><span class="c1">// 实例数据</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">y</span><span class="p">;</span><span class="w">     </span><span class="c1">// 实例数据</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>对象在 64 位 JVM + 指针压缩下的内存布局：</strong></p>
+<pre tabindex="0"><code>offset  │ 内容
+────────┼──────────────────────────────────
+0 ~ 7   │ Mark Word（8 字节）
+        │  [hashcode:25|GC age:4|biased:1|lock:2] (初始无锁态)
+8 ~ 11  │ Klass Pointer（4 字节，指针压缩）
+        │  → 指向方法区的 InstanceKlass&lt;Point&gt;
+12      │ （对齐填充起始）
+12 ~ 13 │ padding（4 字节对齐需要）
+14 ~ 15 │ padding
+16 ~ 19 │ Point.x（int，4 字节）
+20 ~ 23 │ Point.y（int，4 字节）
+────────┼──────────────────────────────────
+总大小   │ 24 字节（8 字节对齐的整数倍）
+</code></pre><p><strong>关闭指针压缩时（<code>-XX:-UseCompressedOops</code>）：</strong></p>
+<pre tabindex="0"><code>offset  │ 内容
+────────┼──────────────────────────────────
+0 ~ 7   │ Mark Word（8 字节）
+8 ~ 15  │ Klass Pointer（8 字节，未压缩）
+16 ~ 19 │ Point.x（int，4 字节）
+20 ~ 23 │ Point.y（int，4 字节）
+────────┼──────────────────────────────────
+总大小   │ 24 字节（天然对齐）
+</code></pre><p>可以看到指针压缩在这个例子里没有减少总大小（因为对齐填充），但当对象字段较多时效果显著。</p>
+<h2 id="五对象访问定位">五、对象访问定位</h2>
+<p>对象创建完成后，程序如何访问它？这涉及 HotSpot 的 OOP-Klass 二分模型。</p>
+<h3 id="51-oop-klass-二分模型">5.1 OOP-Klass 二分模型</h3>
+<p>HotSpot 采用 <strong>OOP（Ordinary Object Pointer）</strong> 和 <strong>Klass</strong> 两个概念来分别描述对象：</p>
+<pre tabindex="0"><code>OOP（堆中的对象实例）
+┌──────────────────┐
+│   Mark Word       │  ← 运行时状态（锁、hashcode、GC 年龄）
+├──────────────────┤
+│   Klass Pointer   │───→ 指向 InstanceKlass（方法区）
+├──────────────────┤
+│   实例数据         │  ← 字段值
+├──────────────────┤
+│   对齐填充         │
+└──────────────────┘
+       ↑
+       │ Java 程序通过引用（reference）持有
+</code></pre><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// oop.hpp — OOP 的 C++ 定义
+</span></span></span><span class="line"><span class="cl"><span class="k">class</span> <span class="nc">oopDesc</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="k">friend</span> <span class="k">class</span> <span class="nc">VMStructs</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="k">private</span><span class="o">:</span>
+</span></span><span class="line"><span class="cl">    <span class="k">volatile</span> <span class="n">markOop</span> <span class="n">_mark</span><span class="p">;</span>   <span class="c1">// Mark Word
+</span></span></span><span class="line"><span class="cl">    <span class="k">union</span> <span class="nc">_metadata</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="n">Klass</span><span class="o">*</span>      <span class="n">_klass</span><span class="p">;</span>   <span class="c1">// 未压缩的 Klass 指针
+</span></span></span><span class="line"><span class="cl">        <span class="n">narrowKlass</span> <span class="n">_compressed_klass</span><span class="p">;</span>  <span class="c1">// 压缩后的 Klass 指针
+</span></span></span><span class="line"><span class="cl">    <span class="p">}</span> <span class="n">_metadata</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl"><span class="k">public</span><span class="o">:</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 获取对象头的 Mark Word
+</span></span></span><span class="line"><span class="cl">    <span class="n">markOop</span> <span class="n">mark</span><span class="p">()</span> <span class="k">const</span> <span class="p">{</span> <span class="k">return</span> <span class="n">_mark</span><span class="p">;</span> <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c1">// 获取 Klass（元数据）
+</span></span></span><span class="line"><span class="cl">    <span class="n">Klass</span><span class="o">*</span> <span class="nf">klass</span><span class="p">()</span> <span class="k">const</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c1">// 判断对象类型
+</span></span></span><span class="line"><span class="cl">    <span class="kt">bool</span> <span class="nf">is_instance</span><span class="p">()</span> <span class="k">const</span><span class="p">;</span>  <span class="c1">// 普通对象
+</span></span></span><span class="line"><span class="cl">    <span class="kt">bool</span> <span class="nf">is_array</span><span class="p">()</span> <span class="k">const</span><span class="p">;</span>     <span class="c1">// 数组对象
+</span></span></span><span class="line"><span class="cl"><span class="p">};</span>
+</span></span></code></pre></div><p><strong>为什么分成 OOP 和 Klass？</strong></p>
+<ul>
+<li><strong>OOP</strong> — 存储在堆中，是对象实例数据的载体，每个对象一个</li>
+<li><strong>Klass</strong> — 存储在方法区（元空间），是类的元数据，每个类一个</li>
+</ul>
+<p>这种分离使一个 Klass 对应多个 OOP，节省了大量元数据存储空间。</p>
+<h3 id="52-klass-层次结构">5.2 Klass 层次结构</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// klass.hpp
+</span></span></span><span class="line"><span class="cl"><span class="k">class</span> <span class="nc">Klass</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 所有类元数据的基类
+</span></span></span><span class="line"><span class="cl">    <span class="c1">// 存储在方法区（元空间）
+</span></span></span><span class="line"><span class="cl"><span class="p">};</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">class</span> <span class="nc">InstanceKlass</span> <span class="o">:</span> <span class="k">public</span> <span class="n">Klass</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 普通 Java 类的元数据
+</span></span></span><span class="line"><span class="cl">    <span class="c1">// 包含：常量池、方法表、字段布局、vtable 等
+</span></span></span><span class="line"><span class="cl"><span class="p">};</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">class</span> <span class="nc">ArrayKlass</span> <span class="o">:</span> <span class="k">public</span> <span class="n">Klass</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 数组类的元数据
+</span></span></span><span class="line"><span class="cl"><span class="p">};</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">class</span> <span class="nc">ObjArrayKlass</span> <span class="o">:</span> <span class="k">public</span> <span class="n">ArrayKlass</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 对象数组的元数据
+</span></span></span><span class="line"><span class="cl"><span class="p">};</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">class</span> <span class="nc">TypeArrayKlass</span> <span class="o">:</span> <span class="k">public</span> <span class="n">ArrayKlass</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 基本类型数组的元数据
+</span></span></span><span class="line"><span class="cl"><span class="p">};</span>
+</span></span></code></pre></div><p><strong>Klass 中存储的部分关键信息：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="k">class</span> <span class="nc">InstanceKlass</span> <span class="o">:</span> <span class="k">public</span> <span class="n">Klass</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 类本身的信息
+</span></span></span><span class="line"><span class="cl">    <span class="n">Symbol</span><span class="o">*</span> <span class="n">_name</span><span class="p">;</span>                  <span class="c1">// 类名
+</span></span></span><span class="line"><span class="cl">    <span class="n">u2</span>      <span class="n">_major_version</span><span class="p">;</span>         <span class="c1">// Class 文件主版本号
+</span></span></span><span class="line"><span class="cl">    <span class="n">u2</span>      <span class="n">_minor_version</span><span class="p">;</span>         <span class="c1">// Class 文件次版本号
+</span></span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c1">// 字段和方法的元数据
+</span></span></span><span class="line"><span class="cl">    <span class="n">Array</span><span class="o">&lt;</span><span class="n">u2</span><span class="o">&gt;*</span> <span class="n">_fields</span><span class="p">;</span>             <span class="c1">// 字段表（按声明顺序）
+</span></span></span><span class="line"><span class="cl">    <span class="n">Array</span><span class="o">&lt;</span><span class="n">Method</span><span class="o">*&gt;*</span> <span class="n">_methods</span><span class="p">;</span>       <span class="c1">// 方法表
+</span></span></span><span class="line"><span class="cl">    <span class="n">Array</span><span class="o">&lt;</span><span class="n">u2</span><span class="o">&gt;*</span> <span class="n">_methods_annotations</span><span class="p">;</span> <span class="c1">// 方法注解
+</span></span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c1">// 运行时支持
+</span></span></span><span class="line"><span class="cl">    <span class="n">ConstantPool</span><span class="o">*</span> <span class="n">_constants</span><span class="p">;</span>       <span class="c1">// 运行时常量池
+</span></span></span><span class="line"><span class="cl">    <span class="n">OopMapCache</span><span class="o">*</span> <span class="n">_oop_map_cache</span><span class="p">;</span>    <span class="c1">// OopMap 缓存（GC 用）
+</span></span></span><span class="line"><span class="cl">    <span class="n">jint</span> <span class="n">_nonstatic_field_size</span><span class="p">;</span>     <span class="c1">// 非静态字段大小（确定对象 size）
+</span></span></span><span class="line"><span class="cl">    <span class="n">Klass</span><span class="o">*</span> <span class="n">_array_klasses</span><span class="p">;</span>          <span class="c1">// 数组关联类
+</span></span></span><span class="line"><span class="cl">    <span class="n">Klass</span><span class="o">*</span> <span class="n">_super</span><span class="p">;</span>                  <span class="c1">// 父类
+</span></span></span><span class="line"><span class="cl">    <span class="n">Array</span><span class="o">&lt;</span><span class="n">Klass</span><span class="o">*&gt;*</span> <span class="n">_local_interfaces</span><span class="p">;</span> <span class="c1">// 直接实现的接口
+</span></span></span><span class="line"><span class="cl"><span class="p">};</span>
+</span></span></code></pre></div><h3 id="53-直接指针访问">5.3 直接指针访问</h3>
+<p>HotSpot 采用<strong>直接指针访问</strong>：</p>
+<pre tabindex="0"><code>Java 栈帧（reference）             堆（OOP）
+┌─────────────┐                ┌─────────────────────────┐
+│  reference   │ ────────────▶ │  Mark Word              │
+│ （直接地址）  │                │  Klass Pointer ──────┐  │
+└─────────────┘                │  实例数据              │  │
+                               └─────────────────────┼──┘
+                                                     │
+                                                     ▼
+                                              方法区（InstanceKlass）
+                                              ┌───────────────────┐
+                                              │  常量池             │
+                                              │  方法表（vtable）    │
+                                              │  字段布局            │
+                                              └───────────────────┘
+</code></pre><p><strong>优点：</strong> 访问对象字段只需一次指针跳转（reference → 对象的偏移量），速度快。</p>
+<p><strong>对比句柄访问（HotSpot 不采用）：</strong></p>
+<pre tabindex="0"><code>Java 栈帧          句柄池                    堆
+┌─────────┐    ┌────────────┐          ┌─────────────┐
+│ reference│──▶│ OOP 指针    │────────▶ │ 对象实例     │
+└─────────┘    │ Klass 指针  │───┐     └─────────────┘
+               └────────────┘   │
+                                ▼
+                          ┌─────────────┐
+                          │ 类型数据      │
+                          └─────────────┘
+</code></pre><p><strong>两种方式的对比：</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>维度</th>
+					<th>直接指针（HotSpot）</th>
+					<th>句柄</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>访问速度</td>
+					<td>快（一次跳转）</td>
+					<td>慢（两次跳转）</td>
+			</tr>
+			<tr>
+					<td>对象移动（GC）</td>
+					<td>需更新所有 reference</td>
+					<td>只需改句柄池指针</td>
+			</tr>
+			<tr>
+					<td>实现复杂度</td>
+					<td>较低</td>
+					<td>较高</td>
+			</tr>
+			<tr>
+					<td>适用场景</td>
+					<td>追求执行效率</td>
+					<td>追求 GC 友好</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="54-指针压缩compressed-oops">5.4 指针压缩（Compressed OOPs）</h3>
+<p>为了在 64 位 JVM 上节省内存，HotSpot 引入了指针压缩，将 64 位引用压缩为 32 位。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// oop.inline.hpp — 压缩和解压缩逻辑
+</span></span></span><span class="line"><span class="cl"><span class="n">Klass</span><span class="o">*</span> <span class="n">oopDesc</span><span class="o">::</span><span class="n">klass</span><span class="p">()</span> <span class="k">const</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="n">UseCompressedClassPointers</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="c1">// 从 _metadata._compressed_klass（32 位）解压
+</span></span></span><span class="line"><span class="cl">        <span class="k">return</span> <span class="n">Klass</span><span class="o">::</span><span class="n">decode_klass</span><span class="p">(</span><span class="n">_metadata</span><span class="p">.</span><span class="n">_compressed_klass</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="k">return</span> <span class="n">_metadata</span><span class="p">.</span><span class="n">_klass</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kt">void</span> <span class="n">oopDesc</span><span class="o">::</span><span class="n">set_klass</span><span class="p">(</span><span class="n">Klass</span><span class="o">*</span> <span class="n">k</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="n">UseCompressedClassPointers</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="c1">// 压缩 64 位 Klass 指针为 32 位
+</span></span></span><span class="line"><span class="cl">        <span class="n">_metadata</span><span class="p">.</span><span class="n">_compressed_klass</span> <span class="o">=</span> <span class="n">Klass</span><span class="o">::</span><span class="n">encode_klass</span><span class="p">(</span><span class="n">k</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="n">_metadata</span><span class="p">.</span><span class="n">_klass</span> <span class="o">=</span> <span class="n">k</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p><strong>压缩原理：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// 解码：compressed → 实际地址
+</span></span></span><span class="line"><span class="cl"><span class="c1">// compressed = (address - heap_base) &gt;&gt; object_alignment_shift
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 其中 heap_base 是堆起始地址，通常为 0
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">static</span> <span class="n">Klass</span><span class="o">*</span> <span class="nf">decode_klass</span><span class="p">(</span><span class="n">narrowKlass</span> <span class="n">v</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 左移 3 位（因为对象按 8 字节对齐，低 3 位恒为 0）
+</span></span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="p">(</span><span class="n">Klass</span><span class="o">*</span><span class="p">)((</span><span class="n">address</span><span class="p">)</span><span class="n">base</span> <span class="o">+</span> <span class="p">(</span><span class="n">size_t</span><span class="p">)(</span><span class="n">v</span> <span class="o">&lt;&lt;</span> <span class="n">klass_alignment_shift</span><span class="p">));</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">static</span> <span class="n">narrowKlass</span> <span class="nf">encode_klass</span><span class="p">(</span><span class="n">Klass</span><span class="o">*</span> <span class="n">v</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// 右移 3 位，丢弃低 3 位对齐信息
+</span></span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="p">(</span><span class="n">narrowKlass</span><span class="p">)(((</span><span class="n">address</span><span class="p">)</span><span class="n">v</span> <span class="o">-</span> <span class="p">(</span><span class="n">address</span><span class="p">)</span><span class="n">base</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="n">klass_alignment_shift</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p><strong>为什么能压缩？</strong></p>
+<p>因为堆中所有对象都按 8 字节对齐，地址的低 3 位永远是 0。所以 32 位压缩指针实际上可以寻址 32+3=35 位的地址空间，即最大 32GB 堆。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cpp" data-lang="cpp"><span class="line"><span class="cl"><span class="c1">// 压缩 OOP 的解码公式
+</span></span></span><span class="line"><span class="cl"><span class="n">address</span> <span class="nf">decode_heap_oop</span><span class="p">(</span><span class="n">narrowOop</span> <span class="n">v</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="p">(</span><span class="n">address</span><span class="p">)((</span><span class="kt">uint64_t</span><span class="p">)</span><span class="n">v</span> <span class="o">&lt;&lt;</span> <span class="mi">3</span><span class="p">);</span>  <span class="c1">// 左移 3 位 = 乘以 8
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">// 堆大小上限：2^32 × 8 = 32GB
+</span></span></span></code></pre></div><p><strong>关键参数：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl">-XX:+UseCompressedOops       <span class="c1"># 压缩对象引用（默认开启）</span>
+</span></span><span class="line"><span class="cl">-XX:+UseCompressedClassPointers  <span class="c1"># 压缩 Klass 指针（默认开启）</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 当堆 &gt; 32GB 时，指针压缩自动关闭</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 也可以通过 -XX:-UseCompressedOops 手动关闭</span>
+</span></span></code></pre></div><h3 id="55-实例字段的访问偏移量">5.5 实例字段的访问偏移量</h3>
+<p>以之前 <code>Point</code> 类的 <code>x</code> 字段为例，JVM 如何通过引用访问 <code>point.x</code>？</p>
+<pre tabindex="0"><code>point.reference ──→ 对象基地址 + 16（x 字段偏移量）→ 读取 4 字节
+                    ↓
+                 [Mark Word: 8B][Klass Ptr: 4B][padding: 4B][x: 4B][y: 4B]
+                                                            ↑
+                                                        偏移量 16
+</code></pre><p>这个偏移量在类加载阶段就已计算好，存储在 <code>InstanceKlass</code> 的字段布局中。<strong>每次字段访问都不需要查找，直接通过偏移量读写</strong>，这是 Java 字段访问效率接近 C++ 的原因。</p>
+<h2 id="六完整的对象创建流程总结">六、完整的对象创建流程总结</h2>
+<pre tabindex="0"><code>Java 代码：Point p = new Point(1, 2);
+    │
+    ▼
+【1. 字节码层面】
+  new              → 分配内存
+  dup              → 复制引用
+  invokespecial    → 调用 &lt;init&gt;
+  astore_1         → 存入局部变量
+    │
+    ▼
+【2. HotSpot 解释 new 指令】
+  常量池解析     → ConstantPool::klass_at()
+  类加载触发     → SystemDictionary::resolve_or_fail()
+  类初始化检查   → InstanceKlass::initialize()
+    │
+    ▼
+【3. 内存分配（InstanceKlass::allocate_instance）】
+  TLAB 分配     → thread-&gt;tlab().allocate(size)  [无锁]
+  失败时
+  ├── 指针碰撞  → CAS + 重试  [Serial/Parallel/G1 规整堆]
+  └── 空闲列表  → 遍历 Free List  [CMS 碎片化堆]
+    │
+    ▼
+【4. 对象头初始化】
+  Mark Word     → markOopDesc::prototype()  [无锁态]
+  Klass Pointer → 指向方法区的 InstanceKlass
+    │
+    ▼
+【5. 零值初始化】
+  所有字段置零值（0 / false / null）
+  （由分配阶段的 Copy::fill_to_words 或预清零保证）
+    │
+    ▼
+【6. 执行 &lt;init&gt; 构造器】
+  按字节码顺序执行构造器中的赋值逻辑
+    │
+    ▼
+【7. 返回引用】
+  栈中的 reference 指向堆中的对象
+  对象访问通过 OOP-Klass 模型 → 直接指针 + 偏移量
+</code></pre><h2 id="七总结">七、总结</h2>
+<h3 id="各环节源码路径速查">各环节源码路径速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>阶段</th>
+					<th>关键源码文件</th>
+					<th>核心类/方法</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>字节码解释</td>
+					<td><code>bytecodeInterpreter.cpp</code></td>
+					<td><code>CASE(_new)</code></td>
+			</tr>
+			<tr>
+					<td>类加载解析</td>
+					<td><code>interpreterRuntime.cpp</code></td>
+					<td><code>InterpreterRuntime::_new()</code></td>
+			</tr>
+			<tr>
+					<td>类加载器</td>
+					<td><code>systemDictionary.cpp</code></td>
+					<td><code>SystemDictionary::resolve_or_fail()</code></td>
+			</tr>
+			<tr>
+					<td>对象大小</td>
+					<td><code>instanceKlass.cpp</code></td>
+					<td><code>InstanceKlass::size_helper()</code></td>
+			</tr>
+			<tr>
+					<td>TLAB</td>
+					<td><code>threadLocalAllocBuffer.cpp</code></td>
+					<td><code>ThreadLocalAllocBuffer::allocate()</code></td>
+			</tr>
+			<tr>
+					<td>堆分配</td>
+					<td><code>collectedHeap.inline.hpp</code></td>
+					<td><code>CollectedHeap::allocate_from_tlab()</code></td>
+			</tr>
+			<tr>
+					<td>CAS 分配</td>
+					<td><code>contiguousSpace.cpp</code></td>
+					<td><code>ContiguousSpace::par_allocate()</code></td>
+			</tr>
+			<tr>
+					<td>对象头</td>
+					<td><code>markOop.hpp</code></td>
+					<td><code>markOopDesc::prototype()</code></td>
+			</tr>
+			<tr>
+					<td>OOP</td>
+					<td><code>oop.hpp</code></td>
+					<td><code>oopDesc</code></td>
+			</tr>
+			<tr>
+					<td>Klass</td>
+					<td><code>klass.hpp</code> / <code>instanceKlass.hpp</code></td>
+					<td><code>InstanceKlass</code></td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="内存相关-jvm-参数">内存相关 JVM 参数</h3>
+<table>
+	<thead>
+			<tr>
+					<th>参数</th>
+					<th>默认</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>-XX:+UseTLAB</code></td>
+					<td>true</td>
+					<td>开启线程本地分配缓冲区</td>
+			</tr>
+			<tr>
+					<td><code>-XX:TLABSize</code></td>
+					<td>自动</td>
+					<td>TLAB 初始大小</td>
+			</tr>
+			<tr>
+					<td><code>-XX:+UseCompressedOops</code></td>
+					<td>true</td>
+					<td>开启对象引用压缩</td>
+			</tr>
+			<tr>
+					<td><code>-XX:+UseCompressedClassPointers</code></td>
+					<td>true</td>
+					<td>开启 Klass 指针压缩</td>
+			</tr>
+			<tr>
+					<td><code>-XX:ObjectAlignmentInBytes</code></td>
+					<td>8</td>
+					<td>对象对齐字节数</td>
+			</tr>
+			<tr>
+					<td><code>-XX:+AlwaysPreTouch</code></td>
+					<td>false</td>
+					<td>启动时预分配物理内存</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>相关阅读：</strong></p>
+<ul>
+<li><a href="/posts/jvm-%E5%86%85%E5%AD%98%E5%8C%BA%E5%9F%9F%E4%B8%8E%E5%86%85%E5%AD%98%E6%BA%A2%E5%87%BA/">JVM 内存区域与内存溢出</a></li>
+<li><a href="/posts/jvm-%E5%9E%83%E5%9C%BE%E5%9B%9E%E6%94%B6%E6%9C%BA%E5%88%B6/">JVM 垃圾回收机制</a></li>
+<li><a href="/posts/java-%E5%AD%97%E8%8A%82%E7%A0%81%E8%AF%A6%E8%A7%A3/">Java 字节码详解</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>
