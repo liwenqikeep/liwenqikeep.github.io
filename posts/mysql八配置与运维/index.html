@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>MySQL（八）：配置与运维 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一生产环境-mycnf-推荐配置">一、生产环境 my.cnf 推荐配置</a>
+      <ul>
+        <li><a href="#11-完整配置模板">1.1 完整配置模板</a></li>
+        <li><a href="#12-配置参数分类">1.2 配置参数分类</a></li>
+      </ul>
+    </li>
+    <li><a href="#二备份策略">二、备份策略</a>
+      <ul>
+        <li><a href="#21-逻辑备份mysqldump">2.1 逻辑备份（mysqldump）</a></li>
+        <li><a href="#22-物理备份xtrabackup">2.2 物理备份（XtraBackup）</a></li>
+        <li><a href="#23-恢复流程">2.3 恢复流程</a></li>
+      </ul>
+    </li>
+    <li><a href="#三监控体系">三、监控体系</a>
+      <ul>
+        <li><a href="#31-关键监控指标">3.1 关键监控指标</a></li>
+        <li><a href="#32-常用监控命令">3.2 常用监控命令</a></li>
+        <li><a href="#33-监控工具">3.3 监控工具</a></li>
+      </ul>
+    </li>
+    <li><a href="#四安全配置">四、安全配置</a>
+      <ul>
+        <li><a href="#41-账户安全">4.1 账户安全</a></li>
+        <li><a href="#42-网络安全">4.2 网络安全</a></li>
+        <li><a href="#43-审计日志">4.3 审计日志</a></li>
+      </ul>
+    </li>
+    <li><a href="#五常见故障处理">五、常见故障处理</a>
+      <ul>
+        <li><a href="#51-磁盘空间满">5.1 磁盘空间满</a></li>
+        <li><a href="#52-cpu-100">5.2 CPU 100%</a></li>
+        <li><a href="#53-连接数打满">5.3 连接数打满</a></li>
+        <li><a href="#54-主从复制中断">5.4 主从复制中断</a></li>
+      </ul>
+    </li>
+    <li><a href="#六日常运维命令速查">六、日常运维命令速查</a>
+      <ul>
+        <li><a href="#61-常用-sql">6.1 常用 SQL</a></li>
+        <li><a href="#62-常用命令">6.2 常用命令</a></li>
+      </ul>
+    </li>
+    <li><a href="#七总结">七、总结</a>
+      <ul>
+        <li><a href="#生产环境配置检查清单">生产环境配置检查清单</a></li>
+        <li><a href="#运维建议">运维建议</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">MySQL（八）：配置与运维</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>前面七篇文章覆盖了 MySQL 的原理和优化。最后一篇聚焦于<strong>落地运维</strong>——生产环境 my.cnf 怎么配、如何备份与恢复、怎么监控、常见故障怎么处理。</p>
+<p>好的配置和运维习惯，比临时救火更重要。</p>
+<h2 id="一生产环境-mycnf-推荐配置">一、生产环境 my.cnf 推荐配置</h2>
+<h3 id="11-完整配置模板">1.1 完整配置模板</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ini" data-lang="ini"><span class="line"><span class="cl"><span class="k">[mysqld]</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># ─── 基础设置 ───</span>
+</span></span><span class="line"><span class="cl"><span class="na">user</span> <span class="o">=</span> <span class="s">mysql                          # 运行用户</span>
+</span></span><span class="line"><span class="cl"><span class="na">port</span> <span class="o">=</span> <span class="s">3306                           # 端口</span>
+</span></span><span class="line"><span class="cl"><span class="na">basedir</span> <span class="o">=</span> <span class="s">/usr/local/mysql            # 安装目录</span>
+</span></span><span class="line"><span class="cl"><span class="na">datadir</span> <span class="o">=</span> <span class="s">/data/mysql/data            # 数据目录</span>
+</span></span><span class="line"><span class="cl"><span class="na">socket</span> <span class="o">=</span> <span class="s">/tmp/mysql.sock              # Socket 文件</span>
+</span></span><span class="line"><span class="cl"><span class="na">pid_file</span> <span class="o">=</span> <span class="s">/var/run/mysql/mysql.pid   # PID 文件</span>
+</span></span><span class="line"><span class="cl"><span class="na">character_set_server</span> <span class="o">=</span> <span class="s">utf8mb4        # 字符集</span>
+</span></span><span class="line"><span class="cl"><span class="na">collation_server</span> <span class="o">=</span> <span class="s">utf8mb4_unicode_ci # 排序规则</span>
+</span></span><span class="line"><span class="cl"><span class="na">default_storage_engine</span> <span class="o">=</span> <span class="s">InnoDB       # 默认引擎</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># ─── 连接设置 ───</span>
+</span></span><span class="line"><span class="cl"><span class="na">max_connections</span> <span class="o">=</span> <span class="s">500                 # 最大连接数</span>
+</span></span><span class="line"><span class="cl"><span class="na">max_connect_errors</span> <span class="o">=</span> <span class="s">1000             # 最大错误连接数</span>
+</span></span><span class="line"><span class="cl"><span class="na">wait_timeout</span> <span class="o">=</span> <span class="s">600                    # 非交互超时(秒)</span>
+</span></span><span class="line"><span class="cl"><span class="na">interactive_timeout</span> <span class="o">=</span> <span class="s">1800            # 交互超时(秒)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># ─── InnoDB 引擎 ───</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_buffer_pool_size</span> <span class="o">=</span> <span class="s">4G          # Buffer Pool(物理内存 60-80%)</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_buffer_pool_instances</span> <span class="o">=</span> <span class="s">4      # Buffer Pool 实例数</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_log_file_size</span> <span class="o">=</span> <span class="s">512M           # Redo Log 文件大小</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_log_files_in_group</span> <span class="o">=</span> <span class="s">2         # Redo Log 文件数</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_log_buffer_size</span> <span class="o">=</span> <span class="s">64M          # Log Buffer</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_flush_log_at_trx_commit</span> <span class="o">=</span> <span class="s">1    # 每次提交刷 Redo Log</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_flush_method</span> <span class="o">=</span> <span class="s">O_DIRECT        # 跳过 OS 缓存</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_file_per_table</span> <span class="o">=</span> <span class="s">ON            # 独立表空间</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_io_capacity</span> <span class="o">=</span> <span class="s">2000             # IO 吞吐能力</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_read_io_threads</span> <span class="o">=</span> <span class="s">4            # 读 IO 线程数</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_write_io_threads</span> <span class="o">=</span> <span class="s">4           # 写 IO 线程数</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_lock_wait_timeout</span> <span class="o">=</span> <span class="s">50         # 锁等待超时(秒)</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_open_files</span> <span class="o">=</span> <span class="s">65535             # 最大打开文件数</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># ─── Binlog 设置 ───</span>
+</span></span><span class="line"><span class="cl"><span class="na">server_id</span> <span class="o">=</span> <span class="s">1                         # 服务器 ID（主从必配）</span>
+</span></span><span class="line"><span class="cl"><span class="na">log_bin</span> <span class="o">=</span> <span class="s">mysql-bin                   # 开启 binlog</span>
+</span></span><span class="line"><span class="cl"><span class="na">binlog_format</span> <span class="o">=</span> <span class="s">ROW                   # binlog 格式</span>
+</span></span><span class="line"><span class="cl"><span class="na">sync_binlog</span> <span class="o">=</span> <span class="s">1                       # 每次提交刷 binlog</span>
+</span></span><span class="line"><span class="cl"><span class="na">binlog_cache_size</span> <span class="o">=</span> <span class="s">4M                # binlog 缓存</span>
+</span></span><span class="line"><span class="cl"><span class="na">max_binlog_cache_size</span> <span class="o">=</span> <span class="s">2G            # binlog 最大缓存</span>
+</span></span><span class="line"><span class="cl"><span class="na">max_binlog_size</span> <span class="o">=</span> <span class="s">100M                # 单个 binlog 大小</span>
+</span></span><span class="line"><span class="cl"><span class="na">expire_logs_days</span> <span class="o">=</span> <span class="s">7                  # binlog 保留天数</span>
+</span></span><span class="line"><span class="cl"><span class="na">binlog_do_db</span> <span class="o">=</span> <span class="s">your_db                # 要记录的库（可选）</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># ─── 慢查询日志 ───</span>
+</span></span><span class="line"><span class="cl"><span class="na">slow_query_log</span> <span class="o">=</span> <span class="s">ON                   # 开启慢查询</span>
+</span></span><span class="line"><span class="cl"><span class="na">slow_query_log_file</span> <span class="o">=</span> <span class="s">/data/logs/mysql-slow.log</span>
+</span></span><span class="line"><span class="cl"><span class="na">long_query_time</span> <span class="o">=</span> <span class="s">2                   # 超过 2 秒记录</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># ─── 临时表和文件 ───</span>
+</span></span><span class="line"><span class="cl"><span class="na">tmp_table_size</span> <span class="o">=</span> <span class="s">64M                  # 临时表大小</span>
+</span></span><span class="line"><span class="cl"><span class="na">max_heap_table_size</span> <span class="o">=</span> <span class="s">64M             # MEMORY 表最大大小</span>
+</span></span><span class="line"><span class="cl"><span class="na">sort_buffer_size</span> <span class="o">=</span> <span class="s">2M                 # 排序缓冲区（会话级）</span>
+</span></span><span class="line"><span class="cl"><span class="na">join_buffer_size</span> <span class="o">=</span> <span class="s">2M                 # JOIN 缓冲区（会话级）</span>
+</span></span><span class="line"><span class="cl"><span class="na">tmpdir</span> <span class="o">=</span> <span class="s">/data/mysql/tmp              # 临时文件目录</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># ─── 安全 ───</span>
+</span></span><span class="line"><span class="cl"><span class="na">skip_name_resolve                    # 跳过 DNS 解析（加速连接）</span>
+</span></span><span class="line"><span class="cl"><span class="na">local_infile</span> <span class="o">=</span> <span class="s">OFF                    # 禁用 LOAD DATA LOCAL</span>
+</span></span></code></pre></div><h3 id="12-配置参数分类">1.2 配置参数分类</h3>
+<table>
+	<thead>
+			<tr>
+					<th>类别</th>
+					<th>参数</th>
+					<th>建议</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>不可错</strong></td>
+					<td>innodb_buffer_pool_size</td>
+					<td>物理内存的 60-80%</td>
+			</tr>
+			<tr>
+					<td><strong>不可错</strong></td>
+					<td>innodb_flush_log_at_trx_commit = 1</td>
+					<td>防止丢数据</td>
+			</tr>
+			<tr>
+					<td><strong>不可错</strong></td>
+					<td>sync_binlog = 1</td>
+					<td>防止 binlog 丢失</td>
+			</tr>
+			<tr>
+					<td><strong>重要</strong></td>
+					<td>max_connections</td>
+					<td>根据并发设置</td>
+			</tr>
+			<tr>
+					<td><strong>重要</strong></td>
+					<td>innodb_log_file_size</td>
+					<td>足够大，避免频繁刷脏页</td>
+			</tr>
+			<tr>
+					<td><strong>重要</strong></td>
+					<td>binlog_format = ROW</td>
+					<td>主从一致</td>
+			</tr>
+			<tr>
+					<td><strong>按需</strong></td>
+					<td>sort_buffer_size / join_buffer_size</td>
+					<td>别太大（会话级，×max_connections=内存爆炸）</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="二备份策略">二、备份策略</h2>
+<h3 id="21-逻辑备份mysqldump">2.1 逻辑备份（mysqldump）</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 全量备份</span>
+</span></span><span class="line"><span class="cl">mysqldump -u root -p --single-transaction --routines --triggers <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --master-data<span class="o">=</span><span class="m">2</span> --all-databases &gt; full_backup_<span class="k">$(</span>date +%Y%m%d<span class="k">)</span>.sql
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 单库备份</span>
+</span></span><span class="line"><span class="cl">mysqldump -u root -p --single-transaction --master-data<span class="o">=</span><span class="m">2</span> mydb &gt; mydb_backup.sql
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 单表备份</span>
+</span></span><span class="line"><span class="cl">mysqldump -u root -p --single-transaction mydb users &gt; users_backup.sql
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># --single-transaction：对 InnoDB 表进行一致性快照（不锁表）</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># --master-data=2：记录 binlog 位置（恢复时使用）</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># --routines：导出存储过程和函数</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># --triggers：导出触发器</span>
+</span></span></code></pre></div><h3 id="22-物理备份xtrabackup">2.2 物理备份（XtraBackup）</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># Percona XtraBackup — 物理备份（快，支持增量）</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 全量备份</span>
+</span></span><span class="line"><span class="cl">xtrabackup --backup --target-dir<span class="o">=</span>/backup/full/ --user<span class="o">=</span>root --password<span class="o">=</span>***
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 准备恢复（应用 redo log，使数据一致）</span>
+</span></span><span class="line"><span class="cl">xtrabackup --prepare --target-dir<span class="o">=</span>/backup/full/
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 恢复</span>
+</span></span><span class="line"><span class="cl">xtrabackup --copy-back --target-dir<span class="o">=</span>/backup/full/
+</span></span></code></pre></div><p><strong>mysqldump vs XtraBackup：</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>对比</th>
+					<th>mysqldump</th>
+					<th>XtraBackup</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>类型</td>
+					<td>逻辑备份</td>
+					<td>物理备份</td>
+			</tr>
+			<tr>
+					<td>速度</td>
+					<td>慢（逐条导出 SQL）</td>
+					<td>快（直接复制文件）</td>
+			</tr>
+			<tr>
+					<td>文件大小</td>
+					<td>大（带 INSERT 语句）</td>
+					<td>小（二进制数据）</td>
+			</tr>
+			<tr>
+					<td>恢复速度</td>
+					<td>慢（逐条执行）</td>
+					<td>快（直接复制文件）</td>
+			</tr>
+			<tr>
+					<td>适用</td>
+					<td>小库（&lt; 10G）</td>
+					<td>大库（&gt; 10G）</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="23-恢复流程">2.3 恢复流程</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 从全量备份 + binlog 恢复到指定时间点</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 1. 恢复全量备份</span>
+</span></span><span class="line"><span class="cl">mysql -u root -p &lt; full_backup_20240701.sql
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 2. 查看备份时的 binlog 位置</span>
+</span></span><span class="line"><span class="cl">grep <span class="s1">&#39;CHANGE MASTER TO&#39;</span> full_backup_20240701.sql
+</span></span><span class="line"><span class="cl"><span class="c1"># 得到：MASTER_LOG_FILE=&#39;mysql-bin.000010&#39;, MASTER_LOG_POS=123456;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 3. 从 binlog 恢复增量数据（到误操作之前的时间点）</span>
+</span></span><span class="line"><span class="cl">mysqlbinlog --start-position<span class="o">=</span><span class="m">123456</span> --stop-datetime<span class="o">=</span><span class="s2">&#34;2024-07-01 14:00:00&#34;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  mysql-bin.000010 <span class="p">|</span> mysql -u root -p
+</span></span></code></pre></div><hr>
+<h2 id="三监控体系">三、监控体系</h2>
+<h3 id="31-关键监控指标">3.1 关键监控指标</h3>
+<table>
+	<thead>
+			<tr>
+					<th>分类</th>
+					<th>指标</th>
+					<th>正常值</th>
+					<th>告警阈值</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>连接</strong></td>
+					<td>Threads_connected</td>
+					<td>&lt; max_connections × 80%</td>
+					<td>&gt; 80%</td>
+			</tr>
+			<tr>
+					<td><strong>连接</strong></td>
+					<td>Threads_running</td>
+					<td>&lt; 20</td>
+					<td>&gt; 50</td>
+			</tr>
+			<tr>
+					<td><strong>QPS</strong></td>
+					<td>Questions/sec</td>
+					<td>按业务基线</td>
+					<td>&gt; 基线 × 200%</td>
+			</tr>
+			<tr>
+					<td><strong>慢查询</strong></td>
+					<td>Slow_queries</td>
+					<td>&lt; 10/min</td>
+					<td>&gt; 100/min</td>
+			</tr>
+			<tr>
+					<td><strong>Buffer Pool</strong></td>
+					<td>Innodb_buffer_pool_reads</td>
+					<td>0</td>
+					<td>&gt; 100/sec</td>
+			</tr>
+			<tr>
+					<td><strong>复制</strong></td>
+					<td>Seconds_Behind_Master</td>
+					<td>0</td>
+					<td>&gt; 30 秒</td>
+			</tr>
+			<tr>
+					<td><strong>锁</strong></td>
+					<td>Innodb_row_lock_current_waits</td>
+					<td>0</td>
+					<td>&gt; 10</td>
+			</tr>
+			<tr>
+					<td><strong>磁盘</strong></td>
+					<td>磁盘使用率</td>
+					<td>&lt; 80%</td>
+					<td>&gt; 85%</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="32-常用监控命令">3.2 常用监控命令</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 查看 QPS/TPS
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="k">GLOBAL</span><span class="w"> </span><span class="n">STATUS</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;Questions&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="k">GLOBAL</span><span class="w"> </span><span class="n">STATUS</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;Com_commit&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="k">GLOBAL</span><span class="w"> </span><span class="n">STATUS</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;Com_rollback&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 查看连接情况
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">STATUS</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;Threads_connected&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">STATUS</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;Threads_running&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">PROCESSLIST</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- InnoDB 行锁
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">STATUS</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;Innodb_row_lock_%&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- Buffer Pool 命中率
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">STATUS</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;Innodb_buffer_pool_read%&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 主从延迟
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">SLAVE</span><span class="w"> </span><span class="n">STATUS</span><span class="err">\</span><span class="k">G</span><span class="p">;</span><span class="w">
+</span></span></span></code></pre></div><h3 id="33-监控工具">3.3 监控工具</h3>
+<table>
+	<thead>
+			<tr>
+					<th>工具</th>
+					<th>特点</th>
+					<th style="text-align: center">推荐</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>Prometheus + mysqld_exporter</strong></td>
+					<td>开源，图表丰富</td>
+					<td style="text-align: center">★★★★★</td>
+			</tr>
+			<tr>
+					<td><strong>Grafana</strong></td>
+					<td>可视化仪表盘</td>
+					<td style="text-align: center">★★★★★</td>
+			</tr>
+			<tr>
+					<td><strong>Percona Monitoring and Management (PMM)</strong></td>
+					<td>专业 MySQL 监控</td>
+					<td style="text-align: center">★★★★☆</td>
+			</tr>
+			<tr>
+					<td><strong>MySQL Enterprise Monitor</strong></td>
+					<td>商业版</td>
+					<td style="text-align: center">★★★☆☆</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="四安全配置">四、安全配置</h2>
+<h3 id="41-账户安全">4.1 账户安全</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 清理默认账户
+</span></span></span><span class="line"><span class="cl"><span class="k">DELETE</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">mysql</span><span class="p">.</span><span class="k">user</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">User</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">DELETE</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">mysql</span><span class="p">.</span><span class="k">user</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">User</span><span class="o">=</span><span class="s1">&#39;root&#39;</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="k">Host</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="s1">&#39;localhost&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">FLUSH</span><span class="w"> </span><span class="k">PRIVILEGES</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 创建专用账户，最小权限原则
+</span></span></span><span class="line"><span class="cl"><span class="k">CREATE</span><span class="w"> </span><span class="k">USER</span><span class="w"> </span><span class="s1">&#39;app&#39;</span><span class="o">@</span><span class="s1">&#39;192.168.%&#39;</span><span class="w"> </span><span class="n">IDENTIFIED</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="s1">&#39;strong_password&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">GRANT</span><span class="w"> </span><span class="k">SELECT</span><span class="p">,</span><span class="w"> </span><span class="k">INSERT</span><span class="p">,</span><span class="w"> </span><span class="k">UPDATE</span><span class="p">,</span><span class="w"> </span><span class="k">DELETE</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">mydb</span><span class="p">.</span><span class="o">*</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="s1">&#39;app&#39;</span><span class="o">@</span><span class="s1">&#39;192.168.%&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 定期修改密码
+</span></span></span><span class="line"><span class="cl"><span class="k">ALTER</span><span class="w"> </span><span class="k">USER</span><span class="w"> </span><span class="s1">&#39;app&#39;</span><span class="o">@</span><span class="s1">&#39;192.168.%&#39;</span><span class="w"> </span><span class="n">IDENTIFIED</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="s1">&#39;new_password&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 查看用户权限
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">GRANTS</span><span class="w"> </span><span class="k">FOR</span><span class="w"> </span><span class="s1">&#39;app&#39;</span><span class="o">@</span><span class="s1">&#39;192.168.%&#39;</span><span class="p">;</span><span class="w">
+</span></span></span></code></pre></div><h3 id="42-网络安全">4.2 网络安全</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ini" data-lang="ini"><span class="line"><span class="cl"><span class="c1"># my.cnf 安全配置</span>
+</span></span><span class="line"><span class="cl"><span class="k">[mysqld]</span>
+</span></span><span class="line"><span class="cl"><span class="na">skip_networking</span> <span class="o">=</span> <span class="s">OFF                # 是否禁用 TCP 连接</span>
+</span></span><span class="line"><span class="cl"><span class="na">bind_address</span> <span class="o">=</span> <span class="s">127.0.0.1             # 绑定地址（只能本机访问）</span>
+</span></span><span class="line"><span class="cl"><span class="na">skip_name_resolve                    # 禁用 DNS 解析</span>
+</span></span><span class="line"><span class="cl"><span class="na">local_infile</span> <span class="o">=</span> <span class="s">OFF                   # 禁用 LOAD DATA LOCAL</span>
+</span></span></code></pre></div><h3 id="43-审计日志">4.3 审计日志</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ini" data-lang="ini"><span class="line"><span class="cl"><span class="c1"># MySQL 8.0+ 审计插件</span>
+</span></span><span class="line"><span class="cl"><span class="k">[mysqld]</span>
+</span></span><span class="line"><span class="cl"><span class="na">plugin-load-add</span> <span class="o">=</span> <span class="s">audit_log.so</span>
+</span></span><span class="line"><span class="cl"><span class="na">audit_log_policy</span> <span class="o">=</span> <span class="s">ALL               # 记录所有操作</span>
+</span></span><span class="line"><span class="cl"><span class="na">audit_log_format</span> <span class="o">=</span> <span class="s">JSON              # JSON 格式</span>
+</span></span><span class="line"><span class="cl"><span class="na">audit_log_file</span> <span class="o">=</span> <span class="s">/data/logs/mysql-audit.log</span>
+</span></span></code></pre></div><hr>
+<h2 id="五常见故障处理">五、常见故障处理</h2>
+<h3 id="51-磁盘空间满">5.1 磁盘空间满</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 现象：数据库写入报错</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># ERROR 3 (HY000): Error writing file ...</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 处理步骤</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 1. 查看磁盘使用</span>
+</span></span><span class="line"><span class="cl">df -h
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 2. 清理 binlog（如果不需要）</span>
+</span></span><span class="line"><span class="cl">PURGE BINARY LOGS BEFORE NOW<span class="o">()</span> - INTERVAL <span class="m">1</span> DAY<span class="p">;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 3. 清理慢查询日志</span>
+</span></span><span class="line"><span class="cl"><span class="nb">echo</span> <span class="s1">&#39;&#39;</span> &gt; /data/logs/mysql-slow.log
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 4. 收缩 ibdata（如果有大量 undo）</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 需要重建实例（停机操作）</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 5. 最紧急：扩容磁盘</span>
+</span></span></code></pre></div><h3 id="52-cpu-100">5.2 CPU 100%</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 现象：数据库响应慢，CPU 100%
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 排查步骤：
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 1. 查看当前正在执行的查询
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="k">FULL</span><span class="w"> </span><span class="n">PROCESSLIST</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 2. 找到大量消耗 CPU 的查询
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 通常是：没有索引的全表扫描、复杂的排序/分组
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 3. 查看锁等待
+</span></span></span><span class="line"><span class="cl"><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">information_schema</span><span class="p">.</span><span class="n">INNODB_TRX</span><span class="err">\</span><span class="k">G</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 4. 临时处理：KILL 阻塞的会话
+</span></span></span><span class="line"><span class="cl"><span class="n">KILL</span><span class="w"> </span><span class="mi">12345</span><span class="p">;</span><span class="w">  </span><span class="c1">-- 线程 ID
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 5. 根本解决：优化 SQL、加索引
+</span></span></span></code></pre></div><h3 id="53-连接数打满">5.3 连接数打满</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 现象：ERROR 1040: Too many connections
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 紧急处理
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 1. 用超级权限预留连接进入
+</span></span></span><span class="line"><span class="cl"><span class="n">mysql</span><span class="w"> </span><span class="o">-</span><span class="n">u</span><span class="w"> </span><span class="n">root</span><span class="w"> </span><span class="o">-</span><span class="n">p</span><span class="w"> </span><span class="o">-</span><span class="n">h</span><span class="w"> </span><span class="mi">127</span><span class="p">.</span><span class="mi">0</span><span class="p">.</span><span class="mi">0</span><span class="p">.</span><span class="mi">1</span><span class="w"> </span><span class="c1">--port=3306
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 2. 临时增大连接数
+</span></span></span><span class="line"><span class="cl"><span class="k">SET</span><span class="w"> </span><span class="k">GLOBAL</span><span class="w"> </span><span class="n">max_connections</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">500</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 3. 查看哪些连接在 Sleep
+</span></span></span><span class="line"><span class="cl"><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">PROCESSLIST</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">COMMAND</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;Sleep&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 4. 清理空闲连接
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 减小 wait_timeout
+</span></span></span><span class="line"><span class="cl"><span class="k">SET</span><span class="w"> </span><span class="k">GLOBAL</span><span class="w"> </span><span class="n">wait_timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">300</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 5. 根本解决
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 应用层检查连接池配置是否泄漏
+</span></span></span></code></pre></div><h3 id="54-主从复制中断">5.4 主从复制中断</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 现象：Slave_IO_Running: No 或 Slave_SQL_Running: No
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 检查
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">SLAVE</span><span class="w"> </span><span class="n">STATUS</span><span class="err">\</span><span class="k">G</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- Last_IO_Error 或 Last_SQL_Error 显示错误原因
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 常见原因：
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 1. 网络问题 → 检查主从网络连通
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 2. binlog 被删除 → CHANGE MASTER TO 重新定位
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 3. 主键冲突 → 跳过错误事务
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 4. 表结构不一致 → 在从库重建表
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 跳过错误（不推荐长期使用）
+</span></span></span><span class="line"><span class="cl"><span class="k">SET</span><span class="w"> </span><span class="k">GLOBAL</span><span class="w"> </span><span class="n">sql_slave_skip_counter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">START</span><span class="w"> </span><span class="n">SLAVE</span><span class="p">;</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="六日常运维命令速查">六、日常运维命令速查</h2>
+<h3 id="61-常用-sql">6.1 常用 SQL</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 查看数据库大小
+</span></span></span><span class="line"><span class="cl"><span class="k">SELECT</span><span class="w"> </span><span class="n">table_schema</span><span class="p">,</span><span class="w"> </span><span class="n">ROUND</span><span class="p">(</span><span class="k">SUM</span><span class="p">(</span><span class="n">data_length</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">index_length</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="s1">&#39;size(MB)&#39;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">FROM</span><span class="w"> </span><span class="n">information_schema</span><span class="p">.</span><span class="n">tables</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">table_schema</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 查看最大表
+</span></span></span><span class="line"><span class="cl"><span class="k">SELECT</span><span class="w"> </span><span class="n">table_schema</span><span class="p">,</span><span class="w"> </span><span class="k">table_name</span><span class="p">,</span><span class="w"> </span><span class="n">ROUND</span><span class="p">((</span><span class="n">data_length</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">index_length</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="s1">&#39;size(MB)&#39;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">FROM</span><span class="w"> </span><span class="n">information_schema</span><span class="p">.</span><span class="n">tables</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="k">size</span><span class="w"> </span><span class="k">DESC</span><span class="w"> </span><span class="k">LIMIT</span><span class="w"> </span><span class="mi">10</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 查看 InnoDB 状态
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">ENGINE</span><span class="w"> </span><span class="n">INNODB</span><span class="w"> </span><span class="n">STATUS</span><span class="err">\</span><span class="k">G</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 查看正在执行的事务
+</span></span></span><span class="line"><span class="cl"><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">performance_schema</span><span class="p">.</span><span class="n">data_locks</span><span class="err">\</span><span class="k">G</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 查看表碎片
+</span></span></span><span class="line"><span class="cl"><span class="k">SELECT</span><span class="w"> </span><span class="n">table_schema</span><span class="p">,</span><span class="w"> </span><span class="k">table_name</span><span class="p">,</span><span class="w"> </span><span class="n">ROUND</span><span class="p">(</span><span class="n">data_free</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="s1">&#39;free(MB)&#39;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">FROM</span><span class="w"> </span><span class="n">information_schema</span><span class="p">.</span><span class="n">tables</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">WHERE</span><span class="w"> </span><span class="n">data_free</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">1024</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">1024</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">100</span><span class="w">  </span><span class="c1">-- 碎片 &gt; 100MB
+</span></span></span><span class="line"><span class="cl"><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="k">free</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 整理碎片
+</span></span></span><span class="line"><span class="cl"><span class="n">OPTIMIZE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">users</span><span class="p">;</span><span class="w">
+</span></span></span></code></pre></div><h3 id="62-常用命令">6.2 常用命令</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 启动/停止</span>
+</span></span><span class="line"><span class="cl">systemctl start mysqld
+</span></span><span class="line"><span class="cl">systemctl stop mysqld
+</span></span><span class="line"><span class="cl">systemctl restart mysqld
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 登录</span>
+</span></span><span class="line"><span class="cl">mysql -u root -p -h 127.0.0.1
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 导入数据</span>
+</span></span><span class="line"><span class="cl">mysql -u root -p mydb &lt; backup.sql
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 导出数据</span>
+</span></span><span class="line"><span class="cl">mysqldump -u root -p --single-transaction mydb &gt; backup.sql
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 查看 binlog 内容</span>
+</span></span><span class="line"><span class="cl">mysqlbinlog mysql-bin.000001 <span class="p">|</span> less
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 查看错误日志</span>
+</span></span><span class="line"><span class="cl">tail -f /var/log/mysqld.log
+</span></span></code></pre></div><hr>
+<h2 id="七总结">七、总结</h2>
+<h3 id="生产环境配置检查清单">生产环境配置检查清单</h3>
+<table>
+	<thead>
+			<tr>
+					<th>检查项</th>
+					<th>推荐值</th>
+					<th>原因</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Buffer Pool</td>
+					<td>内存 60-80%</td>
+					<td>最重要的内存配置</td>
+			</tr>
+			<tr>
+					<td>innodb_flush_log_at_trx_commit</td>
+					<td>1</td>
+					<td>保障 Crash Safe</td>
+			</tr>
+			<tr>
+					<td>sync_binlog</td>
+					<td>1</td>
+					<td>保障主从一致</td>
+			</tr>
+			<tr>
+					<td>binlog_format</td>
+					<td>ROW</td>
+					<td>主从复制精确</td>
+			</tr>
+			<tr>
+					<td>max_connections</td>
+					<td>500</td>
+					<td>防连接爆满</td>
+			</tr>
+			<tr>
+					<td>slow_query_log</td>
+					<td>ON</td>
+					<td>记录慢查询</td>
+			</tr>
+			<tr>
+					<td>备份策略</td>
+					<td>每日全量 + 实时 binlog</td>
+					<td>可恢复到任意时间点</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="运维建议">运维建议</h3>
+<ol>
+<li><strong>备份重于一切</strong> — 每天全量备份，binlog 保留至少 7 天</li>
+<li><strong>监控先行</strong> — 部署 Prometheus + Grafana，关注 Buffer Pool 命中率、慢查询、主从延迟</li>
+<li><strong>变更评审</strong> — DDL 操作评估影响，避免高峰期执行</li>
+<li><strong>容量规划</strong> — 磁盘使用率超过 80% 时规划扩容</li>
+<li><strong>定期巡检</strong> — 检查表碎片、索引使用情况、慢查询优化</li>
+</ol>
+<hr>
+<p><strong>上一篇：</strong> <a href="/posts/mysql%E4%B8%83%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E4%B8%8E%E6%9E%B6%E6%9E%84/">MySQL（七）：性能优化与架构</a></p>
+<p><strong>系列索引：</strong></p>
+<ul>
+<li><a href="/posts/mysql%E4%B8%80sql-%E5%9F%BA%E7%A1%80%E4%B8%8E%E8%AF%AD%E6%B3%95/">MySQL（一）：SQL 基础与语法</a></li>
+<li><a href="/posts/mysql%E4%BA%8C%E7%B4%A2%E5%BC%95%E5%8E%9F%E7%90%86%E4%B8%8E%E4%BC%98%E5%8C%96/">MySQL（二）：索引原理与优化</a></li>
+<li><a href="/posts/mysql%E4%B8%89innodb-%E5%AD%98%E5%82%A8%E5%BC%95%E6%93%8E/">MySQL（三）：InnoDB 存储引擎</a></li>
+<li><a href="/posts/mysql%E5%9B%9B%E4%BA%8B%E5%8A%A1%E4%B8%8E%E9%94%81%E6%9C%BA%E5%88%B6/">MySQL（四）：事务与锁机制</a></li>
+<li><a href="/posts/mysql%E4%BA%94%E6%97%A5%E5%BF%97%E7%B3%BB%E7%BB%9F/">MySQL（五）：日志系统</a></li>
+<li><a href="/posts/mysql%E5%85%AD%E4%B8%BB%E4%BB%8E%E5%A4%8D%E5%88%B6%E4%B8%8E%E9%AB%98%E5%8F%AF%E7%94%A8/">MySQL（六）：主从复制与高可用</a></li>
+<li><a href="/posts/mysql%E4%B8%83%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E4%B8%8E%E6%9E%B6%E6%9E%84/">MySQL（七）：性能优化与架构</a></li>
+<li><a href="/posts/mysql%E5%85%AB%E9%85%8D%E7%BD%AE%E4%B8%8E%E8%BF%90%E7%BB%B4/">MySQL（八）：配置与运维</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

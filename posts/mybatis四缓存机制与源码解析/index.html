@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>MyBatis（四）：缓存机制与源码解析 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一缓存整体架构">一、缓存整体架构</a></li>
+    <li><a href="#二一级缓存">二、一级缓存</a>
+      <ul>
+        <li><a href="#21-特性">2.1 特性</a></li>
+        <li><a href="#22-一级缓存的实现">2.2 一级缓存的实现</a></li>
+        <li><a href="#23-cachekey-的生成">2.3 CacheKey 的生成</a></li>
+        <li><a href="#24-一级缓存失效的场景">2.4 一级缓存失效的场景</a></li>
+      </ul>
+    </li>
+    <li><a href="#三二级缓存">三、二级缓存</a>
+      <ul>
+        <li><a href="#31-特性">3.1 特性</a></li>
+        <li><a href="#32-配置二级缓存">3.2 配置二级缓存</a></li>
+        <li><a href="#33-cachingexecutor二级缓存的实现">3.3 CachingExecutor——二级缓存的实现</a></li>
+        <li><a href="#34-二级缓存的装饰器链">3.4 二级缓存的装饰器链</a></li>
+      </ul>
+    </li>
+    <li><a href="#四多表联合查询的缓存问题">四、多表联合查询的缓存问题</a>
+      <ul>
+        <li><a href="#41-脏读问题">4.1 脏读问题</a></li>
+      </ul>
+    </li>
+    <li><a href="#五自定义缓存">五、自定义缓存</a>
+      <ul>
+        <li><a href="#51-实现自定义缓存">5.1 实现自定义缓存</a></li>
+        <li><a href="#52-二级缓存的使用建议">5.2 二级缓存的使用建议</a></li>
+      </ul>
+    </li>
+    <li><a href="#六总结">六、总结</a>
+      <ul>
+        <li><a href="#两级缓存对比">两级缓存对比</a></li>
+        <li><a href="#缓存查找顺序">缓存查找顺序</a></li>
+        <li><a href="#核心源码文件索引">核心源码文件索引</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">MyBatis（四）：缓存机制与源码解析</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>MyBatis 提供了两级缓存来减少数据库访问次数：<strong>一级缓存（SqlSession 级别）<strong>和</strong>二级缓存（Mapper 级别）</strong>。理解缓存机制有助于避免常见的缓存问题（如脏读、缓存未命中），同时也能在需要时合理利用缓存提升性能。</p>
+<p>本文从使用到源码，完整覆盖 MyBatis 的缓存实现。</p>
+<blockquote>
+<p><strong>源码版本：</strong> MyBatis 3.5.x</p>
+</blockquote>
+<h2 id="一缓存整体架构">一、缓存整体架构</h2>
+<pre tabindex="0"><code>SqlSession（会话）
+    │
+    ├── 一级缓存（BaseExecutor.localCache）
+    │     └── PerpetualCache（HashMap）
+    │     生命周期 = SqlSession 生命周期
+    │
+    ├── 二级缓存（CachingExecutor 装饰器）
+    │     └── MappedStatement.cache（Cache 对象）
+    │     生命周期 = Mapper 命名空间级别
+    │
+    └── Executor.query()
+</code></pre><p><strong>两级缓存的协作流程：</strong></p>
+<pre tabindex="0"><code>Executor.query()
+    │
+    ├── 1. 查询二级缓存
+    │     （CachingExecutor 负责）
+    │     ├── 命中 → 返回
+    │     └── 未命中 → 继续
+    │
+    ├── 2. 查询一级缓存
+    │     （BaseExecutor 负责）
+    │     ├── 命中 → 返回
+    │     └── 未命中 → 查询数据库
+    │
+    ├── 3. 查询数据库
+    │     （doQuery() 执行 SQL）
+    │
+    └── 4. 更新缓存
+          ├── 存入一级缓存
+          └── 存入二级缓存
+</code></pre><hr>
+<h2 id="二一级缓存">二、一级缓存</h2>
+<h3 id="21-特性">2.1 特性</h3>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>作用范围</td>
+					<td>SqlSession 级别</td>
+			</tr>
+			<tr>
+					<td>存储结构</td>
+					<td>HashMap（PerpetualCache）</td>
+			</tr>
+			<tr>
+					<td>默认开启</td>
+					<td>是（无法关闭，但可设置为 STATEMENT 级）</td>
+			</tr>
+			<tr>
+					<td>缓存失效</td>
+					<td>SQLSession 关闭、执行 update/insert/delete、手动 clearCache()</td>
+			</tr>
+			<tr>
+					<td>作用域</td>
+					<td>同一 SqlSession 内的相同查询</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="22-一级缓存的实现">2.2 一级缓存的实现</h3>
+<p>一级缓存在 <code>BaseExecutor</code> 中实现——所有 Executor 子类都继承自它：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// BaseExecutor.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">abstract</span><span class="w"> </span><span class="kd">class</span> <span class="nc">BaseExecutor</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Executor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 一级缓存（PerpetualCache 本质是 HashMap）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">PerpetualCache</span><span class="w"> </span><span class="n">localCache</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">PerpetualCache</span><span class="w"> </span><span class="n">localOutputParameterCache</span><span class="p">;</span><span class="w">  </span><span class="c1">// 存储过程输出参数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 本地缓存作用域</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">LocalCacheScope</span><span class="w"> </span><span class="n">localCacheScope</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LocalCacheScope</span><span class="p">.</span><span class="na">SESSION</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">query</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">RowBounds</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">ResultHandler</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 获取 BoundSql</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">getBoundSql</span><span class="p">(</span><span class="n">parameter</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. ★ 生成缓存 Key</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">CacheKey</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createCacheKey</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. ★ 调用 query 的重载方法（实际执行）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">query</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@SuppressWarnings</span><span class="p">(</span><span class="s">&#34;unchecked&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">query</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">RowBounds</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">ResultHandler</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">CacheKey</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ErrorContext</span><span class="p">.</span><span class="na">instance</span><span class="p">().</span><span class="na">resource</span><span class="p">(</span><span class="n">ms</span><span class="p">.</span><span class="na">getResource</span><span class="p">()).</span><span class="na">activity</span><span class="p">(</span><span class="s">&#34;executing a query&#34;</span><span class="p">).</span><span class="na">object</span><span class="p">(</span><span class="n">ms</span><span class="p">.</span><span class="na">getId</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">closed</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ExecutorException</span><span class="p">(</span><span class="s">&#34;Executor was closed.&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">queryStack</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">isFlushCacheRequired</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 如果 &lt;select flushCache=&#34;true&#34;&gt;，清空一级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">clearLocalCache</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">list</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">queryStack</span><span class="o">++</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 4. 从一级缓存中查询</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resultHandler</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">(</span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="n">localCache</span><span class="p">.</span><span class="na">getObject</span><span class="p">(</span><span class="n">key</span><span class="p">)</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">list</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 一级缓存命中</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">handleLocallyCachedOutputParameters</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 缓存未命中 → 查询数据库</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">queryFromDatabase</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">queryStack</span><span class="o">--</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">queryStack</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 如果作用域是 STATEMENT，执行完后清空缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 即：每次查询后都清空，相当于仅对单次查询缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">localCacheScope</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">LocalCacheScope</span><span class="p">.</span><span class="na">STATEMENT</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">clearLocalCache</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">list</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 数据库查询</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">queryFromDatabase</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                           </span><span class="n">RowBounds</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">ResultHandler</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                           </span><span class="n">CacheKey</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">list</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">localCache</span><span class="p">.</span><span class="na">putObject</span><span class="p">(</span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">EXECUTION_PLACEHOLDER</span><span class="p">);</span><span class="w">  </span><span class="c1">// 占位符，防递归</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 调用子类的 doQuery()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">doQuery</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">localCache</span><span class="p">.</span><span class="na">removeObject</span><span class="p">(</span><span class="n">key</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 查询结果写入一级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">localCache</span><span class="p">.</span><span class="na">putObject</span><span class="p">(</span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">list</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">list</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 更新操作后清空一级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ErrorContext</span><span class="p">.</span><span class="na">instance</span><span class="p">().</span><span class="na">resource</span><span class="p">(</span><span class="n">ms</span><span class="p">.</span><span class="na">getResource</span><span class="p">()).</span><span class="na">activity</span><span class="p">(</span><span class="s">&#34;executing an update&#34;</span><span class="p">).</span><span class="na">object</span><span class="p">(</span><span class="n">ms</span><span class="p">.</span><span class="na">getId</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">closed</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ExecutorException</span><span class="p">(</span><span class="s">&#34;Executor was closed.&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 任何 insert/update/delete 都会清除一级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">clearLocalCache</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">doUpdate</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">clearLocalCache</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">closed</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 清空一级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">localCache</span><span class="p">.</span><span class="na">clear</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">localOutputParameterCache</span><span class="p">.</span><span class="na">clear</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="23-cachekey-的生成">2.3 CacheKey 的生成</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// BaseExecutor.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">CacheKey</span><span class="w"> </span><span class="nf">createCacheKey</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameterObject</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                </span><span class="n">RowBounds</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">closed</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ExecutorException</span><span class="p">(</span><span class="s">&#34;Executor was closed.&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">CacheKey</span><span class="w"> </span><span class="n">cacheKey</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CacheKey</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. MappedStatement ID（mapper 全限定名 + 方法名）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">cacheKey</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="n">ms</span><span class="p">.</span><span class="na">getId</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 分页偏移量和限制</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">cacheKey</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="n">rowBounds</span><span class="p">.</span><span class="na">getOffset</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">cacheKey</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="n">rowBounds</span><span class="p">.</span><span class="na">getLimit</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 实际 SQL 语句（已替换 #{} 为 ?）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">cacheKey</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="n">boundSql</span><span class="p">.</span><span class="na">getSql</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 4. 参数值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">ParameterMapping</span><span class="w"> </span><span class="n">parameterMapping</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">boundSql</span><span class="p">.</span><span class="na">getParameterMappings</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">property</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parameterMapping</span><span class="p">.</span><span class="na">getProperty</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">boundSql</span><span class="p">.</span><span class="na">hasAdditionalParameter</span><span class="p">(</span><span class="n">property</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">cacheKey</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="n">boundSql</span><span class="p">.</span><span class="na">getAdditionalParameter</span><span class="p">(</span><span class="n">property</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 从参数对象中获取值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Object</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MetaObject</span><span class="p">.</span><span class="na">DEFAULT_META_OBJECT</span><span class="p">.</span><span class="na">getValue</span><span class="p">(</span><span class="n">property</span><span class="p">,</span><span class="w"> </span><span class="n">parameterObject</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">cacheKey</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="n">value</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">cacheKey</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="24-一级缓存失效的场景">2.4 一级缓存失效的场景</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 失效场景 1：不同 SqlSession</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">SqlSession</span><span class="w"> </span><span class="n">session1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">factory</span><span class="p">.</span><span class="na">openSession</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">SqlSession</span><span class="w"> </span><span class="n">session2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">factory</span><span class="p">.</span><span class="na">openSession</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">User</span><span class="w"> </span><span class="n">user1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">session1</span><span class="p">.</span><span class="na">selectOne</span><span class="p">(</span><span class="s">&#34;findById&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">1</span><span class="p">);</span><span class="w">  </span><span class="c1">// 查数据库</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">User</span><span class="w"> </span><span class="n">user2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">session2</span><span class="p">.</span><span class="na">selectOne</span><span class="p">(</span><span class="s">&#34;findById&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">1</span><span class="p">);</span><span class="w">  </span><span class="c1">// 查数据库（不同 session）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 失效场景 2：执行了写操作</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">User</span><span class="w"> </span><span class="n">user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">session</span><span class="p">.</span><span class="na">selectOne</span><span class="p">(</span><span class="s">&#34;findById&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">1</span><span class="p">);</span><span class="w">   </span><span class="c1">// 查数据库</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">session</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="s">&#34;updateUser&#34;</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">User</span><span class="p">(</span><span class="n">1</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;Tom&#34;</span><span class="p">));</span><span class="w"> </span><span class="c1">// 清空一级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">User</span><span class="w"> </span><span class="n">user2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">session</span><span class="p">.</span><span class="na">selectOne</span><span class="p">(</span><span class="s">&#34;findById&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">1</span><span class="p">);</span><span class="w">   </span><span class="c1">// 又查数据库</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 失效场景 3：手动清空</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">session</span><span class="p">.</span><span class="na">clearCache</span><span class="p">();</span><span class="w">  </span><span class="c1">// 清空一级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 失效场景 4：设置 STATEMENT 作用域</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// mybatis-config.xml</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// &lt;setting name=&#34;localCacheScope&#34; value=&#34;STATEMENT&#34;/&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 每次查询后自动清空</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="三二级缓存">三、二级缓存</h2>
+<h3 id="31-特性">3.1 特性</h3>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>作用范围</td>
+					<td>Mapper 命名空间级别（跨 SqlSession）</td>
+			</tr>
+			<tr>
+					<td>默认开启</td>
+					<td>否（需配置 <code>&lt;cache/&gt;</code>）</td>
+			</tr>
+			<tr>
+					<td>存储结构</td>
+					<td>可插拔（默认 PerpetualCache，可替换 Redis、Memcached 等）</td>
+			</tr>
+			<tr>
+					<td>实现方式</td>
+					<td>CachingExecutor 装饰器模式</td>
+			</tr>
+			<tr>
+					<td>缓存对象</td>
+					<td>需实现 Serializable</td>
+			</tr>
+			<tr>
+					<td>脏读风险</td>
+					<td>多表联合查询时可能出现</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="32-配置二级缓存">3.2 配置二级缓存</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- Mapper XML 中配置 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;mapper</span> <span class="na">namespace=</span><span class="s">&#34;com.example.mapper.UserMapper&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- 开启二级缓存 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;cache</span>
+</span></span><span class="line"><span class="cl">        <span class="na">eviction=</span><span class="s">&#34;LRU&#34;</span>           <span class="err">&lt;!--</span> <span class="err">淘汰策略：LRU/FIFO/SOFT/WEAK</span> <span class="err">--</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">        flushInterval=&#34;60000&#34;    <span class="c">&lt;!-- 刷新间隔（毫秒）--&gt;</span>
+</span></span><span class="line"><span class="cl">        size=&#34;512&#34;               <span class="c">&lt;!-- 最大引用数量 --&gt;</span>
+</span></span><span class="line"><span class="cl">        readOnly=&#34;true&#34;          <span class="c">&lt;!-- 是否只读 --&gt;</span>
+</span></span><span class="line"><span class="cl">    /&gt;
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- 某个查询单独控制缓存 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;select</span> <span class="na">id=</span><span class="s">&#34;findById&#34;</span> <span class="na">resultType=</span><span class="s">&#34;User&#34;</span> <span class="na">useCache=</span><span class="s">&#34;true&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">        SELECT * FROM users WHERE id = #{id}
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/select&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- 更新后刷新缓存 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;insert</span> <span class="na">id=</span><span class="s">&#34;insert&#34;</span> <span class="na">flushCache=</span><span class="s">&#34;true&#34;</span><span class="nt">&gt;</span>...<span class="nt">&lt;/insert&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/mapper&gt;</span>
+</span></span></code></pre></div><p><strong>淘汰策略说明：</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>策略</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>LRU</code></td>
+					<td>最近最少使用（默认）</td>
+			</tr>
+			<tr>
+					<td><code>FIFO</code></td>
+					<td>先进先出</td>
+			</tr>
+			<tr>
+					<td><code>SOFT</code></td>
+					<td>软引用（基于 GC 状态）</td>
+			</tr>
+			<tr>
+					<td><code>WEAK</code></td>
+					<td>弱引用（GC 时直接回收）</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="33-cachingexecutor二级缓存的实现">3.3 CachingExecutor——二级缓存的实现</h3>
+<p>二级缓存通过装饰器模式实现——<code>CachingExecutor</code> 包装了实际的 Executor：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// CachingExecutor.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">CachingExecutor</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Executor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Executor</span><span class="w"> </span><span class="n">delegate</span><span class="p">;</span><span class="w">  </span><span class="c1">// 被装饰的实际 Executor（SimpleExecutor 等）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">CachingExecutor</span><span class="p">(</span><span class="n">Executor</span><span class="w"> </span><span class="n">delegate</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">delegate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">delegate</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 在 Configuration.newExecutor() 中创建</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// executor = new CachingExecutor(executor);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">query</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">RowBounds</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">ResultHandler</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 获取 BoundSql</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">getBoundSql</span><span class="p">(</span><span class="n">parameter</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 生成缓存 Key</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">CacheKey</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createCacheKey</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 3. 走二级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">query</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">query</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">RowBounds</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">ResultHandler</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">CacheKey</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 获取 MappedStatement 上配置的二级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Cache</span><span class="w"> </span><span class="n">cache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">getCache</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">cache</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 判断是否需要刷新缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ms</span><span class="p">.</span><span class="na">isFlushCacheRequired</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// insert/update/delete → 清空二级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">cache</span><span class="p">.</span><span class="na">clear</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ms</span><span class="p">.</span><span class="na">isUseCache</span><span class="p">()</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">resultHandler</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 确保返回类型实现了 Serializable</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">ensureNoOutParams</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 从二级缓存获取</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="n">cache</span><span class="p">.</span><span class="na">getObject</span><span class="p">(</span><span class="n">key</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">list</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="c1">// ★ 二级缓存未命中 → 委托给实际的 Executor（走一级缓存或数据库）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">delegate</span><span class="p">.</span><span class="na">query</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="c1">// ★ 结果写入二级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">cache</span><span class="p">.</span><span class="na">putObject</span><span class="p">(</span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">list</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="n">list</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 没有配置二级缓存 → 直接委托给实际 Executor</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">delegate</span><span class="p">.</span><span class="na">query</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 先刷新二级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">flushCacheIfRequired</span><span class="p">(</span><span class="n">ms</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 委托给实际 Executor（它也会清空一级缓存）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">delegate</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">flushCacheIfRequired</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Cache</span><span class="w"> </span><span class="n">cache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">getCache</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">cache</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">isFlushCacheRequired</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">cache</span><span class="p">.</span><span class="na">clear</span><span class="p">();</span><span class="w">  </span><span class="c1">// ★ 清空二级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="34-二级缓存的装饰器链">3.4 二级缓存的装饰器链</h3>
+<p>MyBatis 的缓存使用了经典的装饰器模式——一个 <code>Cache</code> 可以被多个装饰器层层包装：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Mapper 配置：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// &lt;cache eviction=&#34;LRU&#34; flushInterval=&#34;60000&#34; size=&#34;512&#34; readOnly=&#34;true&#34;/&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 生成的缓存对象装饰器链：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">new</span><span class="w"> </span><span class="n">SynchronizedCache</span><span class="p">(</span><span class="w">                           </span><span class="c1">// 线程安全</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">new</span><span class="w"> </span><span class="n">LoggingCache</span><span class="p">(</span><span class="w">                             </span><span class="c1">// 日志记录（命中率）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">new</span><span class="w"> </span><span class="n">ScheduledCache</span><span class="p">(</span><span class="w">                       </span><span class="c1">// 定时刷新</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">LruCache</span><span class="p">(</span><span class="w">                         </span><span class="c1">// LRU 淘汰</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">new</span><span class="w"> </span><span class="n">PerpetualCache</span><span class="p">(</span><span class="s">&#34;namespace&#34;</span><span class="p">)</span><span class="w">   </span><span class="c1">// 底层 HashMap</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">,</span><span class="w"> </span><span class="n">512</span><span class="p">)</span><span class="w">                                </span><span class="c1">// LRU 大小</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">,</span><span class="w"> </span><span class="n">60000</span><span class="p">)</span><span class="w">                                  </span><span class="c1">// 刷新间隔</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">)</span><span class="w">
+</span></span></span></code></pre></div><p><strong>Cache 接口：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">Cache</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="nf">getId</span><span class="p">();</span><span class="w">                          </span><span class="c1">// 缓存 ID（命名空间）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">putObject</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">value</span><span class="p">);</span><span class="w"> </span><span class="c1">// 存入缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="nf">getObject</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">key</span><span class="p">);</span><span class="w">             </span><span class="c1">// 获取缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="nf">removeObject</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">key</span><span class="p">);</span><span class="w">          </span><span class="c1">// 移除</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">clear</span><span class="p">();</span><span class="w">                             </span><span class="c1">// 清空</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="nf">getSize</span><span class="p">();</span><span class="w">                            </span><span class="c1">// 大小</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>CacheBuilder 构建缓存链：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// CacheBuilder.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Cache</span><span class="w"> </span><span class="nf">build</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">setDefaultImplementations</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 创建底层缓存（PerpetualCache）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Cache</span><span class="w"> </span><span class="n">cache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">newBaseCacheInstance</span><span class="p">(</span><span class="n">implementation</span><span class="p">,</span><span class="w"> </span><span class="n">id</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">setCacheProperties</span><span class="p">(</span><span class="n">cache</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 如果配置了装饰器，应用装饰器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">PerpetualCache</span><span class="p">.</span><span class="na">class</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">cache</span><span class="p">.</span><span class="na">getClass</span><span class="p">()))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;?</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">Cache</span><span class="o">&gt;</span><span class="w"> </span><span class="n">decorator</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">decorators</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 逐个应用装饰器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">cache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">newCacheDecoratorInstance</span><span class="p">(</span><span class="n">decorator</span><span class="p">,</span><span class="w"> </span><span class="n">cache</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">setCacheProperties</span><span class="p">(</span><span class="n">cache</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 应用标准装饰器：SynchronizedCache + LoggingCache</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">cache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">setStandardDecorators</span><span class="p">(</span><span class="n">cache</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">cache</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="n">Cache</span><span class="w"> </span><span class="nf">setStandardDecorators</span><span class="p">(</span><span class="n">Cache</span><span class="w"> </span><span class="n">cache</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 定时刷新</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">flushInterval</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">cache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ScheduledCache</span><span class="p">(</span><span class="n">cache</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">((</span><span class="n">ScheduledCache</span><span class="p">)</span><span class="w"> </span><span class="n">cache</span><span class="p">).</span><span class="na">setClearInterval</span><span class="p">(</span><span class="n">flushInterval</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 淘汰策略（LRU/FIFO/SOFT/WEAK）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">eviction</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">cache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">newCacheDecoratorInstance</span><span class="p">(</span><span class="n">eviction</span><span class="p">,</span><span class="w"> </span><span class="n">cache</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 日志</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">cache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">LoggingCache</span><span class="p">(</span><span class="n">cache</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 线程安全</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">cache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SynchronizedCache</span><span class="p">(</span><span class="n">cache</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">cache</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(...)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="四多表联合查询的缓存问题">四、多表联合查询的缓存问题</h2>
+<h3 id="41-脏读问题">4.1 脏读问题</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 问题场景：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// namespace: com.example.mapper.UserMapper</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// namespace: com.example.mapper.RoleMapper</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// UserMapper 查询用户+角色信息（联合查询）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Select</span><span class="p">(</span><span class="s">&#34;SELECT u.*, r.name FROM users u JOIN roles r ON u.role_id = r.id&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// → 结果缓存到 UserMapper 的二级缓存中</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// RoleMapper 更新角色信息</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Update</span><span class="p">(</span><span class="s">&#34;UPDATE roles SET name = &#39;admin&#39; WHERE id = 1&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// → 刷新的是 RoleMapper 的二级缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 问题：UserMapper 的缓存没有被清空，仍然返回旧数据</span><span class="w">
+</span></span></span></code></pre></div><p><strong>解决方案：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 使用 &lt;cache-ref&gt; 引用同一缓存 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;mapper</span> <span class="na">namespace=</span><span class="s">&#34;com.example.mapper.UserMapper&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;cache-ref</span> <span class="na">namespace=</span><span class="s">&#34;com.example.mapper.RoleMapper&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/mapper&gt;</span>
+</span></span></code></pre></div><p>即多个 Mapper 共享同一个命名空间的缓存，任何一个执行更新都会清空共享缓存。</p>
+<hr>
+<h2 id="五自定义缓存">五、自定义缓存</h2>
+<h3 id="51-实现自定义缓存">5.1 实现自定义缓存</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 实现 Cache 接口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">RedisCache</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Cache</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">id</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">RedisTemplate</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">RedisCache</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">id</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 获取 RedisTemplate</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ApplicationContext</span><span class="w"> </span><span class="n">context</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SpringContextHolder</span><span class="p">.</span><span class="na">getApplicationContext</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">redisTemplate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getBean</span><span class="p">(</span><span class="s">&#34;redisTemplate&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">RedisTemplate</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">getId</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">id</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">putObject</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">value</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">().</span><span class="na">set</span><span class="p">(</span><span class="n">id</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">key</span><span class="p">.</span><span class="na">toString</span><span class="p">(),</span><span class="w"> </span><span class="n">value</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">getObject</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">key</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">().</span><span class="na">get</span><span class="p">(</span><span class="n">id</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">key</span><span class="p">.</span><span class="na">toString</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">removeObject</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">key</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">delete</span><span class="p">(</span><span class="n">id</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">key</span><span class="p">.</span><span class="na">toString</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">clear</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">keys</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">keys</span><span class="p">(</span><span class="n">id</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;:*&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">keys</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">keys</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">delete</span><span class="p">(</span><span class="n">keys</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">getSize</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 使用自定义缓存 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;mapper</span> <span class="na">namespace=</span><span class="s">&#34;com.example.mapper.UserMapper&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;cache</span> <span class="na">type=</span><span class="s">&#34;com.example.cache.RedisCache&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/mapper&gt;</span>
+</span></span></code></pre></div><h3 id="52-二级缓存的使用建议">5.2 二级缓存的使用建议</h3>
+<table>
+	<thead>
+			<tr>
+					<th>场景</th>
+					<th>建议</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>单表查询</td>
+					<td>✅ 适合使用二级缓存</td>
+			</tr>
+			<tr>
+					<td>联合查询频繁的表</td>
+					<td>⚠️ 注意脏读问题，用 <code>&lt;cache-ref&gt;</code> 共享</td>
+			</tr>
+			<tr>
+					<td>更新频繁的表</td>
+					<td>❌ 缓存意义不大，反而增加维护成本</td>
+			</tr>
+			<tr>
+					<td>字典表、配置表</td>
+					<td>✅ 非常适合缓存</td>
+			</tr>
+			<tr>
+					<td>集群部署</td>
+					<td>✅ 建议使用 Redis 等分布式缓存</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="六总结">六、总结</h2>
+<h3 id="两级缓存对比">两级缓存对比</h3>
+<table>
+	<thead>
+			<tr>
+					<th>维度</th>
+					<th>一级缓存</th>
+					<th>二级缓存</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>范围</td>
+					<td>SqlSession 级别</td>
+					<td>Mapper 命名空间级别</td>
+			</tr>
+			<tr>
+					<td>默认开启</td>
+					<td>是</td>
+					<td>否（需 <code>&lt;cache/&gt;</code>）</td>
+			</tr>
+			<tr>
+					<td>存储</td>
+					<td>PerpetualCache（HashMap）</td>
+					<td>PerpetualCache / 自定义</td>
+			</tr>
+			<tr>
+					<td>跨 Session</td>
+					<td>否</td>
+					<td>是</td>
+			</tr>
+			<tr>
+					<td>失效</td>
+					<td>update/commit/close/clearCache</td>
+					<td>insert/update/delete/flushCache</td>
+			</tr>
+			<tr>
+					<td>事务</td>
+					<td>提交后才生效</td>
+					<td>提交后才生效</td>
+			</tr>
+			<tr>
+					<td>线程安全</td>
+					<td>同一 Session 内单线程</td>
+					<td>SynchronizedCache 保证</td>
+			</tr>
+			<tr>
+					<td>序列化</td>
+					<td>不需要</td>
+					<td>需要（可能反序列化回不同对象）</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="缓存查找顺序">缓存查找顺序</h3>
+<pre tabindex="0"><code>CacheKey → 二级缓存 → 一级缓存 → 数据库 → 写入一级缓存 → 写入二级缓存
+</code></pre><h3 id="核心源码文件索引">核心源码文件索引</h3>
+<table>
+	<thead>
+			<tr>
+					<th>类</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>BaseExecutor</code></td>
+					<td>一级缓存的实现（localCache）</td>
+			</tr>
+			<tr>
+					<td><code>PerpetualCache</code></td>
+					<td>底层 HashMap 缓存存储</td>
+			</tr>
+			<tr>
+					<td><code>CacheKey</code></td>
+					<td>缓存 Key 的生成（SQL + 参数 + RowBounds）</td>
+			</tr>
+			<tr>
+					<td><code>CachingExecutor</code></td>
+					<td>二级缓存装饰器</td>
+			</tr>
+			<tr>
+					<td><code>CacheBuilder</code></td>
+					<td>构建 Cache 装饰器链</td>
+			</tr>
+			<tr>
+					<td><code>LoggingCache</code></td>
+					<td>缓存命中率日志装饰器</td>
+			</tr>
+			<tr>
+					<td><code>SynchronizedCache</code></td>
+					<td>线程安全装饰器</td>
+			</tr>
+			<tr>
+					<td><code>ScheduledCache</code></td>
+					<td>定时刷新装饰器</td>
+			</tr>
+			<tr>
+					<td><code>LruCache</code></td>
+					<td>LRU 淘汰策略装饰器</td>
+			</tr>
+			<tr>
+					<td><code>FifoCache</code></td>
+					<td>FIFO 淘汰策略装饰器</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>上一篇：</strong> <a href="/posts/mybatis%E4%B8%89%E5%8A%A8%E6%80%81-sql-%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/">MyBatis（三）：动态 SQL 深度解析</a></p>
+<p><strong>系列索引：</strong></p>
+<ul>
+<li><a href="/posts/mybatis%E4%B8%80%E6%A0%B8%E5%BF%83%E6%9E%B6%E6%9E%84%E4%B8%8E%E9%85%8D%E7%BD%AE/">MyBatis（一）：核心架构与配置</a></li>
+<li><a href="/posts/mybatis%E4%BA%8Cmapper-%E4%BB%A3%E7%90%86%E5%8E%9F%E7%90%86%E4%B8%8E-sql-%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/">MyBatis（二）：Mapper 代理原理与 SQL 执行流程</a></li>
+<li><a href="/posts/mybatis%E4%B8%89%E5%8A%A8%E6%80%81-sql-%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/">MyBatis（三）：动态 SQL 深度解析</a></li>
+<li><a href="/posts/mybatis%E5%9B%9B%E7%BC%93%E5%AD%98%E6%9C%BA%E5%88%B6%E4%B8%8E%E6%BA%90%E7%A0%81%E8%A7%A3%E6%9E%90/">MyBatis（四）：缓存机制与源码解析</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

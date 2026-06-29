@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>分布式系统设计（三）：一致性算法 Paxos/Raft - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一一致性问题">一、一致性问题</a>
+      <ul>
+        <li><a href="#11-问题定义">1.1 问题定义</a></li>
+      </ul>
+    </li>
+    <li><a href="#二paxos">二、Paxos</a>
+      <ul>
+        <li><a href="#21-角色">2.1 角色</a></li>
+        <li><a href="#22-basic-paxos-的两阶段">2.2 Basic Paxos 的两阶段</a></li>
+        <li><a href="#23-multi-paxos">2.3 Multi Paxos</a></li>
+      </ul>
+    </li>
+    <li><a href="#三raft">三、Raft</a>
+      <ul>
+        <li><a href="#31-角色">3.1 角色</a></li>
+        <li><a href="#32-领导者选举">3.2 领导者选举</a></li>
+        <li><a href="#33-日志复制">3.3 日志复制</a></li>
+        <li><a href="#34-安全性保证">3.4 安全性保证</a></li>
+        <li><a href="#35-raft-动画演示推荐">3.5 Raft 动画演示（推荐）</a></li>
+      </ul>
+    </li>
+    <li><a href="#四paxos-vs-raft">四、Paxos vs Raft</a></li>
+    <li><a href="#五一致性算法的工程应用">五、一致性算法的工程应用</a>
+      <ul>
+        <li><a href="#工程实现的关键细节">工程实现的关键细节</a></li>
+      </ul>
+    </li>
+    <li><a href="#六总结">六、总结</a>
+      <ul>
+        <li><a href="#一致性算法核心概念">一致性算法核心概念</a></li>
+        <li><a href="#多数派quorum">多数派（Quorum）</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">分布式系统设计（三）：一致性算法 Paxos/Raft</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>一致性算法是分布式系统的基石。它们解决的核心问题是：<strong>在多个节点之间，如何就某个值达成一致？</strong> 即使其中部分节点故障或网络异常。</p>
+<p>Paxos 和 Raft 是最著名的两个一致性算法。Paxos 更理论化，Raft 更工程化。</p>
+<h2 id="一一致性问题">一、一致性问题</h2>
+<h3 id="11-问题定义">1.1 问题定义</h3>
+<pre tabindex="0"><code>三个节点 A、B、C，需要就一个值达成一致。
+
+挑战：
+├── 节点可能宕机
+├── 网络可能延迟或中断
+└── 消息可能乱序或丢失
+
+一致性算法的要求：
+├── 安全性（Safety）：所有节点最终达成相同的值
+└── 活性（Liveness）：最终一定能达成一致
+</code></pre><hr>
+<h2 id="二paxos">二、Paxos</h2>
+<p>Paxos 是 Leslie Lamport 在 1990 年提出的一致性算法，被公认为最难理解的算法之一。</p>
+<h3 id="21-角色">2.1 角色</h3>
+<pre tabindex="0"><code>Proposer（提议者）：提出提案
+Acceptor（接受者）：对提案进行投票
+Learner（学习者）：学习已达成一致的提案
+
+一个节点可以同时扮演多个角色。
+</code></pre><h3 id="22-basic-paxos-的两阶段">2.2 Basic Paxos 的两阶段</h3>
+<pre tabindex="0"><code>第一阶段：Prepare（准备）
+    Proposer → 所有 Acceptor：Prepare(N)
+    Acceptor → Proposer：Promise(N, 已接受的提案号)
+
+第二阶段：Accept（接受）  
+    Proposer → 所有 Acceptor：Accept(N, Value)
+    Acceptor → Proposer：Accepted(N, Value)
+
+Proposer
+    │
+    ├── Phase 1a: Prepare(N=1) ──────────▶ Acceptors
+    │◀── Phase 1b: Promise(N=1) ──────────│
+    │                                      │
+    ├── Phase 2a: Accept(1, V1) ──────────▶ Acceptors
+    │◀── Phase 2b: Accepted(1, V1) ───────│
+    │                                      │
+    ▼ 达成一致
+</code></pre><p><strong>冲突场景：</strong></p>
+<pre tabindex="0"><code>两个 Proposer 同时提案：
+
+P1: Prepare(1) → A,B,C → 获得多数 Promise(1)
+P2: Prepare(2) → A,B,C → A,B 已 Promise(1)，C Promise(2)
+P1: Accept(1, V1) → A,B 接受，C 拒绝（已 Promise(2)）→ 未达成多数
+P2: Accept(2, V2) → A,B,C → 多数接受 V2
+
+结论：高编号的提案胜出。
+</code></pre><h3 id="23-multi-paxos">2.3 Multi Paxos</h3>
+<p>Basic Paxos 每次提案需要两轮 RTT，效率低。Multi Paxos 通过选举一个 Leader 来优化：</p>
+<pre tabindex="0"><code>选举出 Leader 后：
+Leader 发起提案只需要一轮 Accept（省略 Prepare）
+因为 Leader 知道没有比自己编号更高的提案
+
+Role：只有一个 Proposer（Leader）活跃
+</code></pre><hr>
+<h2 id="三raft">三、Raft</h2>
+<p>Raft 是 Diego Ongaro 在 2014 年提出的，目标是<strong>易于理解</strong>。它将一致性问题分解为三个子问题：<strong>领导者选举</strong>、<strong>日志复制</strong>、<strong>安全性</strong>。</p>
+<h3 id="31-角色">3.1 角色</h3>
+<pre tabindex="0"><code>Leader（领导者）：处理所有客户端请求，管理日志复制
+Follower（跟随者）：被动接受 Leader 的日志
+Candidate（候选者）：选举过程中的过渡角色
+
+状态机：
+                         超时后发起选举
+    ┌──────────┐  ─────────────────────▶ ┌──────────┐
+    │ Follower  │                         │ Candidate │
+    │           │◀─────────────────────── │           │
+    └──────────┘  发现 Leader 或新任期    └──────────┘
+         ▲                                    │
+         │       获得多数选票                  │
+         └────────────────────────────────────┘
+</code></pre><h3 id="32-领导者选举">3.2 领导者选举</h3>
+<pre tabindex="0"><code>Raft 使用任期（Term）和心跳超时进行选举。
+
+选举过程：
+1. Follower 在 election timeout 内未收到 Leader 心跳
+2. Follower 转为 Candidate，term +1
+3. Candidate 给自己投票，并向其他节点请求投票
+4. Candidate 获得多数（N/2+1）选票 → 成为 Leader
+5. 新 Leader 开始发送心跳，维持 Leader 地位
+
+心跳超时：
+默认 150-300ms（随机值，防止多个节点同时发起选举）
+</code></pre><h3 id="33-日志复制">3.3 日志复制</h3>
+<pre tabindex="0"><code>客户端请求到达 Leader：
+1. Leader 将请求追加到自己的日志中
+2. Leader 并行发送 AppendEntries 到所有 Follower
+3. Follower 追加日志后回复 Leader
+4. Leader 收到多数确认后，提交日志
+5. Leader 通知 Follower 该日志已提交
+
+日志结构：
+Term 1: [x←3] [y←5]
+Term 2: [z←7] [x←8]
+         ↑已提交   ↑未提交
+</code></pre><h3 id="34-安全性保证">3.4 安全性保证</h3>
+<pre tabindex="0"><code>Raft 的安全性通过以下机制保证：
+
+1. 选举限制
+   Candidate 的日志必须至少和多数节点一样新才能当选
+
+2. 日志匹配
+   AppendEntries 包含前一条日志的 term 和 index
+   Follower 只追加匹配的日志
+
+3. 提交规则
+   Leader 只提交当前任期的日志
+   之前的日志通过当前任期日志的提交间接提交
+</code></pre><h3 id="35-raft-动画演示推荐">3.5 Raft 动画演示（推荐）</h3>
+<pre tabindex="0"><code>推荐在线演示：https://raft.github.io/
+可以通过动画直观理解选举和日志复制的过程。
+</code></pre><hr>
+<h2 id="四paxos-vs-raft">四、Paxos vs Raft</h2>
+<table>
+	<thead>
+			<tr>
+					<th>对比</th>
+					<th>Paxos</th>
+					<th>Raft</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>理解难度</td>
+					<td>极高</td>
+					<td>中等</td>
+			</tr>
+			<tr>
+					<td>角色</td>
+					<td>Proposer/Acceptor/Learner</td>
+					<td>Leader/Follower/Candidate</td>
+			</tr>
+			<tr>
+					<td>选举</td>
+					<td>复杂（Multi Paxos）</td>
+					<td>直观（任期 + 心跳超时）</td>
+			</tr>
+			<tr>
+					<td>日志管理</td>
+					<td>无明确机制</td>
+					<td>日志复制 + 提交规则</td>
+			</tr>
+			<tr>
+					<td>工程实现</td>
+					<td>极少直接实现</td>
+					<td>ZooKeeper(Zab)、etcd(Raft)</td>
+			</tr>
+			<tr>
+					<td>应用</td>
+					<td>Chubby（Google）</td>
+					<td>etcd、Consul、TiKV</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="五一致性算法的工程应用">五、一致性算法的工程应用</h2>
+<table>
+	<thead>
+			<tr>
+					<th>系统</th>
+					<th>算法</th>
+					<th>用途</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>ZooKeeper</td>
+					<td>Zab（类似 Paxos）</td>
+					<td>配置管理、服务发现</td>
+			</tr>
+			<tr>
+					<td>etcd</td>
+					<td>Raft</td>
+					<td>Kubernetes 数据存储</td>
+			</tr>
+			<tr>
+					<td>Consul</td>
+					<td>Raft</td>
+					<td>服务发现 + 配置</td>
+			</tr>
+			<tr>
+					<td>TiKV</td>
+					<td>Raft</td>
+					<td>分布式 KV 存储</td>
+			</tr>
+			<tr>
+					<td>Chubby</td>
+					<td>Paxos</td>
+					<td>Google 分布式锁服务</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="工程实现的关键细节">工程实现的关键细节</h3>
+<pre tabindex="0"><code>1. 磁盘持久化
+   日志必须落盘后才回复确认
+   重启后从日志恢复状态
+
+2. 快照（Snapshot）
+   日志不能无限增长
+   定期打快照，截断日志
+
+3. 成员变更
+   增删节点需要特殊处理
+   使用联合共识（Joint Consensus）或单节点变更
+
+4. 预投票（Pre-Vote）
+   防止网络分区恢复后的&#34;脑裂&#34;选主
+</code></pre><hr>
+<h2 id="六总结">六、总结</h2>
+<h3 id="一致性算法核心概念">一致性算法核心概念</h3>
+<table>
+	<thead>
+			<tr>
+					<th>算法</th>
+					<th>核心思想</th>
+					<th>工程代表</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Paxos</td>
+					<td>两阶段 + 多数投票</td>
+					<td>Chubby</td>
+			</tr>
+			<tr>
+					<td>Raft</td>
+					<td>选举 + 日志复制 + 多数提交</td>
+					<td>etcd、Consul</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="多数派quorum">多数派（Quorum）</h3>
+<pre tabindex="0"><code>所有一致性算法的核心：多数派（N/2 + 1）
+
+多数派的含义：
+├── 任意两个多数派必然有交集
+├── 保证只有一个 Leader 被选出
+└── 保证只有一条日志被提交
+</code></pre><p><strong>相关阅读：</strong></p>
+<ul>
+<li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E4%BA%8C%E5%88%86%E5%B8%83%E5%BC%8F%E7%90%86%E8%AE%BA-cap/base/%E4%B8%80%E8%87%B4%E6%80%A7/">分布式系统设计（二）：分布式理论 CAP/BASE/一致性</a></li>
+<li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E5%9B%9B%E5%88%86%E5%B8%83%E5%BC%8F%E7%BB%84%E4%BB%B6/">分布式系统设计（四）：分布式组件</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

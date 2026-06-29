@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>MyBatis 结果映射进阶（一）：resultMap 高级用法 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一resultmap-基础回顾">一、resultMap 基础回顾</a>
+      <ul>
+        <li><a href="#11-最简单的-resultmap">1.1 最简单的 resultMap</a></li>
+        <li><a href="#12-自动映射">1.2 自动映射</a></li>
+      </ul>
+    </li>
+    <li><a href="#二构造器映射">二、构造器映射</a></li>
+    <li><a href="#三关联映射association">三、关联映射（association）</a>
+      <ul>
+        <li><a href="#31-嵌套查询nested-select">3.1 嵌套查询（Nested Select）</a></li>
+        <li><a href="#32-嵌套结果nested-results推荐">3.2 嵌套结果（Nested Results）——推荐</a></li>
+        <li><a href="#33-关联映射的源码">3.3 关联映射的源码</a></li>
+      </ul>
+    </li>
+    <li><a href="#四集合映射collection">四、集合映射（collection）</a>
+      <ul>
+        <li><a href="#41-嵌套查询">4.1 嵌套查询</a></li>
+        <li><a href="#42-嵌套结果推荐一次-join-解决">4.2 嵌套结果（推荐，一次 JOIN 解决）</a></li>
+        <li><a href="#43-集合映射的去重id-元素的作用">4.3 集合映射的去重（id 元素的作用）</a></li>
+      </ul>
+    </li>
+    <li><a href="#五鉴别器discriminator">五、鉴别器（discriminator）</a></li>
+    <li><a href="#六自定义-typehandler">六、自定义 TypeHandler</a>
+      <ul>
+        <li><a href="#61-枚举映射">6.1 枚举映射</a></li>
+        <li><a href="#62-自定义-typehandler">6.2 自定义 TypeHandler</a></li>
+      </ul>
+    </li>
+    <li><a href="#七resultmapping-的解析">七、ResultMapping 的解析</a></li>
+    <li><a href="#八总结">八、总结</a>
+      <ul>
+        <li><a href="#resultmap-配置速查">resultMap 配置速查</a></li>
+        <li><a href="#核心源码文件索引">核心源码文件索引</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">MyBatis 结果映射进阶（一）：resultMap 高级用法</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>MyBatis 最强大的特性之一就是灵活的结果映射。通过 <code>&lt;resultMap&gt;</code>，可以将 SQL 查询结果自动映射到复杂的 Java 对象结构——包括嵌套对象、集合、枚举、自定义类型等。</p>
+<p>本文聚焦于 <code>resultMap</code> 的高级用法和底层映射原理，展示 MyBatis 如何将扁平的关系型数据转化为层次化的 Java 对象。</p>
+<blockquote>
+<p><strong>源码版本：</strong> MyBatis 3.5.x</p>
+</blockquote>
+<h2 id="一resultmap-基础回顾">一、resultMap 基础回顾</h2>
+<h3 id="11-最简单的-resultmap">1.1 最简单的 resultMap</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;resultMap</span> <span class="na">id=</span><span class="s">&#34;userMap&#34;</span> <span class="na">type=</span><span class="s">&#34;User&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;id</span> <span class="na">property=</span><span class="s">&#34;id&#34;</span> <span class="na">column=</span><span class="s">&#34;id&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;result</span> <span class="na">property=</span><span class="s">&#34;name&#34;</span> <span class="na">column=</span><span class="s">&#34;name&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;result</span> <span class="na">property=</span><span class="s">&#34;email&#34;</span> <span class="na">column=</span><span class="s">&#34;email&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/resultMap&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;select</span> <span class="na">id=</span><span class="s">&#34;findById&#34;</span> <span class="na">resultMap=</span><span class="s">&#34;userMap&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    SELECT id, name, email FROM users WHERE id = #{id}
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/select&gt;</span>
+</span></span></code></pre></div><h3 id="12-自动映射">1.2 自动映射</h3>
+<p>如果 <code>resultMap</code> 不显式配置 <code>&lt;result&gt;</code>，MyBatis 会尝试自动映射：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 自动映射：将查询列名与 Java 属性名按驼峰规则匹配 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;select</span> <span class="na">id=</span><span class="s">&#34;findById&#34;</span> <span class="na">resultType=</span><span class="s">&#34;User&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    SELECT id, user_name AS userName, email FROM users WHERE id = #{id}
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/select&gt;</span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-properties" data-lang="properties"><span class="line"><span class="cl"><span class="c1"># mybatis-config.xml 中配置自动映射行为</span>
+</span></span><span class="line"><span class="cl"><span class="na">mybatis.configuration.auto-mapping-behavior</span><span class="o">=</span><span class="s">PARTIAL  # 默认，只自动映射非嵌套的字段</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># NONE = 关闭自动映射</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># FULL = 自动映射所有字段（包括嵌套对象）</span>
+</span></span></code></pre></div><hr>
+<h2 id="二构造器映射">二、构造器映射</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;resultMap</span> <span class="na">id=</span><span class="s">&#34;userMap&#34;</span> <span class="na">type=</span><span class="s">&#34;User&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- 构造器参数映射（按参数顺序） --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;constructor&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;idArg</span> <span class="na">column=</span><span class="s">&#34;id&#34;</span> <span class="na">javaType=</span><span class="s">&#34;Long&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;arg</span> <span class="na">column=</span><span class="s">&#34;name&#34;</span> <span class="na">javaType=</span><span class="s">&#34;String&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;arg</span> <span class="na">column=</span><span class="s">&#34;email&#34;</span> <span class="na">javaType=</span><span class="s">&#34;String&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/constructor&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/resultMap&gt;</span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">User</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">id</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">name</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">email</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 必须有与 constructor 配置匹配的构造器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">User</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">email</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">id</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">name</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">email</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">email</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>构造器映射的解析源码：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ResultMap.java — 构造器映射的构建</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Builder</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">buildConstructorMappings</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ResultMapping</span><span class="o">&gt;</span><span class="w"> </span><span class="n">constructorMappings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">ResultMapping</span><span class="w"> </span><span class="n">resultMapping</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">resultMap</span><span class="p">.</span><span class="na">getPropertyResultMappings</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resultMapping</span><span class="p">.</span><span class="na">getFlags</span><span class="p">().</span><span class="na">contains</span><span class="p">(</span><span class="n">ResultFlag</span><span class="p">.</span><span class="na">CONSTRUCTOR</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">constructorMappings</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">resultMapping</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 按参数顺序排序</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">resultMap</span><span class="p">.</span><span class="na">constructorResultMappings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">constructorMappings</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="三关联映射association">三、关联映射（association）</h2>
+<p>处理&quot;有一个&quot;的关系（如 User 有一个 Department）。</p>
+<h3 id="31-嵌套查询nested-select">3.1 嵌套查询（Nested Select）</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;resultMap</span> <span class="na">id=</span><span class="s">&#34;userMap&#34;</span> <span class="na">type=</span><span class="s">&#34;User&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;id</span> <span class="na">property=</span><span class="s">&#34;id&#34;</span> <span class="na">column=</span><span class="s">&#34;id&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;result</span> <span class="na">property=</span><span class="s">&#34;name&#34;</span> <span class="na">column=</span><span class="s">&#34;name&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- ★ 嵌套查询：通过另一条 SQL 查询关联对象 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;association</span> <span class="na">property=</span><span class="s">&#34;department&#34;</span> 
+</span></span><span class="line"><span class="cl">                 <span class="na">column=</span><span class="s">&#34;dept_id&#34;</span>           <span class="err">&lt;!--</span> <span class="err">传给</span> <span class="err">select</span> <span class="err">的参数</span> <span class="err">--</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">                 select=&#34;findDeptById&#34;      <span class="c">&lt;!-- 另一个 MappedStatement ID --&gt;</span>
+</span></span><span class="line"><span class="cl">                 fetchType=&#34;lazy&#34;/&gt;         <span class="c">&lt;!-- lazy/eager --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/resultMap&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;select</span> <span class="na">id=</span><span class="s">&#34;findDeptById&#34;</span> <span class="na">resultType=</span><span class="s">&#34;Department&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    SELECT id, name FROM departments WHERE id = #{id}
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/select&gt;</span>
+</span></span></code></pre></div><p><strong>问题：N+1 查询。</strong> 如果查 100 个用户，会额外执行 100 次部门查询。</p>
+<h3 id="32-嵌套结果nested-results推荐">3.2 嵌套结果（Nested Results）——推荐</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- ★ 通过 JOIN 一次查询，resultMap 映射嵌套对象 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;select</span> <span class="na">id=</span><span class="s">&#34;findUserWithDept&#34;</span> <span class="na">resultMap=</span><span class="s">&#34;userWithDeptMap&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    SELECT 
+</span></span><span class="line"><span class="cl">        u.id, u.name, u.dept_id,
+</span></span><span class="line"><span class="cl">        d.id AS dept_id_, d.name AS dept_name
+</span></span><span class="line"><span class="cl">    FROM users u
+</span></span><span class="line"><span class="cl">    LEFT JOIN departments d ON u.dept_id = d.id
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/select&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;resultMap</span> <span class="na">id=</span><span class="s">&#34;userWithDeptMap&#34;</span> <span class="na">type=</span><span class="s">&#34;User&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;id</span> <span class="na">property=</span><span class="s">&#34;id&#34;</span> <span class="na">column=</span><span class="s">&#34;id&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;result</span> <span class="na">property=</span><span class="s">&#34;name&#34;</span> <span class="na">column=</span><span class="s">&#34;name&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- resultMap 嵌套 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;association</span> <span class="na">property=</span><span class="s">&#34;department&#34;</span> 
+</span></span><span class="line"><span class="cl">                 <span class="na">javaType=</span><span class="s">&#34;Department&#34;</span>
+</span></span><span class="line"><span class="cl">                 <span class="na">resultMap=</span><span class="s">&#34;deptResultMap&#34;</span>
+</span></span><span class="line"><span class="cl">                 <span class="na">columnPrefix=</span><span class="s">&#34;dept_&#34;</span><span class="nt">/&gt;</span>  <span class="c">&lt;!-- 列名前缀 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/resultMap&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;resultMap</span> <span class="na">id=</span><span class="s">&#34;deptResultMap&#34;</span> <span class="na">type=</span><span class="s">&#34;Department&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;id</span> <span class="na">property=</span><span class="s">&#34;id&#34;</span> <span class="na">column=</span><span class="s">&#34;id&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;result</span> <span class="na">property=</span><span class="s">&#34;name&#34;</span> <span class="na">column=</span><span class="s">&#34;name&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/resultMap&gt;</span>
+</span></span></code></pre></div><p><strong>columnPrefix 的作用：</strong> 当 JOIN 查询中有同名列时，通过前缀区分。<code>columnPrefix=&quot;dept_&quot;</code> 表示 <code>dept_resultMap</code> 中的 <code>id</code> 对应 SQL 结果中的 <code>dept_id</code> 列。</p>
+<h3 id="33-关联映射的源码">3.3 关联映射的源码</h3>
+<p><code>DefaultResultSetHandler</code> 中处理 <code>association</code> 的核心逻辑：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultResultSetHandler.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">getRowValue</span><span class="p">(</span><span class="n">ResultSetWrapper</span><span class="w"> </span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMap</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                           </span><span class="n">String</span><span class="w"> </span><span class="n">columnPrefix</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">SQLException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 创建结果对象（通过反射或构造器）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="n">resultObject</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createResultObject</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> </span><span class="n">columnPrefix</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resultObject</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">hasTypeHandlerForResultObject</span><span class="p">(</span><span class="n">resultObject</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">.</span><span class="na">getType</span><span class="p">()))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 获取已加载的列</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">final</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">columns</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">rsw</span><span class="p">.</span><span class="na">getColumnNames</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 遍历 resultMap 中的 ResultMapping</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">ResultMapping</span><span class="w"> </span><span class="n">resultMapping</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">resultMap</span><span class="p">.</span><span class="na">getPropertyResultMappings</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resultMapping</span><span class="p">.</span><span class="na">isCompositeArgument</span><span class="p">())</span><span class="w"> </span><span class="k">continue</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resultMapping</span><span class="p">.</span><span class="na">getNestedResultMapId</span><span class="p">()</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ association 或 collection 嵌套结果</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 递归处理嵌套 resultMap</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">handleRowValuesForNestedResultMap</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resultMapping</span><span class="p">.</span><span class="na">getNestedQueryId</span><span class="p">()</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 嵌套查询（N+1 方式）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">handleRowValuesForNestedQuery</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 简单字段映射</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">String</span><span class="w"> </span><span class="n">column</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">prependPrefix</span><span class="p">(</span><span class="n">resultMapping</span><span class="p">.</span><span class="na">getColumn</span><span class="p">(),</span><span class="w"> </span><span class="n">columnPrefix</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">TypeHandler</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">typeHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resultMapping</span><span class="p">.</span><span class="na">getTypeHandler</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">Object</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">typeHandler</span><span class="p">.</span><span class="na">getResult</span><span class="p">(</span><span class="n">rsw</span><span class="p">.</span><span class="na">getResultSet</span><span class="p">(),</span><span class="w"> </span><span class="n">column</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">setValue</span><span class="p">(</span><span class="n">resultObject</span><span class="p">,</span><span class="w"> </span><span class="n">resultMapping</span><span class="p">.</span><span class="na">getProperty</span><span class="p">(),</span><span class="w"> </span><span class="n">value</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">resultObject</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="四集合映射collection">四、集合映射（collection）</h2>
+<p>处理&quot;有多条&quot;的关系（如一个部门有多个用户）。</p>
+<h3 id="41-嵌套查询">4.1 嵌套查询</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;resultMap</span> <span class="na">id=</span><span class="s">&#34;deptMap&#34;</span> <span class="na">type=</span><span class="s">&#34;Department&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;id</span> <span class="na">property=</span><span class="s">&#34;id&#34;</span> <span class="na">column=</span><span class="s">&#34;id&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;result</span> <span class="na">property=</span><span class="s">&#34;name&#34;</span> <span class="na">column=</span><span class="s">&#34;name&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;collection</span> <span class="na">property=</span><span class="s">&#34;users&#34;</span>
+</span></span><span class="line"><span class="cl">                <span class="na">column=</span><span class="s">&#34;id&#34;</span>
+</span></span><span class="line"><span class="cl">                <span class="na">select=</span><span class="s">&#34;findUsersByDeptId&#34;</span>
+</span></span><span class="line"><span class="cl">                <span class="na">fetchType=</span><span class="s">&#34;lazy&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/resultMap&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;select</span> <span class="na">id=</span><span class="s">&#34;findUsersByDeptId&#34;</span> <span class="na">resultType=</span><span class="s">&#34;User&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    SELECT id, name, dept_id FROM users WHERE dept_id = #{deptId}
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/select&gt;</span>
+</span></span></code></pre></div><h3 id="42-嵌套结果推荐一次-join-解决">4.2 嵌套结果（推荐，一次 JOIN 解决）</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;select</span> <span class="na">id=</span><span class="s">&#34;findDeptWithUsers&#34;</span> <span class="na">resultMap=</span><span class="s">&#34;deptWithUsersMap&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    SELECT 
+</span></span><span class="line"><span class="cl">        d.id AS dept_id, d.name AS dept_name,
+</span></span><span class="line"><span class="cl">        u.id AS user_id, u.name AS user_name
+</span></span><span class="line"><span class="cl">    FROM departments d
+</span></span><span class="line"><span class="cl">    LEFT JOIN users u ON d.id = u.dept_id
+</span></span><span class="line"><span class="cl">    ORDER BY d.id
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/select&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;resultMap</span> <span class="na">id=</span><span class="s">&#34;deptWithUsersMap&#34;</span> <span class="na">type=</span><span class="s">&#34;Department&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;id</span> <span class="na">property=</span><span class="s">&#34;id&#34;</span> <span class="na">column=</span><span class="s">&#34;dept_id&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;result</span> <span class="na">property=</span><span class="s">&#34;name&#34;</span> <span class="na">column=</span><span class="s">&#34;dept_name&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;collection</span> <span class="na">property=</span><span class="s">&#34;users&#34;</span> 
+</span></span><span class="line"><span class="cl">                <span class="na">ofType=</span><span class="s">&#34;User&#34;</span>
+</span></span><span class="line"><span class="cl">                <span class="na">resultMap=</span><span class="s">&#34;userMap&#34;</span>
+</span></span><span class="line"><span class="cl">                <span class="na">columnPrefix=</span><span class="s">&#34;user_&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/resultMap&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;resultMap</span> <span class="na">id=</span><span class="s">&#34;userMap&#34;</span> <span class="na">type=</span><span class="s">&#34;User&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;id</span> <span class="na">property=</span><span class="s">&#34;id&#34;</span> <span class="na">column=</span><span class="s">&#34;id&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;result</span> <span class="na">property=</span><span class="s">&#34;name&#34;</span> <span class="na">column=</span><span class="s">&#34;name&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/resultMap&gt;</span>
+</span></span></code></pre></div><h3 id="43-集合映射的去重id-元素的作用">4.3 集合映射的去重（id 元素的作用）</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;resultMap</span> <span class="na">id=</span><span class="s">&#34;deptWithUsersMap&#34;</span> <span class="na">type=</span><span class="s">&#34;Department&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- ★ id 元素关键！它用于判断是否是同一行 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;id</span> <span class="na">property=</span><span class="s">&#34;id&#34;</span> <span class="na">column=</span><span class="s">&#34;dept_id&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;collection</span> <span class="na">property=</span><span class="s">&#34;users&#34;</span> <span class="na">ofType=</span><span class="s">&#34;User&#34;</span> <span class="na">columnPrefix=</span><span class="s">&#34;user_&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="c">&lt;!-- ★ 同样，collection 中的 id 用于去重 user --&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;id</span> <span class="na">property=</span><span class="s">&#34;id&#34;</span> <span class="na">column=</span><span class="s">&#34;id&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;result</span> <span class="na">property=</span><span class="s">&#34;name&#34;</span> <span class="na">column=</span><span class="s">&#34;name&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/collection&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/resultMap&gt;</span>
+</span></span></code></pre></div><p><strong>为什么 id 这么重要？</strong></p>
+<pre tabindex="0"><code>SQL 结果：
+dept_id | dept_name | user_id | user_name
+1       | 技术部     | 1       | Tom
+1       | 技术部     | 2       | Jerry
+2       | 产品部     | 3       | Alice
+
+没有 &lt;id&gt; 时：MyBatis 会为每一行都创建一个新的 Department 对象
+有 &lt;id&gt; 时：MyBatis 根据 dept_id 判断是否是同一个 Department
+  → dept_id=1 的两行合并到同一个 Department 对象中
+  → users 集合中包含 Tom 和 Jerry 两个 User
+</code></pre><p><strong>去重的核心源码：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultResultSetHandler.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">matchesKey</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">property</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMap</span><span class="w"> </span><span class="n">resultMap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 如果有 &lt;id&gt; 元素，用 id 的值做唯一标识</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 如果没有 &lt;id&gt;，用所有 &lt;result&gt; 的值做唯一标识</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ResultMapping</span><span class="o">&gt;</span><span class="w"> </span><span class="n">idMappings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resultMap</span><span class="p">.</span><span class="na">getIdResultMappings</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">idMappings</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">idMappings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resultMap</span><span class="p">.</span><span class="na">getPropertyResultMappings</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">uniqueKeyColumns</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">ResultMapping</span><span class="w"> </span><span class="n">idMapping</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">idMappings</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">uniqueKeyColumns</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">idMapping</span><span class="p">.</span><span class="na">getColumn</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 将当前行的标识列值拼成唯一键</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createKey</span><span class="p">(</span><span class="n">uniqueKeyColumns</span><span class="p">,</span><span class="w"> </span><span class="n">rsw</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 从缓存中查找 —— 同一部门（相同 dept_id）直接复用已有对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="n">cached</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">uniqueObjects</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">key</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">cached</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 直接加到集合中，不创建新 Department 对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">addToCollection</span><span class="p">(</span><span class="n">cached</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">uniqueObjects</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">resultObject</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="五鉴别器discriminator">五、鉴别器（discriminator）</h2>
+<p>根据某列的值，动态决定使用哪个 <code>resultMap</code>。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;resultMap</span> <span class="na">id=</span><span class="s">&#34;vehicleMap&#34;</span> <span class="na">type=</span><span class="s">&#34;Vehicle&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;id</span> <span class="na">property=</span><span class="s">&#34;id&#34;</span> <span class="na">column=</span><span class="s">&#34;id&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;result</span> <span class="na">property=</span><span class="s">&#34;name&#34;</span> <span class="na">column=</span><span class="s">&#34;name&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;discriminator</span> <span class="na">javaType=</span><span class="s">&#34;String&#34;</span> <span class="na">column=</span><span class="s">&#34;vehicle_type&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;case</span> <span class="na">value=</span><span class="s">&#34;CAR&#34;</span> <span class="na">resultMap=</span><span class="s">&#34;carMap&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;case</span> <span class="na">value=</span><span class="s">&#34;TRUCK&#34;</span> <span class="na">resultMap=</span><span class="s">&#34;truckMap&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/discriminator&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/resultMap&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;resultMap</span> <span class="na">id=</span><span class="s">&#34;carMap&#34;</span> <span class="na">type=</span><span class="s">&#34;Car&#34;</span> <span class="na">extends=</span><span class="s">&#34;vehicleMap&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;result</span> <span class="na">property=</span><span class="s">&#34;doorCount&#34;</span> <span class="na">column=</span><span class="s">&#34;door_count&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/resultMap&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;resultMap</span> <span class="na">id=</span><span class="s">&#34;truckMap&#34;</span> <span class="na">type=</span><span class="s">&#34;Truck&#34;</span> <span class="na">extends=</span><span class="s">&#34;vehicleMap&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;result</span> <span class="na">property=</span><span class="s">&#34;loadCapacity&#34;</span> <span class="na">column=</span><span class="s">&#34;load_capacity&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/resultMap&gt;</span>
+</span></span></code></pre></div><p><strong>鉴别器的源码实现：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultResultSetHandler.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="n">ResultMap</span><span class="w"> </span><span class="nf">resolveDiscriminatedResultMap</span><span class="p">(</span><span class="n">ResultSetWrapper</span><span class="w"> </span><span class="n">rsw</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                                  </span><span class="n">ResultMap</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                                  </span><span class="n">String</span><span class="w"> </span><span class="n">columnPrefix</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 获取鉴别器列的值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">discriminatorValue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">rsw</span><span class="p">.</span><span class="na">getStringResult</span><span class="p">(</span><span class="n">discriminatorColumn</span><span class="p">,</span><span class="w"> </span><span class="n">columnPrefix</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 查找匹配的 case</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ResultMap</span><span class="w"> </span><span class="n">discriminatedResultMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resultMap</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Map</span><span class="p">.</span><span class="na">Entry</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">entry</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">resultMap</span><span class="p">.</span><span class="na">getDiscriminatorMap</span><span class="p">().</span><span class="na">entrySet</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">entry</span><span class="p">.</span><span class="na">getKey</span><span class="p">().</span><span class="na">equals</span><span class="p">(</span><span class="n">discriminatorValue</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 使用匹配的 resultMap</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">discriminatedResultMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">configuration</span><span class="p">.</span><span class="na">getResultMap</span><span class="p">(</span><span class="n">entry</span><span class="p">.</span><span class="na">getValue</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">break</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 如果匹配到的 resultMap 也有鉴别器，递归</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">discriminatedResultMap</span><span class="p">.</span><span class="na">hasDiscriminator</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">discriminatedResultMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resolveDiscriminatedResultMap</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">discriminatedResultMap</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">discriminatedResultMap</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="六自定义-typehandler">六、自定义 TypeHandler</h2>
+<h3 id="61-枚举映射">6.1 枚举映射</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 方式一：MyBatis 内置的 EnumTypeHandler（存储枚举名） 和 EnumOrdinalTypeHandler（存储序号）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// mybatis-config.xml</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">&lt;</span><span class="n">typeHandlers</span><span class="o">&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">&lt;</span><span class="n">typeHandler</span><span class="w"> </span><span class="n">handler</span><span class="o">=</span><span class="s">&#34;org.apache.ibatis.type.EnumTypeHandler&#34;</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                 </span><span class="n">javaType</span><span class="o">=</span><span class="s">&#34;com.example.enums.Status&#34;</span><span class="o">/&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">&lt;/</span><span class="n">typeHandlers</span><span class="o">&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 方式二：在映射中指定</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">&lt;</span><span class="n">result</span><span class="w"> </span><span class="n">column</span><span class="o">=</span><span class="s">&#34;status&#34;</span><span class="w"> </span><span class="n">property</span><span class="o">=</span><span class="s">&#34;status&#34;</span><span class="w"> </span><span class="n">typeHandler</span><span class="o">=</span><span class="s">&#34;org.apache.ibatis.type.EnumOrdinalTypeHandler&#34;</span><span class="o">/&gt;</span><span class="w">
+</span></span></span></code></pre></div><h3 id="62-自定义-typehandler">6.2 自定义 TypeHandler</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 场景：将 JSON 字符串映射为 Java 对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@MappedTypes</span><span class="p">(</span><span class="n">Role</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@MappedJdbcTypes</span><span class="p">(</span><span class="n">JdbcType</span><span class="p">.</span><span class="na">VARCHAR</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">RoleTypeHandler</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">BaseTypeHandler</span><span class="o">&lt;</span><span class="n">Role</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ObjectMapper</span><span class="w"> </span><span class="n">MAPPER</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ObjectMapper</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">setNonNullParameter</span><span class="p">(</span><span class="n">PreparedStatement</span><span class="w"> </span><span class="n">ps</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                     </span><span class="n">Role</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">JdbcType</span><span class="w"> </span><span class="n">jdbcType</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ps</span><span class="p">.</span><span class="na">setString</span><span class="p">(</span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">MAPPER</span><span class="p">.</span><span class="na">writeValueAsString</span><span class="p">(</span><span class="n">parameter</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Role</span><span class="w"> </span><span class="nf">getNullableResult</span><span class="p">(</span><span class="n">ResultSet</span><span class="w"> </span><span class="n">rs</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">columnName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">json</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">rs</span><span class="p">.</span><span class="na">getString</span><span class="p">(</span><span class="n">columnName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">json</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">MAPPER</span><span class="p">.</span><span class="na">readValue</span><span class="p">(</span><span class="n">json</span><span class="p">,</span><span class="w"> </span><span class="n">Role</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 注册</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Bean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">RoleTypeHandler</span><span class="w"> </span><span class="nf">roleTypeHandler</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RoleTypeHandler</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="七resultmapping-的解析">七、ResultMapping 的解析</h2>
+<p>每个 <code>&lt;result&gt;</code>、<code>&lt;id&gt;</code>、<code>&lt;association&gt;</code>、<code>&lt;collection&gt;</code> 标签最终都解析为 <code>ResultMapping</code> 对象。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ResultMapping.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ResultMapping</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Configuration</span><span class="w"> </span><span class="n">configuration</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">property</span><span class="p">;</span><span class="w">           </span><span class="c1">// Java 属性名</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">column</span><span class="p">;</span><span class="w">             </span><span class="c1">// 数据库列名</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">javaType</span><span class="p">;</span><span class="w">         </span><span class="c1">// Java 类型</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">JdbcType</span><span class="w"> </span><span class="n">jdbcType</span><span class="p">;</span><span class="w">         </span><span class="c1">// JDBC 类型</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">TypeHandler</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">typeHandler</span><span class="p">;</span><span class="w"> </span><span class="c1">// 类型处理器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">nestedResultMapId</span><span class="p">;</span><span class="w">  </span><span class="c1">// 嵌套 resultMap ID（association/collection）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">nestedQueryId</span><span class="p">;</span><span class="w">      </span><span class="c1">// 嵌套查询 ID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">notNullColumns</span><span class="p">;</span><span class="w"> </span><span class="c1">// NOT NULL 列集合</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">columnPrefix</span><span class="p">;</span><span class="w">       </span><span class="c1">// 列名前缀</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ResultFlag</span><span class="o">&gt;</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span><span class="w">    </span><span class="c1">// 标志（ID/CONSTRUCTOR）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ResultMapping</span><span class="o">&gt;</span><span class="w"> </span><span class="n">composites</span><span class="p">;</span><span class="w"> </span><span class="c1">// 复合主键</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>ResultMapping 的构建（在 ResultMap.Builder 中）：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="n">ResultMapping</span><span class="w"> </span><span class="nf">buildResultMappingFromContext</span><span class="p">(</span><span class="n">XNode</span><span class="w"> </span><span class="n">context</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">property</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;property&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">column</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;column&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">javaTypeAttr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;javaType&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">jdbcTypeAttr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;jdbcType&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">nestedSelect</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;select&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">nestedResultMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;resultMap&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">columnPrefix</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;columnPrefix&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">fetchType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;fetchType&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">resultSet</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;resultSet&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 解析 javaType</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">javaType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resolveJavaType</span><span class="p">(</span><span class="n">javaTypeAttr</span><span class="p">,</span><span class="w"> </span><span class="n">nestedResultMap</span><span class="p">,</span><span class="w"> </span><span class="n">property</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 解析 typeHandler</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">TypeHandler</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">typeHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resolveTypeHandler</span><span class="p">(</span><span class="n">context</span><span class="p">,</span><span class="w"> </span><span class="n">javaType</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 构建 ResultMapping</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ResultMapping</span><span class="p">.</span><span class="na">Builder</span><span class="w"> </span><span class="n">builder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ResultMapping</span><span class="p">.</span><span class="na">Builder</span><span class="p">(</span><span class="n">configuration</span><span class="p">,</span><span class="w"> </span><span class="n">property</span><span class="p">,</span><span class="w"> </span><span class="n">column</span><span class="p">,</span><span class="w"> </span><span class="n">javaType</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">builder</span><span class="p">.</span><span class="na">jdbcType</span><span class="p">(</span><span class="n">resolveJdbcType</span><span class="p">(</span><span class="n">jdbcTypeAttr</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">builder</span><span class="p">.</span><span class="na">nestedQueryId</span><span class="p">(</span><span class="n">nestedSelect</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">builder</span><span class="p">.</span><span class="na">nestedResultMapId</span><span class="p">(</span><span class="n">nestedResultMap</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">builder</span><span class="p">.</span><span class="na">columnPrefix</span><span class="p">(</span><span class="n">columnPrefix</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">builder</span><span class="p">.</span><span class="na">fetchType</span><span class="p">(</span><span class="n">resolveFetchType</span><span class="p">(</span><span class="n">fetchType</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">builder</span><span class="p">.</span><span class="na">typeHandler</span><span class="p">(</span><span class="n">typeHandler</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">builder</span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">BuilderException</span><span class="p">(</span><span class="s">&#34;Error building ResultMapping.&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="八总结">八、总结</h2>
+<h3 id="resultmap-配置速查">resultMap 配置速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>元素</th>
+					<th>用途</th>
+					<th>关键属性</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>&lt;id&gt;</code></td>
+					<td>主键映射（性能优化 + 去重）</td>
+					<td>property, column</td>
+			</tr>
+			<tr>
+					<td><code>&lt;result&gt;</code></td>
+					<td>普通字段映射</td>
+					<td>property, column</td>
+			</tr>
+			<tr>
+					<td><code>&lt;constructor&gt;</code></td>
+					<td>构造器参数映射</td>
+					<td><code>&lt;idArg&gt;</code>, <code>&lt;arg&gt;</code></td>
+			</tr>
+			<tr>
+					<td><code>&lt;association&gt;</code></td>
+					<td>嵌套对象（has-one）</td>
+					<td>select / resultMap, columnPrefix</td>
+			</tr>
+			<tr>
+					<td><code>&lt;collection&gt;</code></td>
+					<td>集合对象（has-many）</td>
+					<td>select / resultMap, columnPrefix</td>
+			</tr>
+			<tr>
+					<td><code>&lt;discriminator&gt;</code></td>
+					<td>根据列值选择 resultMap</td>
+					<td>column, javaType, <code>&lt;case&gt;</code></td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="核心源码文件索引">核心源码文件索引</h3>
+<table>
+	<thead>
+			<tr>
+					<th>类</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>ResultMap</code></td>
+					<td>封装整个 resultMap 的配置信息</td>
+			</tr>
+			<tr>
+					<td><code>ResultMapping</code></td>
+					<td>单个字段/关联的映射配置</td>
+			</tr>
+			<tr>
+					<td><code>DefaultResultSetHandler</code></td>
+					<td>核心：将 ResultSet 转为 Java 对象</td>
+			</tr>
+			<tr>
+					<td><code>ResultSetWrapper</code></td>
+					<td>ResultSet 的包装器（列名、TypeHandler 查找）</td>
+			</tr>
+			<tr>
+					<td><code>TypeHandlerRegistry</code></td>
+					<td>TypeHandler 注册与管理</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>下一篇：</strong> <a href="/posts/mybatis-%E7%BB%93%E6%9E%9C%E6%98%A0%E5%B0%84%E8%BF%9B%E9%98%B6%E4%BA%8C%E7%BA%A7%E8%81%94%E6%9F%A5%E8%AF%A2%E9%89%B4%E5%88%AB%E5%99%A8%E4%B8%8E%E5%BB%B6%E8%BF%9F%E5%8A%A0%E8%BD%BD%E6%BA%90%E7%A0%81/">MyBatis 结果映射进阶（二）：级联查询、鉴别器与延迟加载源码</a></p>
+<p><strong>系列索引：</strong></p>
+<ul>
+<li><a href="/posts/mybatis-%E7%BB%93%E6%9E%9C%E6%98%A0%E5%B0%84%E8%BF%9B%E9%98%B6%E4%B8%80resultmap-%E9%AB%98%E7%BA%A7%E7%94%A8%E6%B3%95/">MyBatis 结果映射进阶（一）：resultMap 高级用法</a></li>
+<li><a href="/posts/mybatis-%E7%BB%93%E6%9E%9C%E6%98%A0%E5%B0%84%E8%BF%9B%E9%98%B6%E4%BA%8C%E7%BA%A7%E8%81%94%E6%9F%A5%E8%AF%A2%E9%89%B4%E5%88%AB%E5%99%A8%E4%B8%8E%E5%BB%B6%E8%BF%9F%E5%8A%A0%E8%BD%BD%E6%BA%90%E7%A0%81/">MyBatis 结果映射进阶（二）：级联查询、鉴别器与延迟加载源码</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

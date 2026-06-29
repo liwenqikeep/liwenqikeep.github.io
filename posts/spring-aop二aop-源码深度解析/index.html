@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Spring AOP（二）：AOP 源码深度解析 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一启用-aop-入口">一、启用 AOP 入口</a>
+      <ul>
+        <li><a href="#11-enableaspectjautoproxy">1.1 @EnableAspectJAutoProxy</a></li>
+        <li><a href="#12-完整的类层次">1.2 完整的类层次</a></li>
+      </ul>
+    </li>
+    <li><a href="#二代理创建流程">二、代理创建流程</a>
+      <ul>
+        <li><a href="#21-abstractautoproxycreator-的核心逻辑">2.1 AbstractAutoProxyCreator 的核心逻辑</a></li>
+        <li><a href="#22-获取适用的-advisor">2.2 获取适用的 Advisor</a></li>
+        <li><a href="#23-创建代理">2.3 创建代理</a></li>
+      </ul>
+    </li>
+    <li><a href="#三aspect-切面的解析">三、@Aspect 切面的解析</a>
+      <ul>
+        <li><a href="#31-annotationawareaspectjautoproxycreator-的特殊能力">3.1 AnnotationAwareAspectJAutoProxyCreator 的特殊能力</a></li>
+        <li><a href="#32-aspect-的解析buildaspectjadvisors">3.2 @Aspect 的解析——buildAspectJAdvisors()</a></li>
+        <li><a href="#33-将通知方法转换为-advisor">3.3 将通知方法转换为 Advisor</a></li>
+      </ul>
+    </li>
+    <li><a href="#四代理方法的调用">四、代理方法的调用</a>
+      <ul>
+        <li><a href="#41-jdk-动态代理的调用">4.1 JDK 动态代理的调用</a></li>
+        <li><a href="#42-通知链的获取">4.2 通知链的获取</a></li>
+        <li><a href="#43-通知链的执行reflectivemethodinvocation">4.3 通知链的执行——ReflectiveMethodInvocation</a></li>
+        <li><a href="#44-通知方法适配为-methodinterceptor">4.4 通知方法适配为 MethodInterceptor</a></li>
+      </ul>
+    </li>
+    <li><a href="#五完整调用链路回顾">五、完整调用链路回顾</a></li>
+    <li><a href="#六总结">六、总结</a>
+      <ul>
+        <li><a href="#核心类源码速查">核心类源码速查</a></li>
+        <li><a href="#aop-执行流程一句话">AOP 执行流程一句话</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Spring AOP（二）：AOP 源码深度解析</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>上一篇我们看了 AOP 的使用。这篇文章深入源码，从 <code>@EnableAspectJAutoProxy</code> 开始，完整追踪<strong>一个 <code>@Aspect</code> 切面是如何被解析</strong>、<strong>如何代理目标 Bean</strong>、<strong>以及方法调用时通知链如何执行的</strong>全过程。</p>
+<blockquote>
+<p><strong>源码版本：</strong> Spring Framework 5.x</p>
+</blockquote>
+<h2 id="一启用-aop-入口">一、启用 AOP 入口</h2>
+<h3 id="11-enableaspectjautoproxy">1.1 @EnableAspectJAutoProxy</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Target</span><span class="p">(</span><span class="n">ElementType</span><span class="p">.</span><span class="na">TYPE</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Retention</span><span class="p">(</span><span class="n">RetentionPolicy</span><span class="p">.</span><span class="na">RUNTIME</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Documented</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Import</span><span class="p">(</span><span class="n">AspectJAutoProxyRegistrar</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">  </span><span class="c1">// 核心：导入 Registrar</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="nd">@interface</span><span class="w"> </span><span class="n">EnableAspectJAutoProxy</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">proxyTargetClass</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">exposeProxy</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><code>AspectJAutoProxyRegistrar</code> 是一个 <code>ImportBeanDefinitionRegistrar</code>，它在容器启动时注册一个关键的 Bean 后处理器：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AspectJAutoProxyRegistrar.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">class</span> <span class="nc">AspectJAutoProxyRegistrar</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">ImportBeanDefinitionRegistrar</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">registerBeanDefinitions</span><span class="p">(</span><span class="n">AnnotationMetadata</span><span class="w"> </span><span class="n">importingClassMetadata</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                         </span><span class="n">BeanDefinitionRegistry</span><span class="w"> </span><span class="n">registry</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 注册 AnnotationAwareAspectJAutoProxyCreator</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">AopConfigUtils</span><span class="p">.</span><span class="na">registerAspectJAnnotationAutoProxyCreatorIfNecessary</span><span class="p">(</span><span class="n">registry</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 处理 proxyTargetClass 和 exposeProxy 属性</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">AnnotationAttributes</span><span class="w"> </span><span class="n">enableAspectJAutoProxy</span><span class="w"> </span><span class="o">=</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">AnnotationConfigUtils</span><span class="p">.</span><span class="na">attributesFor</span><span class="p">(</span><span class="n">importingClassMetadata</span><span class="p">,</span><span class="w"> </span><span class="n">EnableAspectJAutoProxy</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">enableAspectJAutoProxy</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">enableAspectJAutoProxy</span><span class="p">.</span><span class="na">getBoolean</span><span class="p">(</span><span class="s">&#34;proxyTargetClass&#34;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">AopConfigUtils</span><span class="p">.</span><span class="na">forceAutoProxyCreatorToUseClassProxying</span><span class="p">(</span><span class="n">registry</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">enableAspectJAutoProxy</span><span class="p">.</span><span class="na">getBoolean</span><span class="p">(</span><span class="s">&#34;exposeProxy&#34;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">AopConfigUtils</span><span class="p">.</span><span class="na">forceAutoProxyCreatorToExposeProxy</span><span class="p">(</span><span class="n">registry</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>注册的核心后处理器：</strong></p>
+<pre tabindex="0"><code>AnnotationAwareAspectJAutoProxyCreator
+  └── AspectJAwareAdvisorAutoProxyCreator
+        └── AbstractAdvisorAutoProxyCreator
+              └── AbstractAutoProxyCreator        ← 核心代理创建
+                    └── SmartInstantiationAwareBeanPostProcessor
+                    └── BeanFactoryAware
+</code></pre><p><code>AnnotationAwareAspectJAutoProxyCreator</code> 是整个 AOP 的<strong>入口</strong>——它是一个 <code>BeanPostProcessor</code>，在 Bean 初始化完成后介入，判断是否需要创建代理。</p>
+<h3 id="12-完整的类层次">1.2 完整的类层次</h3>
+<pre tabindex="0"><code>AbstractAutoProxyCreator（模板方法，定义代理创建流程）
+  │
+  └── AbstractAdvisorAutoProxyCreator
+        │  + 获取所有 Advisor（通知器）
+        │  + 筛适用于当前 Bean 的 Advisor
+        │
+        └── AspectJAwareAdvisorAutoProxyCreator
+              │  + 对 aspectJ 切面排序
+              │
+              └── AnnotationAwareAspectJAutoProxyCreator
+                    │  + 额外扫描 @Aspect 注解的 Bean
+                    │  + 将其解析为 Advisor
+</code></pre><h2 id="二代理创建流程">二、代理创建流程</h2>
+<h3 id="21-abstractautoproxycreator-的核心逻辑">2.1 AbstractAutoProxyCreator 的核心逻辑</h3>
+<p><code>AbstractAutoProxyCreator</code> 作为 <code>BeanPostProcessor</code>，在 Bean 初始化完成后（<code>postProcessAfterInitialization</code>）介入：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractAutoProxyCreator.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">postProcessAfterInitialization</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">bean</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">beanName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">bean</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">AopInfrastructureBean</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">bean</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 如果已经被提前代理（循环依赖场景），跳过</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="k">this</span><span class="p">.</span><span class="na">earlyProxyReferences</span><span class="p">.</span><span class="na">contains</span><span class="p">(</span><span class="n">cacheKey</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 核心：包装为代理对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">wrapIfNecessary</span><span class="p">(</span><span class="n">bean</span><span class="p">,</span><span class="w"> </span><span class="n">beanName</span><span class="p">,</span><span class="w"> </span><span class="n">cacheKey</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">bean</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong><code>wrapIfNecessary()</code> 的完整逻辑：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractAutoProxyCreator.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">wrapIfNecessary</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">bean</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">beanName</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">cacheKey</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 检查是否已经处理过（避免重复代理）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">StringUtils</span><span class="p">.</span><span class="na">hasLength</span><span class="p">(</span><span class="n">beanName</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">targetSourcedBeans</span><span class="p">.</span><span class="na">contains</span><span class="p">(</span><span class="n">beanName</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">bean</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 检查是否特殊的 Infrastructure Bean（不代理）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">Boolean</span><span class="p">.</span><span class="na">FALSE</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">advisedBeans</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">cacheKey</span><span class="p">)))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">bean</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 判断当前 Bean 是否需要被代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">//    - 排除 AOP 框架自身的类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">//    - 对 @Aspect 类不创建代理（它们是切面定义，不是目标）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">isInfrastructureClass</span><span class="p">(</span><span class="n">bean</span><span class="p">.</span><span class="na">getClass</span><span class="p">())</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">shouldSkip</span><span class="p">(</span><span class="n">bean</span><span class="p">.</span><span class="na">getClass</span><span class="p">(),</span><span class="w"> </span><span class="n">beanName</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">advisedBeans</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">cacheKey</span><span class="p">,</span><span class="w"> </span><span class="n">Boolean</span><span class="p">.</span><span class="na">FALSE</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">bean</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 4. ★ 获取适用于当前 Bean 的 Advisor（通知器）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">specificInterceptors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getAdvicesAndAdvisorsForBean</span><span class="p">(</span><span class="n">bean</span><span class="p">.</span><span class="na">getClass</span><span class="p">(),</span><span class="w"> </span><span class="n">beanName</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">specificInterceptors</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">DO_NOT_PROXY</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 5. 标记该 Bean 需要代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">advisedBeans</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">cacheKey</span><span class="p">,</span><span class="w"> </span><span class="n">Boolean</span><span class="p">.</span><span class="na">TRUE</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 6. ★ 创建代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">proxy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createProxy</span><span class="p">(</span><span class="n">bean</span><span class="p">.</span><span class="na">getClass</span><span class="p">(),</span><span class="w"> </span><span class="n">beanName</span><span class="p">,</span><span class="w"> </span><span class="n">specificInterceptors</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SingletonTargetSource</span><span class="p">(</span><span class="n">bean</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">proxyTypes</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">cacheKey</span><span class="p">,</span><span class="w"> </span><span class="n">proxy</span><span class="p">.</span><span class="na">getClass</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">proxy</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">this</span><span class="p">.</span><span class="na">advisedBeans</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">cacheKey</span><span class="p">,</span><span class="w"> </span><span class="n">Boolean</span><span class="p">.</span><span class="na">FALSE</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">bean</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="22-获取适用的-advisor">2.2 获取适用的 Advisor</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractAdvisorAutoProxyCreator.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="nf">getAdvicesAndAdvisorsForBean</span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">beanClass</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">beanName</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                                 </span><span class="n">TargetSource</span><span class="w"> </span><span class="n">targetSource</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 查找所有可用的 Advisor（包括 @Aspect 解析出来的）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Advisor</span><span class="o">&gt;</span><span class="w"> </span><span class="n">candidateAdvisors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">findCandidateAdvisors</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 筛选出适用于当前 Bean 的 Advisor</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Advisor</span><span class="o">&gt;</span><span class="w"> </span><span class="n">eligibleAdvisors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">findAdvisorsThatCanApply</span><span class="p">(</span><span class="n">candidateAdvisors</span><span class="p">,</span><span class="w"> </span><span class="n">beanClass</span><span class="p">,</span><span class="w"> </span><span class="n">beanName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 特殊处理：引入（Introduction）通知</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">extendAdvisors</span><span class="p">(</span><span class="n">eligibleAdvisors</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">eligibleAdvisors</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 排序（@Order 和 @Priority）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">eligibleAdvisors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sortAdvisors</span><span class="p">(</span><span class="n">eligibleAdvisors</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">eligibleAdvisors</span><span class="p">.</span><span class="na">toArray</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">DO_NOT_PROXY</span><span class="p">;</span><span class="w">  </span><span class="c1">// 没有适用的 Advisor → 不代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong><code>findAdvisorsThatCanApply()</code> 的过滤逻辑：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AopUtils.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">canApply</span><span class="p">(</span><span class="n">Pointcut</span><span class="w"> </span><span class="n">pc</span><span class="p">,</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">targetClass</span><span class="p">,</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">hasIntroductions</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 先判断 ClassFilter 是否匹配（类级别）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">pc</span><span class="p">.</span><span class="na">getClassFilter</span><span class="p">().</span><span class="na">matches</span><span class="p">(</span><span class="n">targetClass</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 再判断 MethodMatcher 是否匹配（方法级别）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MethodMatcher</span><span class="w"> </span><span class="n">methodMatcher</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pc</span><span class="p">.</span><span class="na">getMethodMatcher</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 如果是 IntroductionAwareMethodMatcher，特殊处理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 获取目标类及接口的所有方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;&gt;</span><span class="w"> </span><span class="n">classes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">LinkedHashSet</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">classes</span><span class="p">.</span><span class="na">addAll</span><span class="p">(</span><span class="n">ClassUtils</span><span class="p">.</span><span class="na">getAllInterfacesForClassAsSet</span><span class="p">(</span><span class="n">targetClass</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">classes</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">targetClass</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 4. 逐个方法检查</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">clazz</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">classes</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Method</span><span class="o">[]</span><span class="w"> </span><span class="n">methods</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ReflectionUtils</span><span class="p">.</span><span class="na">getAllDeclaredMethods</span><span class="p">(</span><span class="n">clazz</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">methods</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// execution 表达式在这里匹配！</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">methodMatcher</span><span class="p">.</span><span class="na">matches</span><span class="p">(</span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">targetClass</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">  </span><span class="c1">// 任何一个方法匹配 → 需要代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="23-创建代理">2.3 创建代理</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractAutoProxyCreator.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">createProxy</span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">beanClass</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">beanName</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                             </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">specificInterceptors</span><span class="p">,</span><span class="w"> </span><span class="n">TargetSource</span><span class="w"> </span><span class="n">targetSource</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 创建 ProxyFactory（AOP 代理的核心工厂）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ProxyFactory</span><span class="w"> </span><span class="n">proxyFactory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ProxyFactory</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">proxyFactory</span><span class="p">.</span><span class="na">copyFrom</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 根据 proxyTargetClass 决定代理方式</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">proxyFactory</span><span class="p">.</span><span class="na">isProxyTargetClass</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">shouldProxyTargetClass</span><span class="p">(</span><span class="n">beanClass</span><span class="p">,</span><span class="w"> </span><span class="n">beanName</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">proxyFactory</span><span class="p">.</span><span class="na">setProxyTargetClass</span><span class="p">(</span><span class="kc">true</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 判断是否实现了接口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">evaluateProxyInterfaces</span><span class="p">(</span><span class="n">beanClass</span><span class="p">,</span><span class="w"> </span><span class="n">proxyFactory</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 将 Advisor 添加到 ProxyFactory</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Advisor</span><span class="o">[]</span><span class="w"> </span><span class="n">advisors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">buildAdvisors</span><span class="p">(</span><span class="n">beanName</span><span class="p">,</span><span class="w"> </span><span class="n">specificInterceptors</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">proxyFactory</span><span class="p">.</span><span class="na">addAdvisors</span><span class="p">(</span><span class="n">advisors</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 4. 设置 TargetSource</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">proxyFactory</span><span class="p">.</span><span class="na">setTargetSource</span><span class="p">(</span><span class="n">targetSource</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 5. ★ 创建代理对象（JDK 或 CGLib）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">proxyFactory</span><span class="p">.</span><span class="na">getProxy</span><span class="p">(</span><span class="n">getProxyClassLoader</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong><code>evaluateProxyInterfaces()</code> 决定代理方式：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ProxyFactory 内部逻辑</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 如果目标类实现了至少一个接口 → JDK 动态代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 如果目标类没有实现任何接口 → CGLib 代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 如果 proxyTargetClass=true → 强制 CGLib 代理</span><span class="w">
+</span></span></span></code></pre></div><p><strong><code>proxyFactory.getProxy()</code> 的最终调用：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ProxyCreatorSupport.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">getProxy</span><span class="p">(</span><span class="n">ClassLoader</span><span class="w"> </span><span class="n">classLoader</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 创建 AopProxy 并获取代理对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">createAopProxy</span><span class="p">().</span><span class="na">getProxy</span><span class="p">(</span><span class="n">classLoader</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// DefaultAopProxyFactory.java — 决定使用 JDK 还是 CGLib</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">AopProxy</span><span class="w"> </span><span class="nf">createAopProxy</span><span class="p">(</span><span class="n">AdvisedSupport</span><span class="w"> </span><span class="n">config</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">config</span><span class="p">.</span><span class="na">isOptimize</span><span class="p">()</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">config</span><span class="p">.</span><span class="na">isProxyTargetClass</span><span class="p">()</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="o">||</span><span class="w"> </span><span class="n">hasNoUserSuppliedProxyInterfaces</span><span class="p">(</span><span class="n">config</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">targetClass</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">config</span><span class="p">.</span><span class="na">getTargetClass</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">targetClass</span><span class="p">.</span><span class="na">isInterface</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">JdkDynamicAopProxy</span><span class="p">(</span><span class="n">config</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 使用 CGLib</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ObjenesisCglibAopProxy</span><span class="p">(</span><span class="n">config</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">JdkDynamicAopProxy</span><span class="p">(</span><span class="n">config</span><span class="p">);</span><span class="w">  </span><span class="c1">// JDK 动态代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="三aspect-切面的解析">三、@Aspect 切面的解析</h2>
+<h3 id="31-annotationawareaspectjautoproxycreator-的特殊能力">3.1 AnnotationAwareAspectJAutoProxyCreator 的特殊能力</h3>
+<p>上面 <code>findCandidateAdvisors()</code> 在 <code>AbstractAdvisorAutoProxyCreator</code> 中会收集所有 <code>Advisor</code>，而 <code>AnnotationAwareAspectJAutoProxyCreator</code> 重写了该方法，额外从 <code>@Aspect</code> 类中解析：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AnnotationAwareAspectJAutoProxyCreator.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Advisor</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">findCandidateAdvisors</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 调用父类：从注册的 Advisor Bean 中获取</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Advisor</span><span class="o">&gt;</span><span class="w"> </span><span class="n">advisors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kd">super</span><span class="p">.</span><span class="na">findCandidateAdvisors</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. ★ 额外从 @Aspect 类中解析 Advisor</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">aspectJAdvisorsBuilder</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">advisors</span><span class="p">.</span><span class="na">addAll</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">aspectJAdvisorsBuilder</span><span class="p">.</span><span class="na">buildAspectJAdvisors</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">advisors</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="32-aspect-的解析buildaspectjadvisors">3.2 @Aspect 的解析——buildAspectJAdvisors()</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// BeanFactoryAspectJAdvisorsBuilder.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Advisor</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">buildAspectJAdvisors</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">aspectNames</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">aspectBeanNames</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">aspectNames</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">synchronized</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">aspectNames</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 1. 从 BeanFactory 中获取所有 Bean 名称</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">beanNames</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">BeanFactoryUtils</span><span class="p">.</span><span class="na">beanNamesForTypeIncludingAncestors</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="k">this</span><span class="p">.</span><span class="na">beanFactory</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="kc">false</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">beanName</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">beanNames</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 2. 检查是否标注了 @Aspect 注解</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">advisorFactory</span><span class="p">.</span><span class="na">isAspect</span><span class="p">(</span><span class="n">beanClass</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">aspectNames</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">beanName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="c1">// 3. ★ 获取 @Aspect 类的元数据</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">AspectMetadata</span><span class="w"> </span><span class="n">am</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">AspectMetadata</span><span class="p">(</span><span class="n">beanClass</span><span class="p">,</span><span class="w"> </span><span class="n">beanName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="c1">// 4. 解析 @Aspect 类中的所有通知方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Advisor</span><span class="o">&gt;</span><span class="w"> </span><span class="n">classAdvisors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">advisorFactory</span><span class="p">.</span><span class="na">getAdvisors</span><span class="p">(</span><span class="n">am</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="c1">// 5. 缓存到 metadataCache</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">aspectBeans</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">beanName</span><span class="p">,</span><span class="w"> </span><span class="n">beanClass</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">advisorsCache</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">beanName</span><span class="p">,</span><span class="w"> </span><span class="n">classAdvisors</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">aspectBeanNames</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">aspectNames</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 返回所有缓存的 Advisor</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="33-将通知方法转换为-advisor">3.3 将通知方法转换为 Advisor</h3>
+<p><code>ReflectiveAspectJAdvisorFactory.getAdvisors()</code> 完成从 <code>@Aspect</code> 方法到 Spring <code>Advisor</code> 的转换：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ReflectiveAspectJAdvisorFactory.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Advisor</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">getAdvisors</span><span class="p">(</span><span class="n">AspectMetadata</span><span class="w"> </span><span class="n">am</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Advisor</span><span class="o">&gt;</span><span class="w"> </span><span class="n">advisors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">aspectClass</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">am</span><span class="p">.</span><span class="na">getAspectClass</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 遍历 @Aspect 类的所有方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">getAdvisorMethods</span><span class="p">(</span><span class="n">aspectClass</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 每个 @Before/@Around/@After 方法 → 一个 Advisor</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Advisor</span><span class="w"> </span><span class="n">advisor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getAdvisor</span><span class="p">(</span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">am</span><span class="p">.</span><span class="na">getAspectInstanceFactory</span><span class="p">(),</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                     </span><span class="n">advisors</span><span class="p">.</span><span class="na">size</span><span class="p">(),</span><span class="w"> </span><span class="n">am</span><span class="p">.</span><span class="na">getDeclarationOrder</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">advisor</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">advisors</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">advisor</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 处理 Introduction（@DeclareParents）——略</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">advisors</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Advisor</span><span class="w"> </span><span class="nf">getAdvisor</span><span class="p">(</span><span class="n">Method</span><span class="w"> </span><span class="n">candidateAdviceMethod</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                           </span><span class="n">AspectInstanceFactory</span><span class="w"> </span><span class="n">aif</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                           </span><span class="kt">int</span><span class="w"> </span><span class="n">declarationOrderInAspect</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                           </span><span class="n">String</span><span class="w"> </span><span class="n">aspectName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 验证方法上的通知注解（@Before、@Around 等）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">AspectJAnnotation</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">aspectJAnnotation</span><span class="w"> </span><span class="o">=</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">AbstractAspectJAdvisorFactory</span><span class="p">.</span><span class="na">findAspectJAnnotationOnMethod</span><span class="p">(</span><span class="n">candidateAdviceMethod</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">aspectJAnnotation</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 解析 @Pointcut 表达式，创建切点</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Pointcut</span><span class="w"> </span><span class="n">pointcut</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getPointcut</span><span class="p">(</span><span class="n">aspectJAnnotation</span><span class="p">,</span><span class="w"> </span><span class="n">candidateAdviceMethod</span><span class="p">,</span><span class="w"> </span><span class="n">aif</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 创建 InstantiationModelAwarePointcutAdvisorImpl</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">InstantiationModelAwarePointcutAdvisorImpl</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">aif</span><span class="p">,</span><span class="w"> </span><span class="n">candidateAdviceMethod</span><span class="p">,</span><span class="w"> </span><span class="n">pointcut</span><span class="p">,</span><span class="w"> </span><span class="n">aspectName</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">declarationOrderInAspect</span><span class="p">,</span><span class="w"> </span><span class="n">aspectJAnnotation</span><span class="p">.</span><span class="na">getAnnotationType</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="四代理方法的调用">四、代理方法的调用</h2>
+<h3 id="41-jdk-动态代理的调用">4.1 JDK 动态代理的调用</h3>
+<p>当代理对象的方法被调用时，进入 <code>JdkDynamicAopProxy.invoke()</code>：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// JdkDynamicAopProxy.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">proxy</span><span class="p">,</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="n">oldProxy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="n">setProxyContext</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">TargetSource</span><span class="w"> </span><span class="n">targetSource</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">advised</span><span class="p">.</span><span class="na">targetSource</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 处理 equals/hashCode 特殊方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="k">this</span><span class="p">.</span><span class="na">equalsDefined</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">AopUtils</span><span class="p">.</span><span class="na">isEqualsMethod</span><span class="p">(</span><span class="n">method</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="k">this</span><span class="p">.</span><span class="na">hashCodeDefined</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">AopUtils</span><span class="p">.</span><span class="na">isHashCodeMethod</span><span class="p">(</span><span class="n">method</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 处理 DecoratingProxy / Advised 接口方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">method</span><span class="p">.</span><span class="na">getDeclaringClass</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">DecoratingProxy</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 处理 exposeProxy 设置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">advised</span><span class="p">.</span><span class="na">exposeProxy</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">oldProxy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AopContext</span><span class="p">.</span><span class="na">setCurrentProxy</span><span class="p">(</span><span class="n">proxy</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">setProxyContext</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 获取目标对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">target</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">targetSource</span><span class="p">.</span><span class="na">getTarget</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">targetClass</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">target</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">target</span><span class="p">.</span><span class="na">getClass</span><span class="p">()</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 5. ★ 获取拦截器链（通知链）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">chain</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">advised</span><span class="p">.</span><span class="na">getInterceptorsAndDynamicInterceptionAdvice</span><span class="p">(</span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">targetClass</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 6. 执行调用</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">chain</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 没有通知 → 直接反射调用目标方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">argsToUse</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AopProxyUtils</span><span class="p">.</span><span class="na">adaptArgumentsIfNecessary</span><span class="p">(</span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">ret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">method</span><span class="p">.</span><span class="na">invoke</span><span class="p">(</span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">argsToUse</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 有通知 → 创建 MethodInvocation，执行拦截链</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">MethodInvocation</span><span class="w"> </span><span class="n">invocation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ReflectiveMethodInvocation</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">proxy</span><span class="p">,</span><span class="w"> </span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">,</span><span class="w"> </span><span class="n">targetClass</span><span class="p">,</span><span class="w"> </span><span class="n">chain</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">ret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">  </span><span class="c1">// 执行通知链</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">ret</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">target</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">targetSource</span><span class="p">.</span><span class="na">isStatic</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">targetSource</span><span class="p">.</span><span class="na">releaseTarget</span><span class="p">(</span><span class="n">target</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">setProxyContext</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">AopContext</span><span class="p">.</span><span class="na">setCurrentProxy</span><span class="p">(</span><span class="n">oldProxy</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="42-通知链的获取">4.2 通知链的获取</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AdvisedSupport.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">getInterceptorsAndDynamicInterceptionAdvice</span><span class="p">(</span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">targetClass</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 构造缓存的 key（方法 + 目标类）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MethodCacheKey</span><span class="w"> </span><span class="n">cacheKey</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MethodCacheKey</span><span class="p">(</span><span class="n">method</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 尝试从缓存获取</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">cached</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">methodCache</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">cacheKey</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">cached</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 从所有注册的 Advisor 中筛选</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MethodInterceptor</span><span class="o">[]</span><span class="w"> </span><span class="n">interceptors</span><span class="w"> </span><span class="o">=</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">advisorChainFactory</span><span class="p">.</span><span class="na">getInterceptorsAndDynamicInterceptionAdvice</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">targetClass</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">methodCache</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">cacheKey</span><span class="p">,</span><span class="w"> </span><span class="n">cached</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">cached</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong><code>advisorChainFactory.getInterceptorsAndDynamicInterceptionAdvice()</code> 内部：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultAdvisorChainFactory.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">getInterceptorsAndDynamicInterceptionAdvice</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Advised</span><span class="w"> </span><span class="n">config</span><span class="p">,</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">targetClass</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">interceptorList</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">config</span><span class="p">.</span><span class="na">getAdvisors</span><span class="p">().</span><span class="na">length</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">actualClass</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">targetClass</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">targetClass</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">method</span><span class="p">.</span><span class="na">getDeclaringClass</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 遍历所有 Advisor，检查是否适用于当前方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Advisor</span><span class="w"> </span><span class="n">advisor</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">config</span><span class="p">.</span><span class="na">getAdvisors</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">advisor</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">PointcutAdvisor</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">PointcutAdvisor</span><span class="w"> </span><span class="n">pointcutAdvisor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">PointcutAdvisor</span><span class="p">)</span><span class="w"> </span><span class="n">advisor</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ Pointcut 匹配检查</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">pointcutAdvisor</span><span class="p">.</span><span class="na">getPointcut</span><span class="p">().</span><span class="na">getClassFilter</span><span class="p">().</span><span class="na">matches</span><span class="p">(</span><span class="n">actualClass</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">pointcutAdvisor</span><span class="p">.</span><span class="na">getPointcut</span><span class="p">().</span><span class="na">getMethodMatcher</span><span class="p">().</span><span class="na">matches</span><span class="p">(</span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">actualClass</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 将 Advisor 转换为 MethodInterceptor</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">MethodInterceptor</span><span class="w"> </span><span class="n">interceptor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">MethodInterceptor</span><span class="p">)</span><span class="w"> </span><span class="n">advisor</span><span class="p">.</span><span class="na">getAdvice</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">interceptorList</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">interceptor</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">advisor</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">IntroductionAdvisor</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 引入通知处理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 默认添加到链中</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">interceptorList</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">advisor</span><span class="p">.</span><span class="na">getAdvice</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">interceptorList</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="43-通知链的执行reflectivemethodinvocation">4.3 通知链的执行——ReflectiveMethodInvocation</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ReflectiveMethodInvocation.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ReflectiveMethodInvocation</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">ProxyMethodInvocation</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">proxy</span><span class="p">;</span><span class="w">        </span><span class="c1">// 代理对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="p">;</span><span class="w">       </span><span class="c1">// 目标对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">;</span><span class="w">       </span><span class="c1">// 目标方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">arguments</span><span class="p">;</span><span class="w">        </span><span class="c1">// 方法参数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">targetClass</span><span class="p">;</span><span class="w">  </span><span class="c1">// 目标类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">interceptors</span><span class="p">;</span><span class="w">   </span><span class="c1">// 拦截器链</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">currentInterceptorIndex</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">;</span><span class="w">  </span><span class="c1">// 当前执行到的位置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">proceed</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 所有拦截器执行完毕 → 调用目标方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">currentInterceptorIndex</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">interceptors</span><span class="p">.</span><span class="na">size</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">invokeJoinpoint</span><span class="p">();</span><span class="w">  </span><span class="c1">// 反射调用目标方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 取下个拦截器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">interceptor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">interceptors</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="o">++</span><span class="k">this</span><span class="p">.</span><span class="na">currentInterceptorIndex</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">interceptor</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">MethodInterceptor</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 调用拦截器的 invoke 方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="p">((</span><span class="n">MethodInterceptor</span><span class="p">)</span><span class="w"> </span><span class="n">interceptor</span><span class="p">).</span><span class="na">invoke</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 动态拦截（DynamicMethodMatcherInterceptor）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="p">((</span><span class="n">InterceptorAndDynamicMethodMatcher</span><span class="p">)</span><span class="w"> </span><span class="n">interceptor</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">.</span><span class="na">getInterceptor</span><span class="p">().</span><span class="na">invoke</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 调用目标方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">invokeJoinpoint</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">AopUtils</span><span class="p">.</span><span class="na">invokeJoinpointUsingReflection</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">target</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">method</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">arguments</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>关键设计——责任链模式：</strong></p>
+<pre tabindex="0"><code>proceed() 执行流程示意图：
+
+MethodInterceptor[0].invoke(invocation)  ← @Around（最外层）
+  └── 自定义前置逻辑
+        └── invocation.proceed()
+              └── MethodInterceptor[1].invoke(invocation)  ← @Before
+                    └── invocation.proceed()
+                          └── MethodInterceptor[2].invoke(invocation)  ← @After
+                                └── invocation.proceed()
+                                      └── invokeJoinpoint() → 目标方法执行
+                                ← @After 后置逻辑
+                    ← @Before 后置逻辑（无）
+              ← @Around 后置逻辑
+</code></pre><h3 id="44-通知方法适配为-methodinterceptor">4.4 通知方法适配为 MethodInterceptor</h3>
+<p>Spring 的每种通知类型都对应一个 <code>MethodInterceptor</code> 实现：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// @Around → AspectJAroundAdvice（直接实现 MethodInterceptor）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AspectJAroundAdvice</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">AbstractAspectJAdvice</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">MethodInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">MethodInvocation</span><span class="w"> </span><span class="n">mi</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 直接调用 @Around 方法，传入的 ProceedingJoinPoint 包装了 mi</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">invokeAdviceMethod</span><span class="p">(</span><span class="n">getJoinPointMatch</span><span class="p">(),</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// @Before → AspectJMethodBeforeAdvice（适配为 MethodBeforeAdviceInterceptor）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">MethodBeforeAdviceInterceptor</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">MethodInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">MethodInvocation</span><span class="w"> </span><span class="n">mi</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">advice</span><span class="p">.</span><span class="na">before</span><span class="p">(</span><span class="n">mi</span><span class="p">.</span><span class="na">getMethod</span><span class="p">(),</span><span class="w"> </span><span class="n">mi</span><span class="p">.</span><span class="na">getArguments</span><span class="p">(),</span><span class="w"> </span><span class="n">mi</span><span class="p">.</span><span class="na">getThis</span><span class="p">());</span><span class="w">  </span><span class="c1">// 先执行 @Before</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">mi</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">  </span><span class="c1">// 继续执行</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// @After → AspectJAfterAdvice</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AspectJAfterAdvice</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">AbstractAspectJAdvice</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">MethodInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">MethodInvocation</span><span class="w"> </span><span class="n">mi</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">mi</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">  </span><span class="c1">// 先执行目标</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">invokeAdviceMethod</span><span class="p">(</span><span class="n">getJoinPointMatch</span><span class="p">(),</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">  </span><span class="c1">// finally 中执行 @After</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// @AfterReturning → AspectJAfterReturningAdvice</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AfterReturningAdviceInterceptor</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">MethodInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">MethodInvocation</span><span class="w"> </span><span class="n">mi</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">retVal</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mi</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">  </span><span class="c1">// 执行目标</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">advice</span><span class="p">.</span><span class="na">afterReturning</span><span class="p">(</span><span class="n">retVal</span><span class="p">,</span><span class="w"> </span><span class="n">mi</span><span class="p">.</span><span class="na">getMethod</span><span class="p">(),</span><span class="w"> </span><span class="n">mi</span><span class="p">.</span><span class="na">getArguments</span><span class="p">(),</span><span class="w"> </span><span class="n">mi</span><span class="p">.</span><span class="na">getThis</span><span class="p">());</span><span class="w">  </span><span class="c1">// 返回后执行</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">retVal</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// @AfterThrowing → AspectJAfterThrowingAdvice</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AspectJAfterThrowingAdvice</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">AbstractAspectJAdvice</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">MethodInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">MethodInvocation</span><span class="w"> </span><span class="n">mi</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">mi</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">  </span><span class="c1">// 执行目标</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Throwable</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 匹配异常类型后执行</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">invokeAdviceMethod</span><span class="p">(</span><span class="n">getJoinPointMatch</span><span class="p">(),</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="n">ex</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="n">ex</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="五完整调用链路回顾">五、完整调用链路回顾</h2>
+<pre tabindex="0"><code>【1. 容器启动时】
+@EnableAspectJAutoProxy
+  → AspectJAutoProxyRegistrar.registerBeanDefinitions()
+  → 注册 AnnotationAwareAspectJAutoProxyCreator
+    │
+    ▼
+【2. @Aspect 类的解析（postProcessBeforeInstantiation 时）】
+BeanFactoryAspectJAdvisorsBuilder.buildAspectJAdvisors()
+  → 扫描所有 @Aspect 标注的 Bean
+  → ReflectiveAspectJAdvisorFactory.getAdvisors()
+    → 对每个 @Before/@Around/@After 方法：
+      ① 解析通知注解
+      ② 解析 @Pointcut 表达式
+      ③ 创建 InstantiationModelAwarePointcutAdvisorImpl
+    → 缓存所有 Advisor
+    │
+    ▼
+【3. 目标 Bean 初始化完成后】
+AbstractAutoProxyCreator.postProcessAfterInitialization()
+  → wrapIfNecessary()
+    → findEligibleAdvisors()
+      → findCandidateAdvisors() [获取所有 Advisor]
+      → findAdvisorsThatCanApply() [Pointcut 匹配]
+    → createProxy()
+      → ProxyFactory.getProxy()
+        → JdkDynamicAopProxy / CglibAopProxy
+    │
+    ▼
+【4. 代理方法被调用】
+JdkDynamicAopProxy.invoke()
+  → getInterceptorsAndDynamicInterceptionAdvice()
+    → 根据方法匹配所有适用的 Advisor
+    → 转换为 MethodInterceptor 列表
+  → new ReflectiveMethodInvocation(proxy, target, method, args, chain)
+  → invocation.proceed()
+    → 依次按顺序执行 MethodInterceptor
+    → 最后 invokeJoinpoint() 调用目标方法
+</code></pre><h2 id="六总结">六、总结</h2>
+<h3 id="核心类源码速查">核心类源码速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>类</th>
+					<th>关键方法</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>AnnotationAwareAspectJAutoProxyCreator</code></td>
+					<td><code>findCandidateAdvisors()</code></td>
+					<td>从 @Aspect 解析 Advisor</td>
+			</tr>
+			<tr>
+					<td><code>AbstractAutoProxyCreator</code></td>
+					<td><code>postProcessAfterInitialization()</code></td>
+					<td>在初始化后创建代理</td>
+			</tr>
+			<tr>
+					<td><code>AbstractAutoProxyCreator</code></td>
+					<td><code>wrapIfNecessary()</code></td>
+					<td>判断是否需要代理并创建</td>
+			</tr>
+			<tr>
+					<td><code>AbstractAdvisorAutoProxyCreator</code></td>
+					<td><code>getAdvicesAndAdvisorsForBean()</code></td>
+					<td>获取适用于 Bean 的 Advisor</td>
+			</tr>
+			<tr>
+					<td><code>DefaultAopProxyFactory</code></td>
+					<td><code>createAopProxy()</code></td>
+					<td>决定 JDK 还是 CGLib</td>
+			</tr>
+			<tr>
+					<td><code>JdkDynamicAopProxy</code></td>
+					<td><code>invoke()</code></td>
+					<td>JDK 代理的调用入口</td>
+			</tr>
+			<tr>
+					<td><code>ReflectiveMethodInvocation</code></td>
+					<td><code>proceed()</code></td>
+					<td>执行通知链</td>
+			</tr>
+			<tr>
+					<td><code>MethodBeforeAdviceInterceptor</code></td>
+					<td><code>invoke()</code></td>
+					<td>@Before 的实现</td>
+			</tr>
+			<tr>
+					<td><code>AspectJAroundAdvice</code></td>
+					<td><code>invoke()</code></td>
+					<td>@Around 的实现</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="aop-执行流程一句话">AOP 执行流程一句话</h3>
+<blockquote>
+<p><strong>代理对象接收方法调用 → 构建拦截器链（Advisor→MethodInterceptor）→ 责任链依次执行通知 → 最后调用目标方法。</strong></p>
+</blockquote>
+<hr>
+<p><strong>上一篇：</strong> <a href="/posts/spring-aop%E4%B8%80aop-%E6%A6%82%E5%BF%B5%E4%B8%8E%E4%BA%94%E7%A7%8D%E9%80%9A%E7%9F%A5%E7%B1%BB%E5%9E%8B/">Spring AOP（一）：AOP 概念与五种通知类型</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/spring-aop%E4%B8%89jdk-%E4%BB%A3%E7%90%86-vs-cglib-%E4%B8%8E%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98/">Spring AOP（三）：JDK 代理 vs CGLib 与高级主题</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

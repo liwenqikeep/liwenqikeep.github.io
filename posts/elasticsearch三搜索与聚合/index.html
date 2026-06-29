@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Elasticsearch（三）：搜索与聚合 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一query-dsl-概述">一、Query DSL 概述</a>
+      <ul>
+        <li><a href="#11-查询的结构">1.1 查询的结构</a></li>
+      </ul>
+    </li>
+    <li><a href="#二全文搜索">二、全文搜索</a>
+      <ul>
+        <li><a href="#21-match-查询">2.1 match 查询</a></li>
+        <li><a href="#22-multi_match-查询">2.2 multi_match 查询</a></li>
+      </ul>
+    </li>
+    <li><a href="#三精确查询">三、精确查询</a>
+      <ul>
+        <li><a href="#31-term-查询">3.1 term 查询</a></li>
+        <li><a href="#32-exists--prefix--wildcard">3.2 exists / prefix / wildcard</a></li>
+      </ul>
+    </li>
+    <li><a href="#四复合查询bool">四、复合查询——bool</a></li>
+    <li><a href="#五聚合分析">五、聚合分析</a>
+      <ul>
+        <li><a href="#51-metric-聚合">5.1 Metric 聚合</a></li>
+        <li><a href="#52-bucket-聚合分组">5.2 Bucket 聚合（分组）</a></li>
+        <li><a href="#53-多级聚合">5.3 多级聚合</a></li>
+        <li><a href="#54-聚合与查询结合">5.4 聚合与查询结合</a></li>
+      </ul>
+    </li>
+    <li><a href="#六分页与深度分页">六、分页与深度分页</a></li>
+    <li><a href="#七总结">七、总结</a>
+      <ul>
+        <li><a href="#常见查询速查">常见查询速查</a></li>
+        <li><a href="#聚合类型速查">聚合类型速查</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Elasticsearch（三）：搜索与聚合</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>搜索和聚合是 ES 最核心的能力。Query DSL 提供了丰富的查询表达式——从简单的全文搜索到复杂的布尔组合查询。聚合则可以在搜索结果上进行统计分析，<strong>不依赖外部的计算引擎</strong>。</p>
+<p>本文从基础的 Query DSL 开始，逐步深入到复合查询和聚合分析。</p>
+<h2 id="一query-dsl-概述">一、Query DSL 概述</h2>
+<h3 id="11-查询的结构">1.1 查询的结构</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-json" data-lang="json"><span class="line"><span class="cl"><span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;query&#34;</span><span class="p">:</span> <span class="p">{</span>                          <span class="c1">// 查询上下文
+</span></span></span><span class="line"><span class="cl">    <span class="nt">&#34;bool&#34;</span><span class="p">:</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">      <span class="nt">&#34;must&#34;</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="nt">&#34;match&#34;</span><span class="p">:</span> <span class="p">{</span> <span class="err">...</span> <span class="p">}</span> <span class="p">}</span> <span class="p">],</span>
+</span></span><span class="line"><span class="cl">      <span class="nt">&#34;filter&#34;</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="nt">&#34;term&#34;</span><span class="p">:</span> <span class="p">{</span> <span class="err">...</span> <span class="p">}</span> <span class="p">}</span> <span class="p">]</span>  <span class="c1">// 过滤上下文（不计分，可缓存）
+</span></span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">  <span class="p">},</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;from&#34;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>                          <span class="c1">// 分页
+</span></span></span><span class="line"><span class="cl">  <span class="nt">&#34;size&#34;</span><span class="p">:</span> <span class="mi">20</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;sort&#34;</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="nt">&#34;create_time&#34;</span><span class="p">:</span> <span class="s2">&#34;desc&#34;</span> <span class="p">}</span> <span class="p">],</span>  <span class="c1">// 排序
+</span></span></span><span class="line"><span class="cl">  <span class="nt">&#34;_source&#34;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&#34;id&#34;</span><span class="p">,</span> <span class="s2">&#34;title&#34;</span><span class="p">],</span>          <span class="c1">// 返回字段
+</span></span></span><span class="line"><span class="cl">  <span class="nt">&#34;highlight&#34;</span><span class="p">:</span> <span class="p">{</span>                       <span class="c1">// 高亮
+</span></span></span><span class="line"><span class="cl">    <span class="nt">&#34;fields&#34;</span><span class="p">:</span> <span class="p">{</span> <span class="nt">&#34;title&#34;</span><span class="p">:</span> <span class="p">{}</span> <span class="p">}</span>
+</span></span><span class="line"><span class="cl">  <span class="p">},</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;aggs&#34;</span><span class="p">:</span> <span class="p">{</span>                           <span class="c1">// 聚合
+</span></span></span><span class="line"><span class="cl">    <span class="nt">&#34;group_by_status&#34;</span><span class="p">:</span> <span class="p">{</span> <span class="nt">&#34;terms&#34;</span><span class="p">:</span> <span class="p">{</span> <span class="nt">&#34;field&#34;</span><span class="p">:</span> <span class="s2">&#34;status&#34;</span> <span class="p">}</span> <span class="p">}</span>
+</span></span><span class="line"><span class="cl">  <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p><strong>Query Context vs Filter Context：</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>上下文</th>
+					<th style="text-align: center">计分</th>
+					<th style="text-align: center">缓存</th>
+					<th style="text-align: center">性能</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Query</td>
+					<td style="text-align: center">✅ 计分</td>
+					<td style="text-align: center">❌ 不缓存</td>
+					<td style="text-align: center">略慢</td>
+			</tr>
+			<tr>
+					<td>Filter</td>
+					<td style="text-align: center">❌ 不计分</td>
+					<td style="text-align: center">✅ 可缓存</td>
+					<td style="text-align: center">更快</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="二全文搜索">二、全文搜索</h2>
+<h3 id="21-match-查询">2.1 match 查询</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 最常用的全文搜索</span>
+</span></span><span class="line"><span class="cl">GET /articles/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;match&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;title&#34;</span>: <span class="s2">&#34;Elasticsearch 搜索引擎&#34;</span>
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 分词后：[&#34;elasticsearch&#34;, &#34;搜索引擎&#34;]</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 只要匹配任意词就返回（OR 逻辑）</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 改为 AND 逻辑</span>
+</span></span><span class="line"><span class="cl">GET /articles/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;match&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;title&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;query&#34;</span>: <span class="s2">&#34;Elasticsearch 搜索引擎&#34;</span>,
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;operator&#34;</span>: <span class="s2">&#34;and&#34;</span>              // 必须匹配所有词
+</span></span><span class="line"><span class="cl">      <span class="o">}</span>
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 短语匹配（精确短语）</span>
+</span></span><span class="line"><span class="cl">GET /articles/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;match_phrase&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;title&#34;</span>: <span class="s2">&#34;Elasticsearch 搜索引擎&#34;</span>   // 顺序和位置都要匹配
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span></code></pre></div><h3 id="22-multi_match-查询">2.2 multi_match 查询</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 同时在多个字段中搜索</span>
+</span></span><span class="line"><span class="cl">GET /articles/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;multi_match&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;query&#34;</span>: <span class="s2">&#34;elasticsearch 指南&#34;</span>,
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;fields&#34;</span>: <span class="o">[</span><span class="s2">&#34;title^3&#34;</span>, <span class="s2">&#34;content^2&#34;</span>, <span class="s2">&#34;tags&#34;</span><span class="o">]</span>  // ^3 表示权重提升
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span></code></pre></div><hr>
+<h2 id="三精确查询">三、精确查询</h2>
+<h3 id="31-term-查询">3.1 term 查询</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 精确匹配（适合 keyword、数值、日期）</span>
+</span></span><span class="line"><span class="cl">GET /orders/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;term&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;status&#34;</span>: <span class="s2">&#34;paid&#34;</span>          // keyword 类型，不分词
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 多个值</span>
+</span></span><span class="line"><span class="cl">GET /orders/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;terms&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;status&#34;</span>: <span class="o">[</span><span class="s2">&#34;paid&#34;</span>, <span class="s2">&#34;shipped&#34;</span>, <span class="s2">&#34;completed&#34;</span><span class="o">]</span>
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 范围查询</span>
+</span></span><span class="line"><span class="cl">GET /orders/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;range&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;amount&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;gte&#34;</span>: 100,
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;lt&#34;</span>: <span class="m">500</span>
+</span></span><span class="line"><span class="cl">      <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;create_time&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;gte&#34;</span>: <span class="s2">&#34;2024-01-01&#34;</span>
+</span></span><span class="line"><span class="cl">      <span class="o">}</span>
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span></code></pre></div><h3 id="32-exists--prefix--wildcard">3.2 exists / prefix / wildcard</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 存在查询</span>
+</span></span><span class="line"><span class="cl">GET /users/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;exists&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;email&#34;</span>        // email 字段不为 null/空
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 前缀查询</span>
+</span></span><span class="line"><span class="cl">GET /users/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;prefix&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;name&#34;</span>: <span class="s2">&#34;Tom&#34;</span>           // name 以 Tom 开头的文档
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 通配符（低效，尽量避免）</span>
+</span></span><span class="line"><span class="cl">GET /users/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;wildcard&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;name&#34;</span>: <span class="s2">&#34;T?m*&#34;</span>
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span></code></pre></div><hr>
+<h2 id="四复合查询bool">四、复合查询——bool</h2>
+<p><code>bool</code> 查询是最常用的复合查询，可以组合多个子句。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl">GET /orders/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;bool&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;must&#34;</span>: <span class="o">[</span>                          // AND：必须匹配（计分）
+</span></span><span class="line"><span class="cl">        <span class="o">{</span> <span class="s2">&#34;match&#34;</span>: <span class="o">{</span> <span class="s2">&#34;user_name&#34;</span>: <span class="s2">&#34;Tom&#34;</span> <span class="o">}</span> <span class="o">}</span>
+</span></span><span class="line"><span class="cl">      <span class="o">]</span>,
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;filter&#34;</span>: <span class="o">[</span>                        // AND：必须匹配（不计分，可缓存）
+</span></span><span class="line"><span class="cl">        <span class="o">{</span> <span class="s2">&#34;term&#34;</span>: <span class="o">{</span> <span class="s2">&#34;status&#34;</span>: <span class="s2">&#34;paid&#34;</span> <span class="o">}</span> <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">        <span class="o">{</span> <span class="s2">&#34;range&#34;</span>: <span class="o">{</span> <span class="s2">&#34;amount&#34;</span>: <span class="o">{</span> <span class="s2">&#34;gte&#34;</span>: <span class="m">100</span> <span class="o">}</span> <span class="o">}</span> <span class="o">}</span>
+</span></span><span class="line"><span class="cl">      <span class="o">]</span>,
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;should&#34;</span>: <span class="o">[</span>                        // OR：匹配越多得分越高
+</span></span><span class="line"><span class="cl">        <span class="o">{</span> <span class="s2">&#34;term&#34;</span>: <span class="o">{</span> <span class="s2">&#34;tags&#34;</span>: <span class="s2">&#34;vip&#34;</span> <span class="o">}</span> <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">        <span class="o">{</span> <span class="s2">&#34;term&#34;</span>: <span class="o">{</span> <span class="s2">&#34;tags&#34;</span>: <span class="s2">&#34;new&#34;</span> <span class="o">}</span> <span class="o">}</span>
+</span></span><span class="line"><span class="cl">      <span class="o">]</span>,
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;must_not&#34;</span>: <span class="o">[</span>                      // NOT：不能匹配
+</span></span><span class="line"><span class="cl">        <span class="o">{</span> <span class="s2">&#34;term&#34;</span>: <span class="o">{</span> <span class="s2">&#34;is_deleted&#34;</span>: <span class="nb">true</span> <span class="o">}</span> <span class="o">}</span>
+</span></span><span class="line"><span class="cl">      <span class="o">]</span>
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># should 至少匹配一个（默认 0）</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 可以设置 minimum_should_match</span>
+</span></span><span class="line"><span class="cl">GET /articles/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;bool&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;should&#34;</span>: <span class="o">[</span>
+</span></span><span class="line"><span class="cl">        <span class="o">{</span> <span class="s2">&#34;match&#34;</span>: <span class="o">{</span> <span class="s2">&#34;title&#34;</span>: <span class="s2">&#34;java&#34;</span> <span class="o">}</span> <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">        <span class="o">{</span> <span class="s2">&#34;match&#34;</span>: <span class="o">{</span> <span class="s2">&#34;title&#34;</span>: <span class="s2">&#34;spring&#34;</span> <span class="o">}</span> <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">        <span class="o">{</span> <span class="s2">&#34;match&#34;</span>: <span class="o">{</span> <span class="s2">&#34;title&#34;</span>: <span class="s2">&#34;elasticsearch&#34;</span> <span class="o">}</span> <span class="o">}</span>
+</span></span><span class="line"><span class="cl">      <span class="o">]</span>,
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;minimum_should_match&#34;</span>: <span class="m">2</span>       // 至少匹配 <span class="m">2</span> 个
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span></code></pre></div><hr>
+<h2 id="五聚合分析">五、聚合分析</h2>
+<h3 id="51-metric-聚合">5.1 Metric 聚合</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 统计指标</span>
+</span></span><span class="line"><span class="cl">GET /orders/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;size&#34;</span>: 0,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;aggs&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;total_amount&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;sum&#34;</span>: <span class="o">{</span> <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;amount&#34;</span> <span class="o">}</span>          // 求和
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;avg_amount&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;avg&#34;</span>: <span class="o">{</span> <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;amount&#34;</span> <span class="o">}</span>          // 平均值
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;max_amount&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;max&#34;</span>: <span class="o">{</span> <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;amount&#34;</span> <span class="o">}</span>          // 最大值
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;min_amount&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;min&#34;</span>: <span class="o">{</span> <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;amount&#34;</span> <span class="o">}</span>          // 最小值
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;count_distinct&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;cardinality&#34;</span>: <span class="o">{</span> <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;user_id&#34;</span> <span class="o">}</span>   // 去重计数
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;stats&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;stats&#34;</span>: <span class="o">{</span> <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;amount&#34;</span> <span class="o">}</span>          // 一次返回所有统计
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span></code></pre></div><h3 id="52-bucket-聚合分组">5.2 Bucket 聚合（分组）</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 按状态分组</span>
+</span></span><span class="line"><span class="cl">GET /orders/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;size&#34;</span>: 0,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;aggs&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;by_status&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;terms&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;status&#34;</span>,
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;size&#34;</span>: 10,
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;order&#34;</span>: <span class="o">{</span> <span class="s2">&#34;_count&#34;</span>: <span class="s2">&#34;desc&#34;</span> <span class="o">}</span>
+</span></span><span class="line"><span class="cl">      <span class="o">}</span>
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 返回：paid: 1000, pending: 200, cancelled: 50</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 日期直方图（按时间分组）</span>
+</span></span><span class="line"><span class="cl">GET /orders/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;size&#34;</span>: 0,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;aggs&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;orders_over_time&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;date_histogram&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;create_time&#34;</span>,
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;calendar_interval&#34;</span>: <span class="s2">&#34;day&#34;</span>           // day/month/year
+</span></span><span class="line"><span class="cl">      <span class="o">}</span>
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 范围聚合</span>
+</span></span><span class="line"><span class="cl">GET /orders/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;size&#34;</span>: 0,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;aggs&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;amount_ranges&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;range&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;amount&#34;</span>,
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;ranges&#34;</span>: <span class="o">[</span>
+</span></span><span class="line"><span class="cl">          <span class="o">{</span> <span class="s2">&#34;key&#34;</span>: <span class="s2">&#34;低价&#34;</span>, <span class="s2">&#34;to&#34;</span>: <span class="m">50</span> <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">          <span class="o">{</span> <span class="s2">&#34;key&#34;</span>: <span class="s2">&#34;中价&#34;</span>, <span class="s2">&#34;from&#34;</span>: 50, <span class="s2">&#34;to&#34;</span>: <span class="m">200</span> <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">          <span class="o">{</span> <span class="s2">&#34;key&#34;</span>: <span class="s2">&#34;高价&#34;</span>, <span class="s2">&#34;from&#34;</span>: <span class="m">200</span> <span class="o">}</span>
+</span></span><span class="line"><span class="cl">        <span class="o">]</span>
+</span></span><span class="line"><span class="cl">      <span class="o">}</span>
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span></code></pre></div><h3 id="53-多级聚合">5.3 多级聚合</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 先按状态分组，再统计金额</span>
+</span></span><span class="line"><span class="cl">GET /orders/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;size&#34;</span>: 0,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;aggs&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;by_status&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;terms&#34;</span>: <span class="o">{</span> <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;status&#34;</span> <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;aggs&#34;</span>: <span class="o">{</span>                             <span class="c1"># 子聚合</span>
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;avg_amount&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">          <span class="s2">&#34;avg&#34;</span>: <span class="o">{</span> <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;amount&#34;</span> <span class="o">}</span>
+</span></span><span class="line"><span class="cl">        <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;by_user&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">          <span class="s2">&#34;terms&#34;</span>: <span class="o">{</span> <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;user_id&#34;</span>, <span class="s2">&#34;size&#34;</span>: <span class="m">5</span> <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">          <span class="s2">&#34;aggs&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">            <span class="s2">&#34;total&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">              <span class="s2">&#34;sum&#34;</span>: <span class="o">{</span> <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;amount&#34;</span> <span class="o">}</span>
+</span></span><span class="line"><span class="cl">            <span class="o">}</span>
+</span></span><span class="line"><span class="cl">          <span class="o">}</span>
+</span></span><span class="line"><span class="cl">        <span class="o">}</span>
+</span></span><span class="line"><span class="cl">      <span class="o">}</span>
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span></code></pre></div><h3 id="54-聚合与查询结合">5.4 聚合与查询结合</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 在搜索结果上做聚合</span>
+</span></span><span class="line"><span class="cl">GET /orders/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;query&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;range&#34;</span>: <span class="o">{</span> <span class="s2">&#34;amount&#34;</span>: <span class="o">{</span> <span class="s2">&#34;gte&#34;</span>: <span class="m">100</span> <span class="o">}</span> <span class="o">}</span>     // 先过滤
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;size&#34;</span>: 20,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;aggs&#34;</span>: <span class="o">{</span>                                    // 在过滤结果上聚合
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;by_status&#34;</span>: <span class="o">{</span> <span class="s2">&#34;terms&#34;</span>: <span class="o">{</span> <span class="s2">&#34;field&#34;</span>: <span class="s2">&#34;status&#34;</span> <span class="o">}</span> <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span></code></pre></div><hr>
+<h2 id="六分页与深度分页">六、分页与深度分页</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 普通分页（from + size）</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 深度分页性能差：from=10000 时，每个分片需要取 10020 条再合并</span>
+</span></span><span class="line"><span class="cl">GET /orders/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;from&#34;</span>: 0,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;size&#34;</span>: <span class="m">20</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Search After（推荐，适合深度分页）</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 需要排序字段</span>
+</span></span><span class="line"><span class="cl">GET /orders/_search
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;size&#34;</span>: 20,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;sort&#34;</span>: <span class="o">[</span> <span class="o">{</span> <span class="s2">&#34;order_id&#34;</span>: <span class="s2">&#34;desc&#34;</span> <span class="o">}</span> <span class="o">]</span>,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;search_after&#34;</span>: <span class="o">[</span>10000<span class="o">]</span>                    // 上一页最后一个排序值
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Scroll（适合全量导出，不适合分页展示）</span>
+</span></span><span class="line"><span class="cl">POST /orders/_search?scroll<span class="o">=</span>5m               // 创建 scroll 上下文
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;size&#34;</span>: <span class="m">1000</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 后续请求</span>
+</span></span><span class="line"><span class="cl">POST /_search/scroll
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;scroll&#34;</span>: <span class="s2">&#34;5m&#34;</span>,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;scroll_id&#34;</span>: <span class="s2">&#34;DXF1ZXJ5QW5kRmV0Y2gB...&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span></code></pre></div><hr>
+<h2 id="七总结">七、总结</h2>
+<h3 id="常见查询速查">常见查询速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>场景</th>
+					<th>查询类型</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>全文搜索</td>
+					<td>match</td>
+					<td>分词匹配</td>
+			</tr>
+			<tr>
+					<td>短语搜索</td>
+					<td>match_phrase</td>
+					<td>保留词序</td>
+			</tr>
+			<tr>
+					<td>精确匹配</td>
+					<td>term</td>
+					<td>完全匹配</td>
+			</tr>
+			<tr>
+					<td>范围查询</td>
+					<td>range</td>
+					<td>数值/日期范围</td>
+			</tr>
+			<tr>
+					<td>复合条件</td>
+					<td>bool</td>
+					<td>must/filter/should/must_not</td>
+			</tr>
+			<tr>
+					<td>高亮</td>
+					<td>highlight</td>
+					<td>搜索结果高亮</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="聚合类型速查">聚合类型速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>类型</th>
+					<th>说明</th>
+					<th>示例</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>terms</td>
+					<td>分组计数</td>
+					<td>按状态分组</td>
+			</tr>
+			<tr>
+					<td>avg/sum/min/max</td>
+					<td>统计值</td>
+					<td>计算平均值</td>
+			</tr>
+			<tr>
+					<td>date_histogram</td>
+					<td>时间维度</td>
+					<td>按天统计</td>
+			</tr>
+			<tr>
+					<td>cardinality</td>
+					<td>去重计数</td>
+					<td>统计独立用户</td>
+			</tr>
+			<tr>
+					<td>range</td>
+					<td>范围分段</td>
+					<td>按价格区间</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>上一篇：</strong> <a href="/posts/elasticsearch%E4%BA%8C%E7%B4%A2%E5%BC%95%E4%B8%8E%E6%98%A0%E5%B0%84/">Elasticsearch（二）：索引与映射</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/elasticsearch%E5%9B%9B%E9%9B%86%E7%BE%A4%E4%B8%8E%E9%AB%98%E5%8F%AF%E7%94%A8/">Elasticsearch（四）：集群与高可用</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

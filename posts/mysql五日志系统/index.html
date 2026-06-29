@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>MySQL（五）：日志系统 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一三大日志概览">一、三大日志概览</a></li>
+    <li><a href="#二redo-log重做日志">二、Redo Log——重做日志</a>
+      <ul>
+        <li><a href="#21-为什么需要-redo-log">2.1 为什么需要 Redo Log？</a></li>
+        <li><a href="#22-redo-log-的写入机制">2.2 Redo Log 的写入机制</a></li>
+        <li><a href="#23-redo-log-的写入流程">2.3 Redo Log 的写入流程</a></li>
+        <li><a href="#24-crash-safe-原理">2.4 Crash Safe 原理</a></li>
+      </ul>
+    </li>
+    <li><a href="#三undo-log回滚日志">三、Undo Log——回滚日志</a>
+      <ul>
+        <li><a href="#31-undo-log-的作用">3.1 Undo Log 的作用</a></li>
+        <li><a href="#32-undo-log-的类型">3.2 Undo Log 的类型</a></li>
+        <li><a href="#33-undo-log-的清理">3.3 Undo Log 的清理</a></li>
+      </ul>
+    </li>
+    <li><a href="#四binlog二进制日志">四、Binlog——二进制日志</a>
+      <ul>
+        <li><a href="#41-binlog-的作用">4.1 Binlog 的作用</a></li>
+        <li><a href="#42-binlog-的三种格式">4.2 Binlog 的三种格式</a></li>
+        <li><a href="#43-binlog-的写入机制">4.3 Binlog 的写入机制</a></li>
+      </ul>
+    </li>
+    <li><a href="#五两阶段提交">五、两阶段提交</a>
+      <ul>
+        <li><a href="#51-为什么需要两阶段提交">5.1 为什么需要两阶段提交？</a></li>
+        <li><a href="#52-两阶段提交流程">5.2 两阶段提交流程</a></li>
+      </ul>
+    </li>
+    <li><a href="#六wal-技术">六、WAL 技术</a>
+      <ul>
+        <li><a href="#61-wal-原则">6.1 WAL 原则</a></li>
+        <li><a href="#62-为什么-wal-快">6.2 为什么 WAL 快？</a></li>
+      </ul>
+    </li>
+    <li><a href="#七常见问题">七、常见问题</a>
+      <ul>
+        <li><a href="#71-binlog-和-redo-log-的区别">7.1 Binlog 和 Redo Log 的区别</a></li>
+        <li><a href="#72-删库后如何恢复">7.2 删库后如何恢复？</a></li>
+      </ul>
+    </li>
+    <li><a href="#八总结">八、总结</a>
+      <ul>
+        <li><a href="#三大日志角色">三大日志角色</a></li>
+        <li><a href="#两阶段提交流程">两阶段提交流程</a></li>
+        <li><a href="#推荐日志配置">推荐日志配置</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">MySQL（五）：日志系统</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>MySQL 的日志系统是保证数据持久性和一致性的关键。三大日志（<strong>binlog</strong>、<strong>redo log</strong>、<strong>undo log</strong>）各司其职，共同支撑了崩溃恢复、主从复制和事务回滚等核心能力。</p>
+<p>理解日志系统，才能真正理解 MySQL 的 crash-safe 能力。</p>
+<h2 id="一三大日志概览">一、三大日志概览</h2>
+<table>
+	<thead>
+			<tr>
+					<th>日志</th>
+					<th>所属层级</th>
+					<th>作用</th>
+					<th>文件</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>Redo Log</strong></td>
+					<td>InnoDB 引擎层</td>
+					<td>保证事务持久性（Crash Safe）</td>
+					<td>ib_logfile0/1</td>
+			</tr>
+			<tr>
+					<td><strong>Undo Log</strong></td>
+					<td>InnoDB 引擎层</td>
+					<td>事务回滚 + MVCC 版本链</td>
+					<td>ibdata / 独立表空间</td>
+			</tr>
+			<tr>
+					<td><strong>Binlog</strong></td>
+					<td>MySQL Server 层</td>
+					<td>主从复制 + 数据恢复</td>
+					<td>mysql-bin.xxxxx</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="二redo-log重做日志">二、Redo Log——重做日志</h2>
+<h3 id="21-为什么需要-redo-log">2.1 为什么需要 Redo Log？</h3>
+<pre tabindex="0"><code>问题：Buffer Pool 在内存中，数据修改先改内存
+如果事务提交后、脏页刷盘前宕机，内存中的数据会丢失
+
+Redo Log 解决了这个问题：
+1. 事务提交时，先把修改记录写到 Redo Log（磁盘，顺序 IO）
+2. 即使脏页没有刷盘，宕机后可以通过 Redo Log 恢复
+</code></pre><h3 id="22-redo-log-的写入机制">2.2 Redo Log 的写入机制</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- Redo Log 以物理日志的形式记录&#34;对某个页做了什么修改&#34;
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 如：page 5, offset 100, write &#39;Tom&#39;
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- Redo Log 的大小固定（循环写）
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">VARIABLES</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;innodb_log_file_size&#39;</span><span class="p">;</span><span class="w">   </span><span class="c1">-- 默认 48MB
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">VARIABLES</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;innodb_log_files_in_group&#39;</span><span class="p">;</span><span class="w">  </span><span class="c1">-- 默认 2 个
+</span></span></span></code></pre></div><p><strong>Redo Log 的环形结构：</strong></p>
+<pre tabindex="0"><code>┌────────────────────────────────────────────────────────┐
+│  Redo Log 文件组（ib_logfile0 + ib_logfile1，循环写）   │
+│                                                        │
+│  ┌───── write_pos ─────→ ┌─────────────────────┐       │
+│  │                        │   已写入，可以覆盖   │       │
+│  │                        └─────────────────────┘       │
+│  │                        ┌─────────────────────┐       │
+│  │← checkpoint ────────── │   已写入，未刷盘     │       │
+│  │                        │   （不能覆盖）       │       │
+│  │                        └─────────────────────┘       │
+│  │                        ┌─────────────────────┐       │
+│  │                        │   空闲区域           │       │
+│  │                        └─────────────────────┘       │
+└────────────────────────────────────────────────────────┘
+
+write pos：当前写入位置
+checkpoint：当前已刷盘的位置（checkpoint 之前的可以覆盖）
+
+write_pos 追上 checkpoint 时 → 需要等待脏页刷盘 → checkpoint 推进
+</code></pre><h3 id="23-redo-log-的写入流程">2.3 Redo Log 的写入流程</h3>
+<pre tabindex="0"><code>事务执行
+    │
+    ├── 修改 Buffer Pool 中的页（脏页）
+    │
+    ├── 将修改记录写入 Redo Log Buffer（内存）
+    │
+    └── 事务提交时
+          ├── innodb_flush_log_at_trx_commit = 1（推荐）
+          │     → fsync → 写入 Redo Log 磁盘文件
+          │
+          ├── innodb_flush_log_at_trx_commit = 0
+          │     → 每秒一次 fsync（可能丢失 1 秒数据）
+          │
+          └── innodb_flush_log_at_trx_commit = 2
+                → 写入操作系统缓存（OS 宕机丢失，MySQL 不丢失）
+</code></pre><h3 id="24-crash-safe-原理">2.4 Crash Safe 原理</h3>
+<pre tabindex="0"><code>宕机前：
+Buffer Pool 中有脏页（已修改内存，未刷盘）
+Redo Log 中已经记录修改
+
+重启后恢复流程：
+1. 从 Redo Log 中读取已提交事务的修改
+2. 将这些修改重新执行到数据页中
+3. 数据恢复到宕机前的状态
+4. Binlog 不一致时，两阶段提交保证一致
+
+这就是 Crash Safe：只要 Redo Log 写成功了，
+数据就一定不会丢失。
+</code></pre><hr>
+<h2 id="三undo-log回滚日志">三、Undo Log——回滚日志</h2>
+<h3 id="31-undo-log-的作用">3.1 Undo Log 的作用</h3>
+<pre tabindex="0"><code>1. 事务回滚：当事务执行 ROLLBACK 时，通过 Undo Log 恢复数据
+2. MVCC 版本链：为快照读提供历史版本数据
+</code></pre><h3 id="32-undo-log-的类型">3.2 Undo Log 的类型</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- (1) INSERT 的 Undo Log
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 记录插入行的主键 ID，回滚时删除该行
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- (2) UPDATE 的 Undo Log
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 记录被更新行的旧值，回滚时恢复旧值
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- (3) DELETE 的 Undo Log
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 记录被删除行的完整数据，回滚时重新插入
+</span></span></span></code></pre></div><h3 id="33-undo-log-的清理">3.3 Undo Log 的清理</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- undo log 在事务提交后不会立即删除
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 因为可能有其他事务还需要通过 MVCC 读取旧版本
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- purge 线程：在确定没有事务需要该版本后清理
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 通过以下参数控制
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">VARIABLES</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;innodb_purge_threads&#39;</span><span class="p">;</span><span class="w">     </span><span class="c1">-- 默认 4
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">VARIABLES</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;innodb_max_purge_lag&#39;</span><span class="p">;</span><span class="w">     </span><span class="c1">-- 延迟阈值
+</span></span></span></code></pre></div><hr>
+<h2 id="四binlog二进制日志">四、Binlog——二进制日志</h2>
+<h3 id="41-binlog-的作用">4.1 Binlog 的作用</h3>
+<pre tabindex="0"><code>1. 主从复制：从库读取主库的 binlog 并重放
+2. 数据恢复：通过 binlog 恢复到某个时间点
+3. 增量备份：基于 binlog 的增量备份
+</code></pre><h3 id="42-binlog-的三种格式">4.2 Binlog 的三种格式</h3>
+<table>
+	<thead>
+			<tr>
+					<th>格式</th>
+					<th>说明</th>
+					<th>优点</th>
+					<th>缺点</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>STATEMENT</strong></td>
+					<td>记录原始 SQL 语句</td>
+					<td>日志量小</td>
+					<td>不定性函数可能主从不一致</td>
+			</tr>
+			<tr>
+					<td><strong>ROW（推荐）</strong></td>
+					<td>记录每行变更</td>
+					<td>精确一致</td>
+					<td>日志量大</td>
+			</tr>
+			<tr>
+					<td><strong>MIXED</strong></td>
+					<td>自动选择</td>
+					<td>折中</td>
+					<td>复杂</td>
+			</tr>
+	</tbody>
+</table>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 查看 binlog 格式
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">VARIABLES</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;binlog_format&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- ROW（MySQL 8.0 默认）
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 推荐：ROW 格式，数据一致性最好
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 查看 binlog 文件列表
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="nb">BINARY</span><span class="w"> </span><span class="n">LOGS</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 查看正在写入的 binlog
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">MASTER</span><span class="w"> </span><span class="n">STATUS</span><span class="err">\</span><span class="k">G</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 查看 binlog 内容
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">BINLOG</span><span class="w"> </span><span class="n">EVENTS</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="s1">&#39;mysql-bin.000001&#39;</span><span class="w"> </span><span class="k">LIMIT</span><span class="w"> </span><span class="mi">10</span><span class="p">;</span><span class="w">
+</span></span></span></code></pre></div><h3 id="43-binlog-的写入机制">4.3 Binlog 的写入机制</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- binlog 在事务提交时写入
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 通过 sync_binlog 参数控制刷盘策略
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">VARIABLES</span><span class="w"> </span><span class="k">LIKE</span><span class="w"> </span><span class="s1">&#39;sync_binlog&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- sync_binlog = 1（推荐）：每次事务提交 fsync
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- sync_binlog = 0：操作系统控制刷盘
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- sync_binlog = N：每 N 个事务 fsync 一次
+</span></span></span></code></pre></div><hr>
+<h2 id="五两阶段提交">五、两阶段提交</h2>
+<h3 id="51-为什么需要两阶段提交">5.1 为什么需要两阶段提交？</h3>
+<pre tabindex="0"><code>Redo Log 和 Binlog 是两个独立的日志：
+- Redo Log：InnoDB 引擎层，记录对页的修改
+- Binlog：Server 层，记录逻辑 SQL
+
+如果不做两阶段提交：
+- 先写 Redo Log 再写 Binlog → Redo Log 写完后宕机
+  → 重启后恢复数据，但 Binlog 没记录 → 主从不一致
+- 先写 Binlog 再写 Redo Log → Binlog 写完后宕机
+  → Binlog 传播到从库，但主库没恢复 → 主从不一致
+</code></pre><h3 id="52-两阶段提交流程">5.2 两阶段提交流程</h3>
+<pre tabindex="0"><code>事务提交时的两阶段提交：
+
+                   事务提交
+                      │
+                      ▼
+                  Redo Log prepare（写入 prepare 状态）
+                      │
+                      ▼
+                  写 Binlog
+                      │
+                      ▼
+                  Redo Log commit（写入 commit 状态）
+                      │
+                      ▼
+                   提交完成
+
+如果在不同阶段宕机：
+1. prepare 前宕机 → 事务未开始，不影响
+2. prepare 后、binlog 前宕机 → 回滚事务（binlog 没有，从库不会执行）
+3. binlog 后、commit 前宕机 → 重启时检查：
+   - 发现 prepare 的 redo log + 对应的 binlog
+   → 直接完成 commit（binlog 已有，必须提交以保持主从一致）
+</code></pre><p><strong>崩溃恢复的判断逻辑：</strong></p>
+<pre tabindex="0"><code>重启扫描 Redo Log：
+├── 事务状态 = commit → 直接提交（Redo Log 恢复数据）
+│
+└── 事务状态 = prepare
+      ├── 对应的 Binlog 完整 → 提交事务（保证主从一致）
+      └── 对应的 Binlog 不完整 → 回滚事务
+</code></pre><hr>
+<h2 id="六wal-技术">六、WAL 技术</h2>
+<p>WAL（Write-Ahead Logging）是所有日志写入的核心原则。</p>
+<h3 id="61-wal-原则">6.1 WAL 原则</h3>
+<pre tabindex="0"><code>WAL：在修改数据文件之前，先写日志
+
+MySQL 的写入顺序：
+1. 修改 Buffer Pool（内存）
+2. 写入 Redo Log（磁盘，顺序 IO）
+3. 写入 Binlog（磁盘，顺序 IO）
+4. 事务提交
+5. 后台线程将脏页刷盘（随机 IO）
+</code></pre><h3 id="62-为什么-wal-快">6.2 为什么 WAL 快？</h3>
+<pre tabindex="0"><code>直接写数据文件：随机 IO（每个页在不同位置，每次 16KB）
+写 Redo Log：   顺序 IO（连续写入，每次追加）
+
+顺序 IO 比随机 IO 快 10-100 倍
+
+所以 WAL 的核心思想：
+1. 把随机写转换为顺序写
+2. 事务提交时只写 Redo Log（顺序 IO）
+3. 脏页刷盘延迟到后台慢慢做（系统空闲时）
+</code></pre><p><strong>Redo Log 大小与刷盘的关系：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ini" data-lang="ini"><span class="line"><span class="cl"><span class="c1"># Redo Log 总大小 = innodb_log_file_size × innodb_log_files_in_group</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 默认 48MB × 2 = 96MB</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 如果 Redo Log 太小 → 频繁触发脏页刷盘 → 性能抖动</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 如果 Redo Log 太大 → 宕机后恢复时间变长</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 建议：Redo Log 总大小设为 Buffer Pool 的 25-50%</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 例如 Buffer Pool = 4G，Redo Log 设为 1G-2G</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_log_file_size</span> <span class="o">=</span> <span class="s">512M</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_log_files_in_group</span> <span class="o">=</span> <span class="s">2  # 总 1G</span>
+</span></span></code></pre></div><hr>
+<h2 id="七常见问题">七、常见问题</h2>
+<h3 id="71-binlog-和-redo-log-的区别">7.1 Binlog 和 Redo Log 的区别</h3>
+<table>
+	<thead>
+			<tr>
+					<th>对比</th>
+					<th>Binlog</th>
+					<th>Redo Log</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>层级</td>
+					<td>Server 层</td>
+					<td>InnoDB 引擎层</td>
+			</tr>
+			<tr>
+					<td>内容</td>
+					<td>逻辑 SQL / 行变更</td>
+					<td>物理页变更</td>
+			</tr>
+			<tr>
+					<td>记录范围</td>
+					<td>所有引擎</td>
+					<td>仅 InnoDB</td>
+			</tr>
+			<tr>
+					<td>写入方式</td>
+					<td>追加（可滚动）</td>
+					<td>循环写（固定大小）</td>
+			</tr>
+			<tr>
+					<td>用途</td>
+					<td>主从复制、数据恢复</td>
+					<td>Crash Safe、事务持久性</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="72-删库后如何恢复">7.2 删库后如何恢复？</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 前提：有全量备份 + 后续的 binlog
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 恢复步骤：
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 1. 恢复最近的全量备份
+</span></span></span><span class="line"><span class="cl"><span class="n">mysql</span><span class="w"> </span><span class="o">-</span><span class="n">u</span><span class="w"> </span><span class="n">root</span><span class="w"> </span><span class="o">-</span><span class="n">p</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">backup</span><span class="p">.</span><span class="k">sql</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 2. 从 binlog 恢复备份后的增量数据
+</span></span></span><span class="line"><span class="cl"><span class="n">mysqlbinlog</span><span class="w"> </span><span class="n">mysql</span><span class="o">-</span><span class="n">bin</span><span class="p">.</span><span class="mi">000001</span><span class="w"> </span><span class="c1">--start-datetime=&#34;2024-01-01 02:00:00&#34; \
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c1">--stop-datetime=&#34;2024-01-01 03:00:00&#34; | mysql -u root -p
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 注意：要跳过误操作的 DROP TABLE 语句
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 可以通过 --stop-position 精确定位
+</span></span></span></code></pre></div><hr>
+<h2 id="八总结">八、总结</h2>
+<h3 id="三大日志角色">三大日志角色</h3>
+<table>
+	<thead>
+			<tr>
+					<th>日志</th>
+					<th>作用</th>
+					<th>写入时机</th>
+					<th>刷盘策略</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Redo Log</td>
+					<td>Crash Safe</td>
+					<td>事务执行中</td>
+					<td><code>innodb_flush_log_at_trx_commit=1</code></td>
+			</tr>
+			<tr>
+					<td>Binlog</td>
+					<td>复制+恢复</td>
+					<td>事务提交时</td>
+					<td><code>sync_binlog=1</code></td>
+			</tr>
+			<tr>
+					<td>Undo Log</td>
+					<td>回滚+MVCC</td>
+					<td>事务执行中</td>
+					<td>由 purge 线程自动管理</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="两阶段提交流程">两阶段提交流程</h3>
+<pre tabindex="0"><code>① Redo Log prepare → ② Binlog write → ③ Redo Log commit
+
+崩溃恢复依据：Binlog 是否完整
+  ├── 完整 → 提交（从 prepare 到 commit）
+  └── 不完整 → 回滚
+</code></pre><h3 id="推荐日志配置">推荐日志配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ini" data-lang="ini"><span class="line"><span class="cl"><span class="c1"># Redo Log</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_log_file_size</span> <span class="o">=</span> <span class="s">512M</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_log_files_in_group</span> <span class="o">=</span> <span class="s">2</span>
+</span></span><span class="line"><span class="cl"><span class="na">innodb_flush_log_at_trx_commit</span> <span class="o">=</span> <span class="s">1   # 每次事务提交刷盘</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Binlog</span>
+</span></span><span class="line"><span class="cl"><span class="na">log_bin</span> <span class="o">=</span> <span class="s">mysql-bin</span>
+</span></span><span class="line"><span class="cl"><span class="na">binlog_format</span> <span class="o">=</span> <span class="s">ROW                    # 使用 ROW 格式</span>
+</span></span><span class="line"><span class="cl"><span class="na">sync_binlog</span> <span class="o">=</span> <span class="s">1                        # 每次事务提交刷盘</span>
+</span></span><span class="line"><span class="cl"><span class="na">expire_logs_days</span> <span class="o">=</span> <span class="s">7                   # 保留 7 天</span>
+</span></span></code></pre></div><hr>
+<p><strong>上一篇：</strong> <a href="/posts/mysql%E5%9B%9B%E4%BA%8B%E5%8A%A1%E4%B8%8E%E9%94%81%E6%9C%BA%E5%88%B6/">MySQL（四）：事务与锁机制</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/mysql%E5%85%AD%E4%B8%BB%E4%BB%8E%E5%A4%8D%E5%88%B6%E4%B8%8E%E9%AB%98%E5%8F%AF%E7%94%A8/">MySQL（六）：主从复制与高可用</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

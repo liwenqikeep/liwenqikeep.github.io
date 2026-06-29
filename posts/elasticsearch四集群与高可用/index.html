@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Elasticsearch（四）：集群与高可用 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一集群搭建">一、集群搭建</a>
+      <ul>
+        <li><a href="#11-基础配置">1.1 基础配置</a></li>
+        <li><a href="#12-最小集群拓扑">1.2 最小集群拓扑</a></li>
+      </ul>
+    </li>
+    <li><a href="#二节点发现与选举">二、节点发现与选举</a>
+      <ul>
+        <li><a href="#21-发现机制">2.1 发现机制</a></li>
+        <li><a href="#22-master-选举">2.2 Master 选举</a></li>
+        <li><a href="#23-集群状态">2.3 集群状态</a></li>
+      </ul>
+    </li>
+    <li><a href="#三分片分配">三、分片分配</a>
+      <ul>
+        <li><a href="#31-分片平衡">3.1 分片平衡</a></li>
+        <li><a href="#32-分片分配感知">3.2 分片分配感知</a></li>
+        <li><a href="#33-强制只读">3.3 强制只读</a></li>
+      </ul>
+    </li>
+    <li><a href="#四故障恢复">四、故障恢复</a>
+      <ul>
+        <li><a href="#41-节点故障">4.1 节点故障</a></li>
+        <li><a href="#42-集群健康状态">4.2 集群健康状态</a></li>
+        <li><a href="#43-分片修复">4.3 分片修复</a></li>
+        <li><a href="#44-滚动重启">4.4 滚动重启</a></li>
+      </ul>
+    </li>
+    <li><a href="#五监控与管理">五、监控与管理</a>
+      <ul>
+        <li><a href="#51-常用-api">5.1 常用 API</a></li>
+        <li><a href="#52-监控指标">5.2 监控指标</a></li>
+      </ul>
+    </li>
+    <li><a href="#六总结">六、总结</a>
+      <ul>
+        <li><a href="#集群配置推荐">集群配置推荐</a></li>
+        <li><a href="#集群健康速记">集群健康速记</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Elasticsearch（四）：集群与高可用</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>Elasticsearch 天生就是分布式的，一个集群由多个节点组成。理解集群的工作机制——<strong>节点发现</strong>、<strong>Master 选举</strong>、<strong>分片分配</strong>以及<strong>故障恢复</strong>——对于运维和使用 ES 至关重要。</p>
+<h2 id="一集群搭建">一、集群搭建</h2>
+<h3 id="11-基础配置">1.1 基础配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># elasticsearch.yml</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 集群名称（所有节点必须一致）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">cluster.name</span><span class="p">:</span><span class="w"> </span><span class="l">my-es-cluster</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 节点名称（每个节点唯一）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">node.name</span><span class="p">:</span><span class="w"> </span><span class="l">node-1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 节点角色</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">node.roles</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="l">master, data, ingest ]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 网络配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">network.host</span><span class="p">:</span><span class="w"> </span><span class="m">0.0.0.0</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">http.port</span><span class="p">:</span><span class="w"> </span><span class="m">9200</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">transport.port</span><span class="p">:</span><span class="w"> </span><span class="m">9300</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 发现配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">discovery.seed_hosts</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="l">node1:9300</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="l">node2:9300</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="l">node3:9300</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">cluster.initial_master_nodes</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;node-1&#34;</span><span class="p">,</span><span class="w"> </span><span class="s2">&#34;node-2&#34;</span><span class="p">,</span><span class="w"> </span><span class="s2">&#34;node-3&#34;</span><span class="p">]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 路径配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">path.data</span><span class="p">:</span><span class="w"> </span><span class="l">/data/elasticsearch/data</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">path.logs</span><span class="p">:</span><span class="w"> </span><span class="l">/data/elasticsearch/logs</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 内存配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">bootstrap.memory_lock</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span></code></pre></div><h3 id="12-最小集群拓扑">1.2 最小集群拓扑</h3>
+<pre tabindex="0"><code>推荐的最小生产集群：3 个专用 Master + 3 个 Data 节点
+
+节点 1（Master）   ─┐
+节点 2（Master）   ─┤ 集群管理
+节点 3（Master）   ─┘
+
+节点 4（Data）     ─┐
+节点 5（Data）     ─┤ 数据存储与查询
+节点 6（Data）     ─┘
+
+Master 专用节点配置：
+node.roles: [ master ]
+node.roles: [ master ]   ← 不存储数据，不处理搜索
+
+Data 节点配置：
+node.roles: [ data, ingest, ml ]
+</code></pre><hr>
+<h2 id="二节点发现与选举">二、节点发现与选举</h2>
+<h3 id="21-发现机制">2.1 发现机制</h3>
+<pre tabindex="0"><code>节点启动时通过 discovery.seed_hosts 发现集群。
+
+发现过程：
+1. 节点启动，连接到 seed_hosts 中的节点
+2. 获取集群状态（cluster state）
+3. 加入集群，同步元数据
+
+传输协议（Transport）：
+数据节点之间通过 9300 端口通信
+使用 Netty 作为网络框架
+</code></pre><h3 id="22-master-选举">2.2 Master 选举</h3>
+<pre tabindex="0"><code>当集群中没有可用 Master 时触发选举。
+
+选举规则（基于 Zen Discovery）：
+1. 从候选节点中选举
+2. 比较 node.id 的字典序
+3. 最小的 node.id 胜出
+
+候选节点：配置了 master 角色的节点
+
+避免脑裂的配置：
+discovery.zen.minimum_master_nodes: N/2 + 1
+# 7.x 后由 cluster.initial_master_nodes 替代
+</code></pre><h3 id="23-集群状态">2.3 集群状态</h3>
+<pre tabindex="0"><code>集群状态（Cluster State）包含：
+├── 集群级别的设置
+├── 索引的元数据（Mapping、Setting）
+├── 分片的路由信息
+└── 节点列表
+
+集群状态由 Master 节点维护
+每次变更通过发布（publish）同步到所有节点
+</code></pre><hr>
+<h2 id="三分片分配">三、分片分配</h2>
+<h3 id="31-分片平衡">3.1 分片平衡</h3>
+<pre tabindex="0"><code>ES 会自动在节点间平衡分片。
+
+分配策略：
+1. 基于磁盘容量（disk-based）
+2. 基于分片数量（shard-based）
+3. 自定义路由（awareness）
+
+相关配置：
+cluster.routing.allocation.balance.shard = 0.45   # 分片权重
+cluster.routing.allocation.balance.disk = 0.55     # 磁盘权重
+</code></pre><h3 id="32-分片分配感知">3.2 分片分配感知</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># 跨机架/可用区的分片分配</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 配置机架</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">node.attr.rack_id</span><span class="p">:</span><span class="w"> </span><span class="l">rack-1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 集群配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">cluster.routing.allocation.awareness.attributes</span><span class="p">:</span><span class="w"> </span><span class="l">rack_id</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 这样主分片和副本分片会分配到不同的机架</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 防止单个机架故障导致数据全部丢失</span><span class="w">
+</span></span></span></code></pre></div><h3 id="33-强制只读">3.3 强制只读</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 当磁盘使用率超过水位线时，ES 会将索引设为只读</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 水位线配置</span>
+</span></span><span class="line"><span class="cl">cluster.routing.allocation.disk.watermark.low: <span class="s2">&#34;85%&#34;</span>     <span class="c1"># 达到 85% 不再分配分片</span>
+</span></span><span class="line"><span class="cl">cluster.routing.allocation.disk.watermark.high: <span class="s2">&#34;90%&#34;</span>    <span class="c1"># 达到 90% 迁移分片</span>
+</span></span><span class="line"><span class="cl">cluster.routing.allocation.disk.watermark.flood_stage: <span class="s2">&#34;95%&#34;</span>  <span class="c1"># 达到 95% 强制只读</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 解除只读</span>
+</span></span><span class="line"><span class="cl">PUT /my_index/_settings
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;index.blocks.read_only_allow_delete&#34;</span>: null
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span></code></pre></div><hr>
+<h2 id="四故障恢复">四、故障恢复</h2>
+<h3 id="41-节点故障">4.1 节点故障</h3>
+<pre tabindex="0"><code>节点宕机后的恢复流程：
+
+1. Master 检测到节点失联（监控心跳）
+2. Master 重新分配该节点上的分片
+3. 将丢失的主分片的副本提升为主分片
+4. 在其他节点上创建新的副本分片
+5. 集群恢复到绿色状态
+
+影响：
+- 如果只有副本分片丢失 → 不影响服务
+- 如果主分片丢失 → 短暂不可用（提升副本为主分片）
+</code></pre><h3 id="42-集群健康状态">4.2 集群健康状态</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 查看集群健康</span>
+</span></span><span class="line"><span class="cl">GET /_cluster/health
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;status&#34;</span>: <span class="s2">&#34;yellow&#34;</span>,                  <span class="c1"># green/yellow/red</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;timed_out&#34;</span>: false,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;number_of_nodes&#34;</span>: 6,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;number_of_data_nodes&#34;</span>: 3,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;active_primary_shards&#34;</span>: 50,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;active_shards&#34;</span>: 100,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;relocating_shards&#34;</span>: 0,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;initializing_shards&#34;</span>: 0,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;unassigned_shards&#34;</span>: 0,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;delayed_unassigned_shards&#34;</span>: <span class="m">0</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># green：所有主分片和副本分片都正常</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># yellow：主分片正常，但部分副本未分配（常见于单节点集群）</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># red：主分片未分配（数据部分不可用）</span>
+</span></span></code></pre></div><h3 id="43-分片修复">4.3 分片修复</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 查看未分配的分片</span>
+</span></span><span class="line"><span class="cl">GET /_cat/shards?v<span class="p">&amp;</span><span class="nv">h</span><span class="o">=</span>index,shard,prirep,state,node
+</span></span><span class="line"><span class="cl"><span class="c1"># state: UNASSIGNED 表示未分配</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 分配失败的原因</span>
+</span></span><span class="line"><span class="cl">GET /_cluster/allocation/explain
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;index&#34;</span>: <span class="s2">&#34;my_index&#34;</span>,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;shard&#34;</span>: 0,
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;primary&#34;</span>: <span class="nb">true</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 手动重新分配</span>
+</span></span><span class="line"><span class="cl">POST /_cluster/reroute
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;commands&#34;</span>: <span class="o">[</span>
+</span></span><span class="line"><span class="cl">    <span class="o">{</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;allocate_stale_primary&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;index&#34;</span>: <span class="s2">&#34;my_index&#34;</span>,
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;shard&#34;</span>: 0,
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;node&#34;</span>: <span class="s2">&#34;data-node-1&#34;</span>,
+</span></span><span class="line"><span class="cl">        <span class="s2">&#34;accept_data_loss&#34;</span>: <span class="nb">true</span>       // 接受可能的数据丢失
+</span></span><span class="line"><span class="cl">      <span class="o">}</span>
+</span></span><span class="line"><span class="cl">    <span class="o">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">]</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span></code></pre></div><h3 id="44-滚动重启">4.4 滚动重启</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># ES 节点滚动重启流程：</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 1. 停用分片分配</span>
+</span></span><span class="line"><span class="cl">PUT /_cluster/settings
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;transient&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;cluster.routing.allocation.enable&#34;</span>: <span class="s2">&#34;none&#34;</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 2. 执行同步 flush</span>
+</span></span><span class="line"><span class="cl">POST /_flush
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 3. 重启节点</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 4. 节点加入集群后，启用分片分配</span>
+</span></span><span class="line"><span class="cl">PUT /_cluster/settings
+</span></span><span class="line"><span class="cl"><span class="o">{</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;transient&#34;</span>: <span class="o">{</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;cluster.routing.allocation.enable&#34;</span>: <span class="s2">&#34;all&#34;</span>
+</span></span><span class="line"><span class="cl">  <span class="o">}</span>
+</span></span><span class="line"><span class="cl"><span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 5. 等待集群恢复绿色</span>
+</span></span><span class="line"><span class="cl">GET /_cluster/health?wait_for_status<span class="o">=</span>green
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 6. 继续重启下一个节点</span>
+</span></span></code></pre></div><hr>
+<h2 id="五监控与管理">五、监控与管理</h2>
+<h3 id="51-常用-api">5.1 常用 API</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 节点信息</span>
+</span></span><span class="line"><span class="cl">GET /_cat/nodes?v
+</span></span><span class="line"><span class="cl">GET /_nodes/stats
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 索引信息</span>
+</span></span><span class="line"><span class="cl">GET /_cat/indices?v
+</span></span><span class="line"><span class="cl">GET /_cat/shards?v
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 集群设置</span>
+</span></span><span class="line"><span class="cl">GET /_cluster/settings
+</span></span><span class="line"><span class="cl">PUT /_cluster/settings <span class="o">{</span> ... <span class="o">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 任务管理</span>
+</span></span><span class="line"><span class="cl">GET /_cat/tasks
+</span></span><span class="line"><span class="cl">POST /_tasks/&lt;task_id&gt;/_cancel
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 热点线程（诊断慢查询）</span>
+</span></span><span class="line"><span class="cl">GET /_nodes/hot_threads
+</span></span></code></pre></div><h3 id="52-监控指标">5.2 监控指标</h3>
+<table>
+	<thead>
+			<tr>
+					<th>指标</th>
+					<th>说明</th>
+					<th>告警阈值</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>集群状态</td>
+					<td>green/yellow/red</td>
+					<td>非 green 需关注</td>
+			</tr>
+			<tr>
+					<td>节点 JVM Heap</td>
+					<td>JVM 堆使用率</td>
+					<td>&gt; 85%</td>
+			</tr>
+			<tr>
+					<td>搜索 QPS</td>
+					<td>每秒查询数</td>
+					<td>按基线</td>
+			</tr>
+			<tr>
+					<td>索引速率</td>
+					<td>每秒索引数</td>
+					<td>按基线</td>
+			</tr>
+			<tr>
+					<td>拒绝数</td>
+					<td>search/index 被拒绝数</td>
+					<td>&gt; 0</td>
+			</tr>
+			<tr>
+					<td>未分配分片</td>
+					<td>分片未分配数量</td>
+					<td>&gt; 0</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="六总结">六、总结</h2>
+<h3 id="集群配置推荐">集群配置推荐</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># 生产集群最小配置（6 节点）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 3 Master + 3 Data</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># Master 节点</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">node.roles</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="l">master ]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># Data 节点</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">node.roles</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="l">data, ingest ]</span><span class="w">
+</span></span></span></code></pre></div><h3 id="集群健康速记">集群健康速记</h3>
+<pre tabindex="0"><code>green  → 一切正常
+yellow → 副本未分配（数据完整，容错降低）
+red    → 主分片丢失（数据部分不可用）
+</code></pre><hr>
+<p><strong>上一篇：</strong> <a href="/posts/elasticsearch%E4%B8%89%E6%90%9C%E7%B4%A2%E4%B8%8E%E8%81%9A%E5%90%88/">Elasticsearch（三）：搜索与聚合</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/elasticsearch%E4%BA%94%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96/">Elasticsearch（五）：性能优化</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

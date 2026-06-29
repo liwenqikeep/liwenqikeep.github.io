@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Spring MVC（二）：DispatcherServlet 请求处理流程 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一dispatcherservlet-在-web-容器中的位置">一、DispatcherServlet 在 Web 容器中的位置</a>
+      <ul>
+        <li><a href="#11-servlet-层次结构">1.1 Servlet 层次结构</a></li>
+        <li><a href="#12-初始化过程">1.2 初始化过程</a></li>
+      </ul>
+    </li>
+    <li><a href="#二请求处理核心流程dodispatch">二、请求处理核心流程：doDispatch</a></li>
+    <li><a href="#三gethandler通过-handlermapping-获取执行链">三、getHandler()——通过 HandlerMapping 获取执行链</a></li>
+    <li><a href="#四gethandleradapter获取适配器">四、getHandlerAdapter()——获取适配器</a></li>
+    <li><a href="#五hahandle执行目标方法">五、ha.handle()——执行目标方法</a></li>
+    <li><a href="#六拦截器机制">六、拦截器机制</a>
+      <ul>
+        <li><a href="#61-handlerinterceptor-接口">6.1 HandlerInterceptor 接口</a></li>
+        <li><a href="#62-执行顺序">6.2 执行顺序</a></li>
+        <li><a href="#63-定义与注册拦截器">6.3 定义与注册拦截器</a></li>
+      </ul>
+    </li>
+    <li><a href="#七processdispatchresult视图渲染">七、processDispatchResult——视图渲染</a>
+      <ul>
+        <li><a href="#render-视图渲染">render() 视图渲染</a></li>
+      </ul>
+    </li>
+    <li><a href="#八完整请求生命周期">八、完整请求生命周期</a></li>
+    <li><a href="#九总结">九、总结</a>
+      <ul>
+        <li><a href="#dispatcherservlet-核心方法速查">DispatcherServlet 核心方法速查</a></li>
+        <li><a href="#核心设计模式">核心设计模式</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Spring MVC（二）：DispatcherServlet 请求处理流程</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>上一篇我们看了 Spring MVC 的核心注解和使用。这篇文章从 <code>DispatcherServlet</code> 入手，深入一个 HTTP 请求从进入服务器到返回响应的完整处理流程。</p>
+<p>理解 DispatcherServlet 是掌握 Spring MVC 源码的关键——它是整个 MVC 的<strong>前端控制器（Front Controller）</strong>，所有请求都经过它统一分发。</p>
+<blockquote>
+<p><strong>源码版本：</strong> Spring Framework 5.x</p>
+</blockquote>
+<h2 id="一dispatcherservlet-在-web-容器中的位置">一、DispatcherServlet 在 Web 容器中的位置</h2>
+<h3 id="11-servlet-层次结构">1.1 Servlet 层次结构</h3>
+<pre tabindex="0"><code>Tomcat / Jetty（Servlet 容器）
+  │
+  └── FilterChain
+        ├── CharacterEncodingFilter
+        ├── SpringSecurityFilterChain
+        ├── ...
+        └── DispatcherServlet（最后一个 Filter 之后执行）
+              │
+              ├── HandlerMapping  →  路由到 Handler
+              ├── HandlerAdapter  →  执行 Handler
+              └── ViewResolver    →  解析视图
+</code></pre><h3 id="12-初始化过程">1.2 初始化过程</h3>
+<p><code>DispatcherServlet</code> 继承自 <code>FrameworkServlet</code>，<code>FrameworkServlet</code> 继承自 <code>HttpServletBean</code>，<code>HttpServletBean</code> 继承自 <code>HttpServlet</code>。</p>
+<pre tabindex="0"><code>HttpServlet
+  └── HttpServletBean
+        └── FrameworkServlet
+              └── DispatcherServlet
+</code></pre><p><strong>初始化关键路径：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// HttpServletBean.init() → FrameworkServlet.initServletBean() → DispatcherServlet.onRefresh()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 最终调用 DispatcherServlet.initStrategies()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">initStrategies</span><span class="p">(</span><span class="n">ApplicationContext</span><span class="w"> </span><span class="n">context</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 初始化 MVC 九大组件</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initMultipartResolver</span><span class="p">(</span><span class="n">context</span><span class="p">);</span><span class="w">        </span><span class="c1">// 文件上传解析器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initLocaleResolver</span><span class="p">(</span><span class="n">context</span><span class="p">);</span><span class="w">           </span><span class="c1">// 国际化解析器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initThemeResolver</span><span class="p">(</span><span class="n">context</span><span class="p">);</span><span class="w">            </span><span class="c1">// 主题解析器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initHandlerMappings</span><span class="p">(</span><span class="n">context</span><span class="p">);</span><span class="w">          </span><span class="c1">// ★ 处理器映射器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initHandlerAdapters</span><span class="p">(</span><span class="n">context</span><span class="p">);</span><span class="w">          </span><span class="c1">// ★ 处理器适配器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initHandlerExceptionResolvers</span><span class="p">(</span><span class="n">context</span><span class="p">);</span><span class="c1">// 异常解析器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initRequestToViewNameTranslator</span><span class="p">(</span><span class="n">context</span><span class="p">);</span><span class="w"> </span><span class="c1">// 请求到视图名翻译</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initViewResolvers</span><span class="p">(</span><span class="n">context</span><span class="p">);</span><span class="w">            </span><span class="c1">// 视图解析器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initFlashMapManager</span><span class="p">(</span><span class="n">context</span><span class="p">);</span><span class="w">          </span><span class="c1">// FlashMap 管理器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="二请求处理核心流程dodispatch">二、请求处理核心流程：doDispatch</h2>
+<p>所有 HTTP 请求最终进入 <code>DispatcherServlet.doDispatch()</code>，这是 Spring MVC 最核心的方法。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DispatcherServlet.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doDispatch</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">processedRequest</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">request</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">HandlerExecutionChain</span><span class="w"> </span><span class="n">mappedHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="n">multipartRequestParsed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 检查是否是文件上传请求</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">processedRequest</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">checkMultipart</span><span class="p">(</span><span class="n">request</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">multipartRequestParsed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">processedRequest</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">request</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. ★ 获取 HandlerExecutionChain（包含 Handler + 拦截器链）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">mappedHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getHandler</span><span class="p">(</span><span class="n">processedRequest</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">mappedHandler</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">noHandlerFound</span><span class="p">(</span><span class="n">processedRequest</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. ★ 获取 HandlerAdapter（适配器模式）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">HandlerAdapter</span><span class="w"> </span><span class="n">ha</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getHandlerAdapter</span><span class="p">(</span><span class="n">mappedHandler</span><span class="p">.</span><span class="na">getHandler</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 处理 Last-Modified 头</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getMethod</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">boolean</span><span class="w"> </span><span class="n">isGetOrHead</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;GET&#34;</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">method</span><span class="p">)</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="s">&#34;HEAD&#34;</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">method</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">isGetOrHead</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">...)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// Last-Modified 处理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 5. ★ 执行拦截器的 preHandle</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">mappedHandler</span><span class="p">.</span><span class="na">applyPreHandle</span><span class="p">(</span><span class="n">processedRequest</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 如果某个拦截器的 preHandle 返回 false，请求终止</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 6. ★ HandlerAdapter 执行目标方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">mv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ha</span><span class="p">.</span><span class="na">handle</span><span class="p">(</span><span class="n">processedRequest</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> </span><span class="n">mappedHandler</span><span class="p">.</span><span class="na">getHandler</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 7. 如果返回的是 String 视图名，自动选择视图</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">applyDefaultViewName</span><span class="p">(</span><span class="n">processedRequest</span><span class="p">,</span><span class="w"> </span><span class="n">mv</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 8. ★ 执行拦截器的 postHandle</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">mappedHandler</span><span class="p">.</span><span class="na">applyPostHandle</span><span class="p">(</span><span class="n">processedRequest</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> </span><span class="n">mv</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 捕获 Handler 执行过程中的异常</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">dispatchException</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ex</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Throwable</span><span class="w"> </span><span class="n">err</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">dispatchException</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">NestedServletException</span><span class="p">(</span><span class="s">&#34;Handler dispatch failed&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">err</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 9. ★ 处理最终结果（视图渲染 + 拦截器 afterCompletion）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">processDispatchResult</span><span class="p">(</span><span class="n">processedRequest</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> </span><span class="n">mappedHandler</span><span class="p">,</span><span class="w"> </span><span class="n">mv</span><span class="p">,</span><span class="w"> </span><span class="n">dispatchException</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>核心流程时序图：</strong></p>
+<pre tabindex="0"><code>请求进入
+    │
+    ▼
+DispatcherServlet.doDispatch()
+    │
+    ├── 1. checkMultipart()          — 处理文件上传
+    │
+    ├── 2. getHandler()              — 通过 HandlerMapping 获取执行链
+    │      └── HandlerExecutionChain{Handler, Interceptor[]}
+    │
+    ├── 3. getHandlerAdapter()       — 获取适配的 HandlerAdapter
+    │
+    ├── 4. applyPreHandle()          — 拦截器前置处理
+    │      ├── Interceptor1.preHandle()
+    │      ├── Interceptor2.preHandle()
+    │      └── ...
+    │
+    ├── 5. ha.handle()               — 执行目标方法
+    │      └── 返回 ModelAndView
+    │
+    ├── 6. applyPostHandle()         — 拦截器后置处理
+    │
+    └── 7. processDispatchResult()   — 渲染视图 + afterCompletion
+           ├── ViewResolver 解析视图
+           ├── View.render() 渲染
+           └── Interceptor.afterCompletion()
+</code></pre><h2 id="三gethandler通过-handlermapping-获取执行链">三、getHandler()——通过 HandlerMapping 获取执行链</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DispatcherServlet.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">HandlerExecutionChain</span><span class="w"> </span><span class="nf">getHandler</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 遍历所有注册的 HandlerMapping</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">HandlerMapping</span><span class="w"> </span><span class="n">mapping</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">handlerMappings</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">HandlerExecutionChain</span><span class="w"> </span><span class="n">handler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mapping</span><span class="p">.</span><span class="na">getHandler</span><span class="p">(</span><span class="n">request</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">handler</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">handler</span><span class="p">;</span><span class="w">  </span><span class="c1">// 返回第一个匹配的 Handler</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>HandlerMapping 的查找顺序，由 <code>@Order</code> 控制：</strong></p>
+<pre tabindex="0"><code>@RequestMappingHandlerMapping（优先级最高，处理 @RequestMapping 注解）
+  └── 通过 URL 匹配找到对应的方法（HandlerMethod）
+      └── 包装为 HandlerExecutionChain{HandlerMethod, Interceptor[]}
+
+SimpleUrlHandlerMapping（处理静态资源等）
+  └── 匹配 /** 等资源路径
+
+BeanNameUrlHandlerMapping（处理 Bean name 为 URL 路径的 Bean）
+</code></pre><h2 id="四gethandleradapter获取适配器">四、getHandlerAdapter()——获取适配器</h2>
+<p>不同的 Handler 类型需要不同的适配器：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DispatcherServlet.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">HandlerAdapter</span><span class="w"> </span><span class="nf">getHandlerAdapter</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">HandlerAdapter</span><span class="w"> </span><span class="n">adapter</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">handlerAdapters</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">adapter</span><span class="p">.</span><span class="na">supports</span><span class="p">(</span><span class="n">handler</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">adapter</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ServletException</span><span class="p">(</span><span class="s">&#34;No adapter for handler ...&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>HandlerAdapter 的类型：</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>HandlerAdapter</th>
+					<th>支持的 Handler 类型</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>RequestMappingHandlerAdapter</code></td>
+					<td><code>HandlerMethod</code>（标注了 <code>@RequestMapping</code> 的方法）</td>
+			</tr>
+			<tr>
+					<td><code>HttpRequestHandlerAdapter</code></td>
+					<td><code>HttpRequestHandler</code></td>
+			</tr>
+			<tr>
+					<td><code>SimpleControllerHandlerAdapter</code></td>
+					<td><code>Controller</code> 接口（旧版）</td>
+			</tr>
+			<tr>
+					<td><code>SimpleServletHandlerAdapter</code></td>
+					<td><code>Servlet</code></td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="五hahandle执行目标方法">五、ha.handle()——执行目标方法</h2>
+<p>以最常用的 <code>RequestMappingHandlerAdapter</code> 为例，它的 <code>handle()</code> 方法最终委派给内部方法：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// RequestMappingHandlerAdapter.java 简化</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">ModelAndView</span><span class="w"> </span><span class="nf">handleInternal</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                      </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                      </span><span class="n">HandlerMethod</span><span class="w"> </span><span class="n">handlerMethod</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ModelAndView</span><span class="w"> </span><span class="n">mav</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 检查是否需要 Session</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">checkRequest</span><span class="p">(</span><span class="n">request</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 执行请求</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">mav</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">invokeHandlerMethod</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> </span><span class="n">handlerMethod</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">mav</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong><code>invokeHandlerMethod()</code> 的核心逻辑：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// RequestMappingHandlerAdapter.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">ModelAndView</span><span class="w"> </span><span class="nf">invokeHandlerMethod</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                           </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                           </span><span class="n">HandlerMethod</span><span class="w"> </span><span class="n">handlerMethod</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 创建 ServletWebRequest</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ServletWebRequest</span><span class="w"> </span><span class="n">webRequest</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ServletWebRequest</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 创建 WebDataBinderFactory</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">WebDataBinderFactory</span><span class="w"> </span><span class="n">binderFactory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getDataBinderFactory</span><span class="p">(</span><span class="n">handlerMethod</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 创建 ModelFactory</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ModelFactory</span><span class="w"> </span><span class="n">modelFactory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getModelFactory</span><span class="p">(</span><span class="n">handlerMethod</span><span class="p">,</span><span class="w"> </span><span class="n">binderFactory</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 4. ★ 创建 ServletInvocableHandlerMethod，包装目标方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ServletInvocableHandlerMethod</span><span class="w"> </span><span class="n">invocableMethod</span><span class="w"> </span><span class="o">=</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">createInvocableHandlerMethod</span><span class="p">(</span><span class="n">handlerMethod</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">invocableMethod</span><span class="p">.</span><span class="na">setHandlerMethodArgumentResolvers</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">argumentResolvers</span><span class="p">);</span><span class="w">  </span><span class="c1">// 参数解析器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">invocableMethod</span><span class="p">.</span><span class="na">setHandlerMethodReturnValueHandlers</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">returnValueHandlers</span><span class="p">);</span><span class="w">  </span><span class="c1">// 返回值处理器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">invocableMethod</span><span class="p">.</span><span class="na">setDataBinderFactory</span><span class="p">(</span><span class="n">binderFactory</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">invocableMethod</span><span class="p">.</span><span class="na">setParameterNameDiscoverer</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">parameterNameDiscoverer</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 5. 创建 ModelAndViewContainer</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ModelAndViewContainer</span><span class="w"> </span><span class="n">mavContainer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ModelAndViewContainer</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">mavContainer</span><span class="p">.</span><span class="na">addAllAttributes</span><span class="p">(</span><span class="n">RequestContextUtils</span><span class="p">.</span><span class="na">getInputFlashMap</span><span class="p">(</span><span class="n">request</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">modelFactory</span><span class="p">.</span><span class="na">initModel</span><span class="p">(</span><span class="n">webRequest</span><span class="p">,</span><span class="w"> </span><span class="n">mavContainer</span><span class="p">,</span><span class="w"> </span><span class="n">invocableMethod</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 6. ★ 执行目标方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">invocableMethod</span><span class="p">.</span><span class="na">invokeAndHandle</span><span class="p">(</span><span class="n">webRequest</span><span class="p">,</span><span class="w"> </span><span class="n">mavContainer</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 7. 返回 ModelAndView</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">getModelAndView</span><span class="p">(</span><span class="n">mavContainer</span><span class="p">,</span><span class="w"> </span><span class="n">modelFactory</span><span class="p">,</span><span class="w"> </span><span class="n">webRequest</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="六拦截器机制">六、拦截器机制</h2>
+<h3 id="61-handlerinterceptor-接口">6.1 HandlerInterceptor 接口</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">HandlerInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 在 Handler 执行之前调用</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 返回 true：继续执行；返回 false：中断请求</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">default</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">preHandle</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 在 Handler 执行之后、视图渲染之前调用</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">default</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">postHandle</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                            </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                            </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                            </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">ModelAndView</span><span class="w"> </span><span class="n">modelAndView</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 请求完成之后调用（无论是否异常）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">default</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">afterCompletion</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                  </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                  </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                  </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="62-执行顺序">6.2 执行顺序</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// HandlerExecutionChain.java — 源码中的执行逻辑</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// preHandle：顺序执行（1→2→3）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kt">boolean</span><span class="w"> </span><span class="nf">applyPreHandle</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">interceptorList</span><span class="p">.</span><span class="na">size</span><span class="p">();</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="k">this</span><span class="p">.</span><span class="na">interceptorList</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">i</span><span class="p">).</span><span class="na">preHandle</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">handler</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 如果 preHandle 返回 false，触发已执行拦截器的 afterCompletion</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">triggerAfterCompletion</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// postHandle：倒序执行（3→2→1）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kt">void</span><span class="w"> </span><span class="nf">applyPostHandle</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> </span><span class="n">ModelAndView</span><span class="w"> </span><span class="n">mv</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">interceptorList</span><span class="p">.</span><span class="na">size</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">1</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">--</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">interceptorList</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">i</span><span class="p">).</span><span class="na">postHandle</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">handler</span><span class="p">,</span><span class="w"> </span><span class="n">mv</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// afterCompletion：倒序执行（3→2→1）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kt">void</span><span class="w"> </span><span class="nf">triggerAfterCompletion</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">interceptorList</span><span class="p">.</span><span class="na">size</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">1</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">--</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">interceptorList</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">i</span><span class="p">).</span><span class="na">afterCompletion</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">handler</span><span class="p">,</span><span class="w"> </span><span class="n">ex</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="63-定义与注册拦截器">6.3 定义与注册拦截器</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. 定义拦截器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">LoggingInterceptor</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">HandlerInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Logger</span><span class="w"> </span><span class="n">log</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LoggerFactory</span><span class="p">.</span><span class="na">getLogger</span><span class="p">(</span><span class="n">getClass</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">preHandle</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                             </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                             </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;请求开始: {} {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getMethod</span><span class="p">(),</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getRequestURI</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">postHandle</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                           </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">,</span><span class="w"> </span><span class="n">ModelAndView</span><span class="w"> </span><span class="n">modelAndView</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;请求处理完成: {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getRequestURI</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">afterCompletion</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">,</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ex</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">log</span><span class="p">.</span><span class="na">error</span><span class="p">(</span><span class="s">&#34;请求异常: {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getRequestURI</span><span class="p">(),</span><span class="w"> </span><span class="n">ex</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;请求结束: {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getRequestURI</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 注册拦截器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">WebMvcConfig</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">WebMvcConfigurer</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">addInterceptors</span><span class="p">(</span><span class="n">InterceptorRegistry</span><span class="w"> </span><span class="n">registry</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">registry</span><span class="p">.</span><span class="na">addInterceptor</span><span class="p">(</span><span class="n">loggingInterceptor</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">addPathPatterns</span><span class="p">(</span><span class="s">&#34;/api/**&#34;</span><span class="p">)</span><span class="w">             </span><span class="c1">// 拦截路径</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">excludePathPatterns</span><span class="p">(</span><span class="s">&#34;/api/login&#34;</span><span class="p">);</span><span class="w">     </span><span class="c1">// 排除路径</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="七processdispatchresult视图渲染">七、processDispatchResult——视图渲染</h2>
+<p>无论 Handler 是否正常返回，最终都会进入 <code>processDispatchResult()</code>：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DispatcherServlet.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">processDispatchResult</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                    </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                    </span><span class="n">HandlerExecutionChain</span><span class="w"> </span><span class="n">mappedHandler</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                    </span><span class="n">ModelAndView</span><span class="w"> </span><span class="n">mv</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                    </span><span class="n">Exception</span><span class="w"> </span><span class="n">exception</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="n">errorView</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 处理异常 → 通过 HandlerExceptionResolver 获取错误视图</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">exception</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">exception</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">ModelAndViewDefiningException</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">mv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">((</span><span class="n">ModelAndViewDefiningException</span><span class="p">)</span><span class="w"> </span><span class="n">exception</span><span class="p">).</span><span class="na">getModelAndView</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">mappedHandler</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">mappedHandler</span><span class="p">.</span><span class="na">getHandler</span><span class="p">()</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">mv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">processHandlerException</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> </span><span class="n">handler</span><span class="p">,</span><span class="w"> </span><span class="n">exception</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">errorView</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">mv</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 渲染视图</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">mv</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">mv</span><span class="p">.</span><span class="na">wasCleared</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">render</span><span class="p">(</span><span class="n">mv</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 触发拦截器的 afterCompletion</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">mappedHandler</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">mappedHandler</span><span class="p">.</span><span class="na">triggerAfterCompletion</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="render-视图渲染">render() 视图渲染</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DispatcherServlet.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">render</span><span class="p">(</span><span class="n">ModelAndView</span><span class="w"> </span><span class="n">mv</span><span class="p">,</span><span class="w"> </span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                      </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 解析视图</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">View</span><span class="w"> </span><span class="n">view</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">viewName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mv</span><span class="p">.</span><span class="na">getViewName</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">viewName</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 通过 ViewResolver 解析视图名 → View 对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">view</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resolveViewName</span><span class="p">(</span><span class="n">viewName</span><span class="p">,</span><span class="w"> </span><span class="n">mv</span><span class="p">.</span><span class="na">getModelInternal</span><span class="p">(),</span><span class="w"> </span><span class="n">locale</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">view</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mv</span><span class="p">.</span><span class="na">getView</span><span class="p">();</span><span class="w">  </span><span class="c1">// 直接使用 View 对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 渲染</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">view</span><span class="p">.</span><span class="na">render</span><span class="p">(</span><span class="n">mv</span><span class="p">.</span><span class="na">getModelInternal</span><span class="p">(),</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="八完整请求生命周期">八、完整请求生命周期</h2>
+<pre tabindex="0"><code>1. 浏览器发送 HTTP 请求
+    │
+2. Tomcat 接收请求，创建 HttpServletRequest 和 HttpServletResponse
+    │
+3. FilterChain 执行（编码、安全认证等）
+    │
+4. DispatcherServlet.doDispatch()
+    │
+    ├── 4.1 checkMultipart()                — 文件上传处理
+    ├── 4.2 getHandler()                    — HandlerMapping 路由
+    ├── 4.3 getHandlerAdapter()             — 获取适配器
+    ├── 4.4 applyPreHandle()                — 拦截器前置（顺序）
+    ├── 4.5 ha.handle()                     — HandlerAdapter 执行
+    │         ├── 参数解析                   — 从 request 中提取参数
+    │         ├── 方法调用                   — 反射执行 @RequestMapping 方法
+    │         └── 返回值处理                 — @ResponseBody → JSON
+    ├── 4.6 applyPostHandle()               — 拦截器后置（倒序）
+    ├── 4.7 processDispatchResult()
+    │         ├── render()                   — 视图渲染
+    │         └── triggerAfterCompletion()   — 拦截器最终处理（倒序）
+    │
+5. 响应返回给客户端
+</code></pre><h2 id="九总结">九、总结</h2>
+<h3 id="dispatcherservlet-核心方法速查">DispatcherServlet 核心方法速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>方法</th>
+					<th>作用</th>
+					<th>关键对象</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>doDispatch()</code></td>
+					<td>请求分发入口</td>
+					<td>—</td>
+			</tr>
+			<tr>
+					<td><code>checkMultipart()</code></td>
+					<td>检查文件上传</td>
+					<td>MultipartResolver</td>
+			</tr>
+			<tr>
+					<td><code>getHandler()</code></td>
+					<td>遍历 HandlerMapping 匹配</td>
+					<td>HandlerExecutionChain</td>
+			</tr>
+			<tr>
+					<td><code>getHandlerAdapter()</code></td>
+					<td>获取 HandlerAdapter</td>
+					<td>HandlerAdapter</td>
+			</tr>
+			<tr>
+					<td><code>ha.handle()</code></td>
+					<td>执行 Handler</td>
+					<td>ModelAndView</td>
+			</tr>
+			<tr>
+					<td><code>applyPreHandle()</code></td>
+					<td>拦截器前置</td>
+					<td>HandlerInterceptor</td>
+			</tr>
+			<tr>
+					<td><code>applyPostHandle()</code></td>
+					<td>拦截器后置</td>
+					<td>HandlerInterceptor</td>
+			</tr>
+			<tr>
+					<td><code>processDispatchResult()</code></td>
+					<td>渲染结果 + afterCompletion</td>
+					<td>ViewResolver, View</td>
+			</tr>
+			<tr>
+					<td><code>processHandlerException()</code></td>
+					<td>异常处理</td>
+					<td>HandlerExceptionResolver</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="核心设计模式">核心设计模式</h3>
+<table>
+	<thead>
+			<tr>
+					<th>模式</th>
+					<th>体现</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>前端控制器</strong></td>
+					<td>DispatcherServlet</td>
+			</tr>
+			<tr>
+					<td><strong>策略模式</strong></td>
+					<td>HandlerMapping / HandlerAdapter / ViewResolver</td>
+			</tr>
+			<tr>
+					<td><strong>适配器模式</strong></td>
+					<td>HandlerAdapter 适配不同的 Handler</td>
+			</tr>
+			<tr>
+					<td><strong>责任链模式</strong></td>
+					<td>拦截器链 + FilterChain</td>
+			</tr>
+			<tr>
+					<td><strong>模板方法</strong></td>
+					<td>doDispatch 定义流程骨架</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>上一篇：</strong> <a href="/posts/spring-mvc%E4%B8%80%E6%A0%B8%E5%BF%83%E6%B3%A8%E8%A7%A3%E4%B8%8E%E4%BD%BF%E7%94%A8/">Spring MVC（一）：核心注解与使用</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/spring-mvc%E4%B8%89handlermapping-%E4%B8%8E-handleradapter/">Spring MVC（三）：HandlerMapping 与 HandlerAdapter</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

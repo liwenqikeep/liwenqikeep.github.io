@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Redis（四）：过期策略与淘汰机制 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一过期策略">一、过期策略</a>
+      <ul>
+        <li><a href="#11-设置过期时间">1.1 设置过期时间</a></li>
+        <li><a href="#12-三种过期删除策略">1.2 三种过期删除策略</a></li>
+        <li><a href="#13-redis-的组合策略">1.3 Redis 的组合策略</a></li>
+        <li><a href="#14-过期-key-的删除时机">1.4 过期 key 的删除时机</a></li>
+      </ul>
+    </li>
+    <li><a href="#二内存淘汰机制">二、内存淘汰机制</a>
+      <ul>
+        <li><a href="#21-maxmemory-配置">2.1 maxmemory 配置</a></li>
+        <li><a href="#22-八种淘汰策略">2.2 八种淘汰策略</a></li>
+        <li><a href="#23-lru-vs-lfu">2.3 LRU vs LFU</a></li>
+        <li><a href="#24-redis-的近似-lru">2.4 Redis 的近似 LRU</a></li>
+        <li><a href="#25-淘汰触发流程">2.5 淘汰触发流程</a></li>
+      </ul>
+    </li>
+    <li><a href="#三缓存穿透--击穿--雪崩">三、缓存穿透 / 击穿 / 雪崩</a>
+      <ul>
+        <li><a href="#31-缓存穿透">3.1 缓存穿透</a></li>
+        <li><a href="#32-缓存击穿">3.2 缓存击穿</a></li>
+        <li><a href="#33-缓存雪崩">3.3 缓存雪崩</a></li>
+      </ul>
+    </li>
+    <li><a href="#四配置建议">四、配置建议</a></li>
+    <li><a href="#五总结">五、总结</a>
+      <ul>
+        <li><a href="#过期与淘汰速查">过期与淘汰速查</a></li>
+        <li><a href="#缓存问题与对策">缓存问题与对策</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Redis（四）：过期策略与淘汰机制</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>Redis 是内存数据库，内存是有限的。当内存被写满时，Redis 需要决定如何处理新的写入请求。同时，对于设置了过期时间的 key，Redis 也需要一种高效的机制来清理过期数据。</p>
+<p>本文覆盖 Redis 的<strong>过期策略</strong>（如何删除过期 key）和<strong>淘汰机制</strong>（内存满时如何腾出空间），以及它们对缓存设计的影响。</p>
+<h2 id="一过期策略">一、过期策略</h2>
+<h3 id="11-设置过期时间">1.1 设置过期时间</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 设置过期时间</span>
+</span></span><span class="line"><span class="cl">SET key value EX <span class="m">3600</span>         <span class="c1"># 60 分钟后过期</span>
+</span></span><span class="line"><span class="cl">SETEX key <span class="m">3600</span> value          <span class="c1"># 等价于 SET + EXPIRE</span>
+</span></span><span class="line"><span class="cl">EXPIRE key <span class="m">3600</span>               <span class="c1"># 对已有 key 设置过期</span>
+</span></span><span class="line"><span class="cl">EXPIREAT key <span class="m">1700000000</span>       <span class="c1"># 指定时间戳过期</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 查看过期时间（TTL）</span>
+</span></span><span class="line"><span class="cl">TTL key                       <span class="c1"># 剩余秒数（-1 永久，-2 已过期删除）</span>
+</span></span><span class="line"><span class="cl">PTTL key                      <span class="c1"># 剩余毫秒数</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 移除过期时间</span>
+</span></span><span class="line"><span class="cl">PERSIST key                   <span class="c1"># 移除过期时间，变为永久</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 其他</span>
+</span></span><span class="line"><span class="cl">SET key value NX EX <span class="m">10</span>        <span class="c1"># 不存在才设置，10 秒过期（分布式锁常用）</span>
+</span></span></code></pre></div><h3 id="12-三种过期删除策略">1.2 三种过期删除策略</h3>
+<pre tabindex="0"><code>策略 1：定时删除（主动删除）
+  ├── 设置 key 过期时，立即启动定时器删除
+  ├── 内存友好（及时释放）
+  └── CPU 不友好（大量定时器占用 CPU）
+
+策略 2：惰性删除（被动删除）
+  ├── 访问 key 时才检查是否过期，过期则删除
+  ├── CPU 友好（只检查访问的 key）
+  └── 内存不友好（过期 key 一直存在，占用内存）
+
+策略 3：定期删除（折中）
+  ├── 每隔一段时间，随机抽取一批过期的 key 删除
+  ├── CPU 和内存的折中
+  └── Redis 实际使用的策略之一
+</code></pre><h3 id="13-redis-的组合策略">1.3 Redis 的组合策略</h3>
+<p>Redis 实际使用 <strong>惰性删除 + 定期删除</strong> 的组合：</p>
+<pre tabindex="0"><code>惰性删除：
+  当客户端 GET / EXISTS 等命令访问 key 时
+  → 检查 key 是否过期
+  → 过期则删除，返回 nil/0
+
+定期删除：
+  每 100ms 执行一次（可配置）
+  → 从设置了过期时间的 key 集合中随机抽取 20 个
+  → 删除其中过期的 key
+  → 如果过期比例 &gt; 25%，重复抽取
+  → 单次耗时不超过 25ms
+</code></pre><pre tabindex="0"><code class="language-conf" data-lang="conf"># 定期删除相关配置
+hz 10                     # 每秒执行定期任务的频率（默认 10）
+                          # 包括过期 key 清理、主动 defrag 等
+                          # 调高可加速过期清理，但增加 CPU 开销
+</code></pre><h3 id="14-过期-key-的删除时机">1.4 过期 key 的删除时机</h3>
+<pre tabindex="0"><code>过期 key 在以下时机被删除：
+1. 被访问时（惰性删除）
+2. 定期扫描时（定期删除）
+3. 内存达到 maxmemory 时（淘汰机制触发前也会尝试清理过期 key）
+4. 手动执行 SCAN 命令时（SCAN 会跳过过期 key）
+</code></pre><hr>
+<h2 id="二内存淘汰机制">二、内存淘汰机制</h2>
+<h3 id="21-maxmemory-配置">2.1 maxmemory 配置</h3>
+<pre tabindex="0"><code class="language-conf" data-lang="conf"># 设置最大内存
+maxmemory 4gb                   # 4GB
+# maxmemory 0                    # 0 = 不做限制（可能耗尽系统内存）
+
+# 设置淘汰策略
+maxmemory-policy allkeys-lru    # 推荐
+</code></pre><p><strong>如何估算 maxmemory：</strong></p>
+<pre tabindex="0"><code>maxmemory 的设置依据：
+1. 数据量 × 1.5（估算峰值）
+2. 预留系统内存（操作系统 + 其他进程）
+3. 考虑持久化时的内存开销（bgsave fork 需要 COW）
+
+公式：maxmemory = 物理内存 × 0.6 ~ 0.8
+</code></pre><h3 id="22-八种淘汰策略">2.2 八种淘汰策略</h3>
+<table>
+	<thead>
+			<tr>
+					<th>策略</th>
+					<th>说明</th>
+					<th>适用场景</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>noeviction</strong></td>
+					<td>不淘汰，写满报错</td>
+					<td>不丢数据</td>
+			</tr>
+			<tr>
+					<td><strong>allkeys-lru</strong></td>
+					<td>所有 key 中最久未使用的淘汰（推荐）</td>
+					<td>大部分缓存场景</td>
+			</tr>
+			<tr>
+					<td><strong>allkeys-lfu</strong></td>
+					<td>所有 key 中使用频率最低的淘汰</td>
+					<td>访问频率差异大的场景</td>
+			</tr>
+			<tr>
+					<td><strong>allkeys-random</strong></td>
+					<td>随机淘汰</td>
+					<td>访问模式随机</td>
+			</tr>
+			<tr>
+					<td><strong>volatile-lru</strong></td>
+					<td>设置过期时间的 key 中 LRU 淘汰</td>
+					<td>有缓存的混合场景</td>
+			</tr>
+			<tr>
+					<td><strong>volatile-lfu</strong></td>
+					<td>设置过期时间的 key 中 LFU 淘汰</td>
+					<td>——</td>
+			</tr>
+			<tr>
+					<td><strong>volatile-random</strong></td>
+					<td>设置过期时间的 key 中随机淘汰</td>
+					<td>——</td>
+			</tr>
+			<tr>
+					<td><strong>volatile-ttl</strong></td>
+					<td>设置过期时间的 key 中 TTL 最小的淘汰</td>
+					<td>——</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>推荐策略：</strong></p>
+<pre tabindex="0"><code>缓存场景：allkeys-lru
+  → 最常用，不管有没有设置过期时间，淘汰最近最少使用的
+
+不丢数据场景：noeviction
+  → 写满时报错，业务层处理（如告警 OOM）
+  → 使用消息队列、缓存降级等方案
+</code></pre><h3 id="23-lru-vs-lfu">2.3 LRU vs LFU</h3>
+<pre tabindex="0"><code class="language-conf" data-lang="conf"># LRU（Least Recently Used）：最近最少使用
+# 淘汰最久没有被访问的 key
+# 问题：一次批量访问可能让冷数据&#34;翻新&#34;
+
+# LFU（Least Frequently Used）：最不经常使用
+# 淘汰访问频率最低的 key
+# 解决了 LRU 的&#34;一次性热点&#34;问题
+
+# LFU 配置（Redis 4.0+）
+lfu-log-factor 10         # 频率增长的对数因子
+lfu-decay-time 1          # 频率衰减时间（分钟）
+</code></pre><p><strong>LRU vs LFU 对比：</strong></p>
+<pre tabindex="0"><code>场景：热点数据偶尔被批量访问，然后长期不访问
+
+LRU：批量访问后，这些 key 排在最前面 → 不会很快被淘汰
+LFU：访问频率低 → 很快被淘汰
+
+结论：LFU 更适合区分&#34;真正热&#34;和&#34;偶尔热&#34;的场景
+</code></pre><h3 id="24-redis-的近似-lru">2.4 Redis 的近似 LRU</h3>
+<p>Redis 没有使用标准的 LRU（维护一个全量的 LRU 链表的成本太高），而是使用<strong>近似 LRU</strong>：</p>
+<pre tabindex="0"><code class="language-conf" data-lang="conf"># Redis 近似 LRU 的工作原理：
+
+1. 每个 key 记录最后一次访问的 LRU 时间戳（24bit）
+
+2. 淘汰时，随机抽取 N 个 key（默认 5 个）
+   maxmemory-samples 5
+
+3. 从 N 个 key 中淘汰最久未使用的那个
+
+4. 增大 sample 数使淘汰更精确（但增加 CPU）
+   maxmemory-samples 10   # 更接近精确 LRU，略多 CPU
+</code></pre><p><strong>近似 LRU vs 精确 LRU：</strong></p>
+<pre tabindex="0"><code>精确 LRU：维护全局链表，O(1) 淘汰，但内存开销大
+近似 LRU（sample=5）：约 90% 接近精确 LRU
+近似 LRU（sample=10）：约 99% 接近精确 LRU
+</code></pre><h3 id="25-淘汰触发流程">2.5 淘汰触发流程</h3>
+<pre tabindex="0"><code>写入命令（SET / LPUSH / SADD 等）
+    │
+    ▼
+Redis 检查当前内存
+    │
+    ├── used_memory &lt; maxmemory
+    │     └── 正常写入
+    │
+    └── used_memory &gt;= maxmemory
+          │
+          ├── maxmemory-policy = noeviction
+          │     └── 返回 OOM 错误
+          │
+          └── 其他策略
+                │
+                ├── 1. 尝试过期 key 回收（定期删除）
+                ├── 2. 按策略淘汰 key
+                ├── 3. 释放内存
+                ├── 4. 如果释放不够，重复 2-3
+                └── 5. 直到内存降到 maxmemory 以下
+</code></pre><hr>
+<h2 id="三缓存穿透--击穿--雪崩">三、缓存穿透 / 击穿 / 雪崩</h2>
+<p>这三个问题常与过期策略和淘汰机制一起讨论。</p>
+<h3 id="31-缓存穿透">3.1 缓存穿透</h3>
+<pre tabindex="0"><code>问题：查询一个不存在的数据
+  → 缓存没有
+  → 数据库也没有
+  → 每次请求都到数据库，缓存失去保护作用
+
+解决方案：
+1. 缓存空值（短期缓存 null，如 60 秒）
+2. 布隆过滤器（Bloom Filter）拦截不存在的数据
+
+# 布隆过滤器
+BF.RESERVE bloom 0.01 1000000    # 创建布隆过滤器（误差率 1%，预计 100 万元素）
+BF.ADD bloom &#34;user:1001&#34;          # 添加元素
+BF.EXISTS bloom &#34;user:1001&#34;       # 判断是否存在 → 1
+BF.EXISTS bloom &#34;user:9999&#34;       # → 0（肯定不存在）
+</code></pre><h3 id="32-缓存击穿">3.2 缓存击穿</h3>
+<pre tabindex="0"><code>问题：一个热点 key 正好过期
+  → 大量并发请求同时打到数据库
+  → 数据库瞬间高负载
+
+解决方案：
+1. 互斥锁（分布式锁，只让一个请求查数据库）
+2. 热点数据永不过期（逻辑过期）
+3. 提前更新（后台定时刷新热点缓存）
+
+# 互斥锁方案（使用 SETNX 实现分布式锁）
+SET lock:hotkey uuid NX EX 10
+if success:
+    data = queryDB()
+    SET hotkey data EX 3600
+    DEL lock:hotkey
+else:
+    sleep(50ms)
+    retry  # 其他线程等待
+</code></pre><h3 id="33-缓存雪崩">3.3 缓存雪崩</h3>
+<pre tabindex="0"><code>问题：大量 key 在同一时间过期，或 Redis 宕机
+  → 大量请求穿透到数据库
+  → 数据库瞬间崩溃
+
+解决方案：
+1. 过期时间加随机值：EXPIRE + random(0, 300)
+2. 多级缓存（本地缓存 + Redis 缓存）
+3. 限流降级（限制数据库访问并发）
+4. Redis 高可用（主从 + Sentinel + 持久化）
+
+# 过期时间随机化
+SET user:1001 data EX 3600
+EXPIRE user:1001 3600 + random(0, 300)
+</code></pre><hr>
+<h2 id="四配置建议">四、配置建议</h2>
+<pre tabindex="0"><code class="language-conf" data-lang="conf"># 内存配置
+maxmemory 4gb
+maxmemory-policy allkeys-lru
+maxmemory-samples 10
+
+# 主动 defrag（内存碎片整理，Redis 4.0+）
+activedefrag yes
+active-defrag-threshold-lower 10    # 碎片率 &gt; 10% 开始整理
+active-defrag-threshold-upper 100   # 碎片率 &gt; 100% 最大努力整理
+active-defrag-cycle-min 5            # 最小 CPU 占用百分比
+active-defrag-cycle-max 75           # 最大 CPU 占用百分比
+</code></pre><hr>
+<h2 id="五总结">五、总结</h2>
+<h3 id="过期与淘汰速查">过期与淘汰速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>机制</th>
+					<th>策略</th>
+					<th>触发时机</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>过期删除</td>
+					<td>惰性删除 + 定期删除</td>
+					<td>访问 key / 定时扫描</td>
+			</tr>
+			<tr>
+					<td>内存淘汰</td>
+					<td>allkeys-lru（推荐）</td>
+					<td>内存超过 maxmemory</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="缓存问题与对策">缓存问题与对策</h3>
+<table>
+	<thead>
+			<tr>
+					<th>问题</th>
+					<th>原因</th>
+					<th>对策</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>缓存穿透</td>
+					<td>查询不存在的数据</td>
+					<td>布隆过滤器 / 缓存空值</td>
+			</tr>
+			<tr>
+					<td>缓存击穿</td>
+					<td>热点 key 过期</td>
+					<td>互斥锁 / 逻辑过期</td>
+			</tr>
+			<tr>
+					<td>缓存雪崩</td>
+					<td>大量 key 同时过期</td>
+					<td>过期时间加随机值</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>上一篇：</strong> <a href="/posts/redis%E4%B8%89%E9%9B%86%E7%BE%A4%E4%B8%8E%E9%AB%98%E5%8F%AF%E7%94%A8/">Redis（三）：集群与高可用</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/redis%E4%BA%94%E7%BC%93%E5%AD%98%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E6%88%98/">Redis（五）：缓存设计与实战</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>分布式系统设计（四）：分布式组件 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一分布式-id">一、分布式 ID</a>
+      <ul>
+        <li><a href="#11-需求">1.1 需求</a></li>
+        <li><a href="#12-常见方案">1.2 常见方案</a></li>
+        <li><a href="#13-雪花算法">1.3 雪花算法</a></li>
+      </ul>
+    </li>
+    <li><a href="#二分布式锁">二、分布式锁</a>
+      <ul>
+        <li><a href="#21-基于-redis-的分布式锁">2.1 基于 Redis 的分布式锁</a></li>
+        <li><a href="#22-基于-zookeeper-的分布式锁">2.2 基于 ZooKeeper 的分布式锁</a></li>
+        <li><a href="#23-redis-vs-zookeeper-锁">2.3 Redis vs ZooKeeper 锁</a></li>
+      </ul>
+    </li>
+    <li><a href="#三服务发现">三、服务发现</a>
+      <ul>
+        <li><a href="#31-客户端发现-vs-服务端发现">3.1 客户端发现 vs 服务端发现</a></li>
+        <li><a href="#32-注册中心对比">3.2 注册中心对比</a></li>
+      </ul>
+    </li>
+    <li><a href="#四分布式配置">四、分布式配置</a>
+      <ul>
+        <li><a href="#41-配置中心的功能">4.1 配置中心的功能</a></li>
+        <li><a href="#42-常用配置中心">4.2 常用配置中心</a></li>
+        <li><a href="#43-apollo-配置模型">4.3 Apollo 配置模型</a></li>
+      </ul>
+    </li>
+    <li><a href="#五总结">五、总结</a>
+      <ul>
+        <li><a href="#组件选型速查">组件选型速查</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">分布式系统设计（四）：分布式组件</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>在分布式系统中，有一些通用的基础组件需要自行设计或选型：<strong>分布式 ID</strong>、<strong>分布式锁</strong>、<strong>服务发现</strong>、<strong>分布式配置</strong>。这些组件看似简单，但涉及一致性和高可用的权衡。</p>
+<h2 id="一分布式-id">一、分布式 ID</h2>
+<h3 id="11-需求">1.1 需求</h3>
+<pre tabindex="0"><code>全局唯一        — 不能重复
+趋势递增       — MySQL B+ 树插入性能好
+高可用低延迟   — 生成 ID 不能成为瓶颈
+</code></pre><h3 id="12-常见方案">1.2 常见方案</h3>
+<table>
+	<thead>
+			<tr>
+					<th>方案</th>
+					<th>优点</th>
+					<th>缺点</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>UUID</td>
+					<td>本地生成，性能好</td>
+					<td>字符串，不是递增</td>
+			</tr>
+			<tr>
+					<td>数据库自增</td>
+					<td>简单，唯一</td>
+					<td>有单点瓶颈</td>
+			</tr>
+			<tr>
+					<td>Redis INCR</td>
+					<td>性能好</td>
+					<td>Redis 持久化问题</td>
+			</tr>
+			<tr>
+					<td>雪花算法（Snowflake）</td>
+					<td>趋势递增，本地生成</td>
+					<td>依赖时钟</td>
+			</tr>
+			<tr>
+					<td>美团 Leaf</td>
+					<td>号段模式</td>
+					<td>依赖 DB</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="13-雪花算法">1.3 雪花算法</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SnowflakeIdGenerator</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 位数分配：1bit(符号) + 41bit(时间戳) + 10bit(机器ID) + 12bit(序列号)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 总共 64 位，正好一个 long</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">workerId</span><span class="p">;</span><span class="w">        </span><span class="c1">// 机器ID（0-1023）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">datacenterId</span><span class="p">;</span><span class="w">    </span><span class="c1">// 数据中心ID（0-31）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">sequence</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0L</span><span class="p">;</span><span class="w">         </span><span class="c1">// 序列号</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">lastTimestamp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">1L</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">synchronized</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="nf">nextId</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">long</span><span class="w"> </span><span class="n">timestamp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">timestamp</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">lastTimestamp</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 时钟回拨问题处理：等待或抛异常</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RuntimeException</span><span class="p">(</span><span class="s">&#34;Clock moved backwards&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">timestamp</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">lastTimestamp</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">sequence</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">sequence</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">1</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">4095</span><span class="p">;</span><span class="w">  </span><span class="c1">// 同一毫秒内序列号递增</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">sequence</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 当前毫秒序列号用完，等待下一毫秒</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">timestamp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">waitNextMillis</span><span class="p">(</span><span class="n">lastTimestamp</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">sequence</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0L</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">lastTimestamp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">timestamp</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="p">((</span><span class="n">timestamp</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">1288834974657L</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">22</span><span class="p">)</span><span class="w">   </span><span class="c1">// 时间戳部分</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">             </span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="n">datacenterId</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">17</span><span class="p">)</span><span class="w">                     </span><span class="c1">// 数据中心</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">             </span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="n">workerId</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">12</span><span class="p">)</span><span class="w">                         </span><span class="c1">// 机器ID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">             </span><span class="o">|</span><span class="w"> </span><span class="n">sequence</span><span class="p">;</span><span class="w">                                </span><span class="c1">// 序列号</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="二分布式锁">二、分布式锁</h2>
+<h3 id="21-基于-redis-的分布式锁">2.1 基于 Redis 的分布式锁</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 加锁</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">tryLock</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">expireSeconds</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setIfAbsent</span><span class="p">(</span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="n">expireSeconds</span><span class="p">,</span><span class="w"> </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">SECONDS</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 解锁（使用 Lua 保证原子性）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">unlock</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">value</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">script</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;if redis.call(&#39;get&#39;, KEYS[1]) == ARGV[1] &#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="s">&#34;then return redis.call(&#39;del&#39;, KEYS[1]) &#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="s">&#34;else return 0 end&#34;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">execute</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">DefaultRedisScript</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">script</span><span class="p">,</span><span class="w"> </span><span class="n">Long</span><span class="p">.</span><span class="na">class</span><span class="p">),</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="n">key</span><span class="p">),</span><span class="w"> </span><span class="n">value</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="22-基于-zookeeper-的分布式锁">2.2 基于 ZooKeeper 的分布式锁</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ZooKeeper 的临时顺序节点实现锁</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 优点：无超时问题，客户端断开后自动释放</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ZkDistributedLock</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ZooKeeper</span><span class="w"> </span><span class="n">zk</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">lockPath</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">currentPath</span><span class="p">;</span><span class="w">  </span><span class="c1">// 当前节点路径</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">tryLock</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 创建临时顺序节点</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">currentPath</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">zk</span><span class="p">.</span><span class="na">create</span><span class="p">(</span><span class="n">lockPath</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;/lock-&#34;</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">new</span><span class="w"> </span><span class="kt">byte</span><span class="o">[</span><span class="n">0</span><span class="o">]</span><span class="p">,</span><span class="w"> </span><span class="n">ZooDefs</span><span class="p">.</span><span class="na">Ids</span><span class="p">.</span><span class="na">OPEN_ACL_UNSAFE</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">CreateMode</span><span class="p">.</span><span class="na">EPHEMERAL_SEQUENTIAL</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 获取所有子节点</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">children</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">zk</span><span class="p">.</span><span class="na">getChildren</span><span class="p">(</span><span class="n">lockPath</span><span class="p">,</span><span class="w"> </span><span class="kc">false</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Collections</span><span class="p">.</span><span class="na">sort</span><span class="p">(</span><span class="n">children</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果自己的节点是最小的，获得锁</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">currentNode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">currentPath</span><span class="p">.</span><span class="na">substring</span><span class="p">(</span><span class="n">currentPath</span><span class="p">.</span><span class="na">lastIndexOf</span><span class="p">(</span><span class="s">&#34;/&#34;</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">1</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">currentNode</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">children</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">0</span><span class="p">)))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 监听前一个节点</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">prevNode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">children</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">children</span><span class="p">.</span><span class="na">indexOf</span><span class="p">(</span><span class="n">currentNode</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">1</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">CountDownLatch</span><span class="w"> </span><span class="n">latch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CountDownLatch</span><span class="p">(</span><span class="n">1</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">zk</span><span class="p">.</span><span class="na">exists</span><span class="p">(</span><span class="n">lockPath</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;/&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">prevNode</span><span class="p">,</span><span class="w"> </span><span class="n">event</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">latch</span><span class="p">.</span><span class="na">countDown</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">latch</span><span class="p">.</span><span class="na">await</span><span class="p">();</span><span class="w">  </span><span class="c1">// 等待前一个节点释放</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">unlock</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">zk</span><span class="p">.</span><span class="na">delete</span><span class="p">(</span><span class="n">currentPath</span><span class="p">,</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="23-redis-vs-zookeeper-锁">2.3 Redis vs ZooKeeper 锁</h3>
+<table>
+	<thead>
+			<tr>
+					<th>对比</th>
+					<th>Redis</th>
+					<th>ZooKeeper</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>性能</td>
+					<td>极高</td>
+					<td>高</td>
+			</tr>
+			<tr>
+					<td>自动释放</td>
+					<td>需要设置超时</td>
+					<td>客户端断开自动释放</td>
+			</tr>
+			<tr>
+					<td>可靠性</td>
+					<td>AP 系统，主从切换可能丢锁</td>
+					<td>CP 系统，强一致</td>
+			</tr>
+			<tr>
+					<td>实现复杂度</td>
+					<td>简单</td>
+					<td>复杂</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="三服务发现">三、服务发现</h2>
+<h3 id="31-客户端发现-vs-服务端发现">3.1 客户端发现 vs 服务端发现</h3>
+<pre tabindex="0"><code>客户端发现（Client-Side Discovery）：
+  客户端直接从注册中心获取服务地址列表
+  代表：Eureka、Consul、ZooKeeper
+  优点：架构简单，无需额外代理
+  缺点：客户端集成发现逻辑
+
+服务端发现（Server-Side Discovery）：
+  客户端请求负载均衡器，由负载均衡器转发
+  代表：Kubernetes Service + kube-proxy
+  优点：客户端无需感知服务地址
+  缺点：需要额外的代理组件
+</code></pre><h3 id="32-注册中心对比">3.2 注册中心对比</h3>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>Eureka</th>
+					<th>ZooKeeper</th>
+					<th>Consul</th>
+					<th>Nacos</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>CAP 选择</td>
+					<td>AP</td>
+					<td>CP</td>
+					<td>CP</td>
+					<td>AP/CP</td>
+			</tr>
+			<tr>
+					<td>健康检查</td>
+					<td>心跳</td>
+					<td>心跳</td>
+					<td>TCP/HTTP/gRPC</td>
+					<td>心跳</td>
+			</tr>
+			<tr>
+					<td>一致性</td>
+					<td>最终一致</td>
+					<td>强一致</td>
+					<td>强一致</td>
+					<td>可选</td>
+			</tr>
+			<tr>
+					<td>自我保护</td>
+					<td>✅</td>
+					<td>❌</td>
+					<td>❌</td>
+					<td>✅</td>
+			</tr>
+			<tr>
+					<td>云原生</td>
+					<td>Netflix</td>
+					<td>Apache</td>
+					<td>HashiCorp</td>
+					<td>阿里</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="四分布式配置">四、分布式配置</h2>
+<h3 id="41-配置中心的功能">4.1 配置中心的功能</h3>
+<pre tabindex="0"><code>1. 配置集中管理
+   所有环境的配置在一个地方管理
+
+2. 配置动态刷新
+   修改配置后，应用无需重启即可生效
+
+3. 版本管理
+   配置变更可追溯、可回滚
+
+4. 权限控制
+   不同环境、不同应用的配置隔离
+</code></pre><h3 id="42-常用配置中心">4.2 常用配置中心</h3>
+<table>
+	<thead>
+			<tr>
+					<th>配置中心</th>
+					<th>存储后端</th>
+					<th style="text-align: center">动态刷新</th>
+					<th>推荐场景</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Spring Cloud Config</td>
+					<td>Git</td>
+					<td style="text-align: center">需配合 Bus</td>
+					<td>Spring 生态</td>
+			</tr>
+			<tr>
+					<td>Apollo（携程）</td>
+					<td>MySQL</td>
+					<td style="text-align: center">✅</td>
+					<td>企业级配置管理</td>
+			</tr>
+			<tr>
+					<td>Nacos（阿里）</td>
+					<td>MySQL + 本地</td>
+					<td style="text-align: center">✅</td>
+					<td>云原生 + 配置</td>
+			</tr>
+			<tr>
+					<td>etcd</td>
+					<td>Raft</td>
+					<td style="text-align: center">✅</td>
+					<td>Kubernetes</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="43-apollo-配置模型">4.3 Apollo 配置模型</h3>
+<pre tabindex="0"><code>应用配置的结构：
+AppId → Namespace → Key-Value
+
+Namespace：
+- application（默认）：应用配置
+- datasource：数据源配置
+- 自定义：用户自定义分类
+
+配置刷新原理：
+1. 应用启动时从 Config Service 拉取配置
+2. 建立长轮询（Long Polling）连接
+3. 配置变更时推送通知
+4. 应用收到通知后拉取最新配置
+5. 通过 Spring 的 Environment 刷新机制生效
+</code></pre><hr>
+<h2 id="五总结">五、总结</h2>
+<h3 id="组件选型速查">组件选型速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>组件</th>
+					<th>推荐方案</th>
+					<th>场景</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>分布式 ID</td>
+					<td>雪花算法 / Leaf</td>
+					<td>订单 ID、用户 ID</td>
+			</tr>
+			<tr>
+					<td>分布式锁</td>
+					<td>Redis / ZooKeeper</td>
+					<td>秒杀、定时任务</td>
+			</tr>
+			<tr>
+					<td>服务发现</td>
+					<td>Nacos / Consul</td>
+					<td>微服务注册发现</td>
+			</tr>
+			<tr>
+					<td>配置中心</td>
+					<td>Apollo / Nacos</td>
+					<td>配置动态管理</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>相关阅读：</strong></p>
+<ul>
+<li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E4%B8%89%E4%B8%80%E8%87%B4%E6%80%A7%E7%AE%97%E6%B3%95-paxos/raft/">分布式系统设计（三）：一致性算法 Paxos/Raft</a></li>
+<li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E4%BA%94%E9%AB%98%E5%8F%AF%E7%94%A8%E4%B8%8E%E6%B5%81%E9%87%8F%E6%B2%BB%E7%90%86/">分布式系统设计（五）：高可用与流量治理</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

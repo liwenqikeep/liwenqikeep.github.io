@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Kafka（四）：可靠性保证 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一消息丢失的可能性">一、消息丢失的可能性</a></li>
+    <li><a href="#二生产者端可靠性">二、生产者端可靠性</a>
+      <ul>
+        <li><a href="#21-acks-与重试">2.1 acks 与重试</a></li>
+        <li><a href="#22-幂等性发送">2.2 幂等性发送</a></li>
+        <li><a href="#23-发送确认的三种模式">2.3 发送确认的三种模式</a></li>
+        <li><a href="#24-不丢消息的生产者配置">2.4 不丢消息的生产者配置</a></li>
+      </ul>
+    </li>
+    <li><a href="#三broker-端可靠性">三、Broker 端可靠性</a>
+      <ul>
+        <li><a href="#31-副本机制">3.1 副本机制</a></li>
+        <li><a href="#32-副本同步机制">3.2 副本同步机制</a></li>
+        <li><a href="#33-leader-选举">3.3 Leader 选举</a></li>
+      </ul>
+    </li>
+    <li><a href="#四消费端可靠性">四、消费端可靠性</a>
+      <ul>
+        <li><a href="#41-手动提交位移">4.1 手动提交位移</a></li>
+        <li><a href="#42-幂等消费">4.2 幂等消费</a></li>
+        <li><a href="#43-消费端的-exactly-once">4.3 消费端的 Exactly Once</a></li>
+      </ul>
+    </li>
+    <li><a href="#五消息语义强度对比">五、消息语义强度对比</a></li>
+    <li><a href="#六日志清理与数据安全">六、日志清理与数据安全</a>
+      <ul>
+        <li><a href="#61-日志保留策略">6.1 日志保留策略</a></li>
+        <li><a href="#62-压缩策略compact">6.2 压缩策略（Compact）</a></li>
+      </ul>
+    </li>
+    <li><a href="#七总结">七、总结</a>
+      <ul>
+        <li><a href="#端到端可靠性配置">端到端可靠性配置</a></li>
+        <li><a href="#各环节可靠性速查">各环节可靠性速查</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Kafka（四）：可靠性保证</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>消息可靠性是使用消息队列时最关心的问题。Kafka 提供了多层次的可靠性保证——从生产端到消费端，从副本机制到幂等性事务。理解每个环节的可靠性保证，才能设计出符合业务需求的方案。</p>
+<p>本文从端到端的视角，分析消息从<strong>发送 → 存储 → 消费</strong>全链路的可靠性保证。</p>
+<h2 id="一消息丢失的可能性">一、消息丢失的可能性</h2>
+<pre tabindex="0"><code>消息丢失可能发生在三个环节：
+
+1. 生产者 → Broker（发送阶段）
+   ├── 网络故障导致消息未到达
+   └── acks 配置不当（acks=0 或 acks=1 时 Leader 宕机）
+
+2. Broker 端（存储阶段）
+   ├── 副本未同步时 Leader 宕机
+   └── 日志因磁盘故障被删除
+
+3. Broker → 消费者（消费阶段）
+   ├── 自动提交位移后消费者宕机（消息未处理完）
+   └── 消费者处理异常但位移已提交
+</code></pre><hr>
+<h2 id="二生产者端可靠性">二、生产者端可靠性</h2>
+<h3 id="21-acks-与重试">2.1 acks 与重试</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ★ 最可靠的发送配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">ACKS_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;all&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">ENABLE_IDEMPOTENCE_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">RETRIES_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="n">Integer</span><span class="p">.</span><span class="na">MAX_VALUE</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION</span><span class="p">,</span><span class="w"> </span><span class="n">5</span><span class="p">);</span><span class="w">
+</span></span></span></code></pre></div><pre tabindex="0"><code>acks=all 时：
+1. Producer 发送消息到 Leader
+2. Leader 等待 ISR 中的所有副本写入成功
+3. 所有 ISR 副本确认后，Leader 返回 ACK 给 Producer
+
+ISR（In-Sync Replicas）：
+- 与 Leader 保持同步的副本集合
+- 由 replica.lag.time.max.ms（默认 30秒）控制
+- 同步超时的副本被踢出 ISR
+</code></pre><h3 id="22-幂等性发送">2.2 幂等性发送</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 开启幂等性</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">ENABLE_IDEMPOTENCE_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 幂等性的原理：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 每个 Producer 有一个唯一的 Producer ID（PID）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 每条消息有一个递增的 Sequence Number</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// Broker 端根据 PID + Sequence Number 去重</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 即使同一条消息发送多次，Broker 只会保存一次</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 注意：幂等性只能保证单分区内的消息不重复</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 跨分区的 Exactly Once 需要事务</span><span class="w">
+</span></span></span></code></pre></div><h3 id="23-发送确认的三种模式">2.3 发送确认的三种模式</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 方式一：发后即忘（不推荐）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">producer</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ProducerRecord</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="s">&#34;topic&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;value&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 方式二：同步等待确认（最可靠）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">RecordMetadata</span><span class="w"> </span><span class="n">metadata</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">producer</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="n">record</span><span class="p">).</span><span class="na">get</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 方式三：异步回调（推荐）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">producer</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="n">record</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="n">metadata</span><span class="p">,</span><span class="w"> </span><span class="n">exception</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">exception</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 记录失败消息，后续补偿</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">error</span><span class="p">(</span><span class="s">&#34;发送失败&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">exception</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">saveToRetryQueue</span><span class="p">(</span><span class="n">record</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">});</span><span class="w">
+</span></span></span></code></pre></div><h3 id="24-不丢消息的生产者配置">2.4 不丢消息的生产者配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-properties" data-lang="properties"><span class="line"><span class="cl"><span class="c1"># 生产端不丢消息配置</span>
+</span></span><span class="line"><span class="cl"><span class="na">acks</span><span class="o">=</span><span class="s">all</span>
+</span></span><span class="line"><span class="cl"><span class="na">enable.idempotence</span><span class="o">=</span><span class="s">true</span>
+</span></span><span class="line"><span class="cl"><span class="na">retries</span><span class="o">=</span><span class="s">Integer.MAX_VALUE</span>
+</span></span><span class="line"><span class="cl"><span class="na">max.in.flight.requests.per.connection</span><span class="o">=</span><span class="s">5</span>
+</span></span></code></pre></div><hr>
+<h2 id="三broker-端可靠性">三、Broker 端可靠性</h2>
+<h3 id="31-副本机制">3.1 副本机制</h3>
+<pre tabindex="0"><code>Topic: orders, Partition 0
+
+Broker 1 (Leader)     ← 读写都走 Leader
+  │
+  ├── Broker 2 (Replica, ISR)
+  └── Broker 3 (Replica, ISR)
+
+replication.factor = 3（副本数）
+min.insync.replicas = 2（最小 ISR）
+</code></pre><p><strong>关键配置：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-properties" data-lang="properties"><span class="line"><span class="cl"><span class="c1"># Broker 端可靠性配置</span>
+</span></span><span class="line"><span class="cl"><span class="na">default.replication.factor</span> <span class="o">=</span> <span class="s">3       # 副本数（至少 3）</span>
+</span></span><span class="line"><span class="cl"><span class="na">min.insync.replicas</span> <span class="o">=</span> <span class="s">2              # 最小同步副本数</span>
+</span></span><span class="line"><span class="cl"><span class="na">unclean.leader.election.enable</span> <span class="o">=</span> <span class="s">false  # 不允许非 ISR 副本成为 Leader</span>
+</span></span></code></pre></div><h3 id="32-副本同步机制">3.2 副本同步机制</h3>
+<pre tabindex="0"><code>同步过程：
+1. Producer 发送消息到 Leader
+2. Leader 写入本地日志
+3. Follower 从 Leader 拉取消息（fetch 请求）
+4. Follower 写入本地日志
+5. Follower 向 Leader 发送确认
+6. Leader 更新 HW（High Watermark）
+
+HW（High Watermark）：
+- 当前 ISR 中所有副本都同步到的位移
+- 消费者只能消费 HW 之前的消息（确保消息已被所有 ISR 副本确认）
+- 当 Leader 宕机时，新 Leader 从 HW 位置开始恢复
+
+LEO（Log End Offset）：
+- 每个副本的日志最新写入位置
+- HW ≤ LEO
+- 消费者 max(HW) = 所有 ISR 副本中最小的 LEO
+</code></pre><h3 id="33-leader-选举">3.3 Leader 选举</h3>
+<pre tabindex="0"><code>正常情况：Leader 从 ISR 中选举
+  数据完整，不会丢失
+
+非正常情况（unclean.leader.election.enable=true）：
+  ISR 为空，从非 ISR 中选举
+  数据可能丢失
+
+生产环境建议：
+  unclean.leader.election.enable=false
+  宁可等待 ISR 中的副本恢复，也不接受数据丢失
+</code></pre><hr>
+<h2 id="四消费端可靠性">四、消费端可靠性</h2>
+<h3 id="41-手动提交位移">4.1 手动提交位移</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ★ 消费端不丢消息的关键</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ConsumerConfig</span><span class="p">.</span><span class="na">ENABLE_AUTO_COMMIT_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;false&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ConsumerRecords</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">records</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">consumer</span><span class="p">.</span><span class="na">poll</span><span class="p">(</span><span class="n">100</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">ConsumerRecord</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">record</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">records</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">process</span><span class="p">(</span><span class="n">record</span><span class="p">);</span><span class="w">  </span><span class="c1">// ★ 先处理业务逻辑</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 处理成功后才提交位移</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 记录异常，稍后重试</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">saveToRetryQueue</span><span class="p">(</span><span class="n">record</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 所有消息处理完成后再提交位移</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">consumer</span><span class="p">.</span><span class="na">commitSync</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="42-幂等消费">4.2 幂等消费</h3>
+<p>消息重复消费是常态，业务处理需要保证幂等性：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="n">ConsumerRecord</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">record</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">messageId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">record</span><span class="p">.</span><span class="na">key</span><span class="p">();</span><span class="w">  </span><span class="c1">// 使用消息唯一 ID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 方案一：数据库唯一键去重</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">sql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;INSERT INTO processed_messages(id, content) VALUES(?, ?) &#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                 </span><span class="s">&#34;ON DUPLICATE KEY UPDATE content=content&#34;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">jdbcTemplate</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="n">sql</span><span class="p">,</span><span class="w"> </span><span class="n">messageId</span><span class="p">,</span><span class="w"> </span><span class="n">record</span><span class="p">.</span><span class="na">value</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 方案二：Redis 去重</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Boolean</span><span class="w"> </span><span class="n">success</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setIfAbsent</span><span class="p">(</span><span class="s">&#34;msg:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">messageId</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;1&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">Duration</span><span class="p">.</span><span class="na">ofDays</span><span class="p">(</span><span class="n">7</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">Boolean</span><span class="p">.</span><span class="na">TRUE</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">success</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">doProcess</span><span class="p">(</span><span class="n">record</span><span class="p">);</span><span class="w">  </span><span class="c1">// 首次处理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="43-消费端的-exactly-once">4.3 消费端的 Exactly Once</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 事务消息消费（isolation.level = read_committed）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ConsumerConfig</span><span class="p">.</span><span class="na">ISOLATION_LEVEL_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;read_committed&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 消费者 + 生产者的事务</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 常用于&#34;消费-处理-发送&#34;场景（如从 Kafka 读取后写入数据库）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">consumer</span><span class="p">.</span><span class="na">subscribe</span><span class="p">(</span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="s">&#34;source-topic&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ConsumerRecords</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">records</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">consumer</span><span class="p">.</span><span class="na">poll</span><span class="p">(</span><span class="n">100</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">producer</span><span class="p">.</span><span class="na">beginTransaction</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">ConsumerRecord</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">record</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">records</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 处理消息</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">process</span><span class="p">(</span><span class="n">record</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 发送到下游 Topic</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">producer</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ProducerRecord</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="s">&#34;result-topic&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 提交生产者和消费者的事务位移</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">producer</span><span class="p">.</span><span class="na">sendOffsetsToTransaction</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">consumer</span><span class="p">.</span><span class="na">poll</span><span class="p">(</span><span class="n">0</span><span class="p">).</span><span class="na">position</span><span class="p">(</span><span class="n">record</span><span class="p">.</span><span class="na">partition</span><span class="p">()),</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">consumer</span><span class="p">.</span><span class="na">groupMetadata</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">producer</span><span class="p">.</span><span class="na">commitTransaction</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">producer</span><span class="p">.</span><span class="na">abortTransaction</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="五消息语义强度对比">五、消息语义强度对比</h2>
+<table>
+	<thead>
+			<tr>
+					<th>语义</th>
+					<th>含义</th>
+					<th>配置</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>At Most Once</td>
+					<td>最多一次（可能丢消息）</td>
+					<td>acks=0 / 自动提交位移</td>
+			</tr>
+			<tr>
+					<td>At Least Once</td>
+					<td>至少一次（可能重复，不丢）</td>
+					<td>acks=all + 手动提交（推荐）</td>
+			</tr>
+			<tr>
+					<td>Exactly Once</td>
+					<td>精确一次（不丢不重）</td>
+					<td>幂等性 + 事务 + 手动提交</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>生产环境推荐：至少一次（At Least Once）+ 业务幂等性</strong>。</p>
+<blockquote>
+<p>精确一次（Exactly Once）成本较高，除非业务对重复极端敏感（如金融交易），否则不推荐。</p>
+</blockquote>
+<hr>
+<h2 id="六日志清理与数据安全">六、日志清理与数据安全</h2>
+<h3 id="61-日志保留策略">6.1 日志保留策略</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-properties" data-lang="properties"><span class="line"><span class="cl"><span class="c1"># 保留策略（满足任一即清理）</span>
+</span></span><span class="line"><span class="cl"><span class="na">log.retention.hours</span> <span class="o">=</span> <span class="s">168              # 保留 7 天（默认）</span>
+</span></span><span class="line"><span class="cl"><span class="na">log.retention.minutes</span> <span class="o">=</span> <span class="s">10080          # 或按分钟（覆盖小时）</span>
+</span></span><span class="line"><span class="cl"><span class="na">log.retention.bytes</span> <span class="o">=</span> <span class="s">-1               # 按总大小（-1 为不限制）</span>
+</span></span><span class="line"><span class="cl"><span class="na">log.segment.bytes</span> <span class="o">=</span> <span class="s">1073741824         # 单个分段文件大小（1GB）</span>
+</span></span><span class="line"><span class="cl"><span class="na">log.segment.delete.delay.ms</span> <span class="o">=</span> <span class="s">60000    # 删除延迟</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 清理策略</span>
+</span></span><span class="line"><span class="cl"><span class="na">log.cleanup.policy</span> <span class="o">=</span> <span class="s">delete    # 删除（默认）</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># log.cleanup.policy = compact  # 压缩（保留最新的 key）</span>
+</span></span></code></pre></div><h3 id="62-压缩策略compact">6.2 压缩策略（Compact）</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-properties" data-lang="properties"><span class="line"><span class="cl"><span class="c1"># 按 key 压缩：保留每个 key 的最新值</span>
+</span></span><span class="line"><span class="cl"><span class="na">log.cleanup.policy</span> <span class="o">=</span> <span class="s">compact</span>
+</span></span><span class="line"><span class="cl"><span class="na">min.cleanable.dirty.ratio</span> <span class="o">=</span> <span class="s">0.5   # 压缩触发比例</span>
+</span></span></code></pre></div><pre tabindex="0"><code>Compaction 示例：
+原始日志：
+key=user1, value=Tom
+key=user2, value=Jerry
+key=user1, value=Tommy    ← 更新 user1
+
+Compaction 后：
+key=user2, value=Jerry
+key=user1, value=Tommy    ← 旧值被清理，只保留最新值
+</code></pre><hr>
+<h2 id="七总结">七、总结</h2>
+<h3 id="端到端可靠性配置">端到端可靠性配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 生产者端——不丢消息</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">ACKS_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;all&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">ENABLE_IDEMPOTENCE_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">RETRIES_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="n">3</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// Broker 端——不丢数据</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// replication.factor = 3</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// min.insync.replicas = 2</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// unclean.leader.election.enable = false</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 消费者端——不丢消息</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ConsumerConfig</span><span class="p">.</span><span class="na">ENABLE_AUTO_COMMIT_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;false&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 处理完消息后手动提交位移</span><span class="w">
+</span></span></span></code></pre></div><h3 id="各环节可靠性速查">各环节可靠性速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>环节</th>
+					<th>风险</th>
+					<th>对策</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>发送</td>
+					<td>网络故障丢失</td>
+					<td>acks=all + 重试 + 幂等性</td>
+			</tr>
+			<tr>
+					<td>存储</td>
+					<td>磁盘故障丢失</td>
+					<td>多副本 + ISR 同步</td>
+			</tr>
+			<tr>
+					<td>消费</td>
+					<td>处理异常导致丢失</td>
+					<td>手动提交 + 幂等消费</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>上一篇：</strong> <a href="/posts/kafka%E4%B8%89%E6%B6%88%E8%B4%B9%E8%80%85%E5%8E%9F%E7%90%86/">Kafka（三）：消费者原理</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/kafka%E4%BA%94%E5%AD%98%E5%82%A8%E6%9C%BA%E5%88%B6/">Kafka（五）：存储机制</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

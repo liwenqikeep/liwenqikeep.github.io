@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>MyBatis（一）：核心架构与配置 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一mybatis-整体架构">一、MyBatis 整体架构</a>
+      <ul>
+        <li><a href="#11-架构分层">1.1 架构分层</a></li>
+        <li><a href="#12-核心组件">1.2 核心组件</a></li>
+        <li><a href="#13-一次完整查询的调用链">1.3 一次完整查询的调用链</a></li>
+      </ul>
+    </li>
+    <li><a href="#二配置文件解析">二、配置文件解析</a>
+      <ul>
+        <li><a href="#21-入口sqlsessionfactorybuilder">2.1 入口：SqlSessionFactoryBuilder</a></li>
+        <li><a href="#22-xmlconfigbuilder-解析-mybatis-configxml">2.2 XMLConfigBuilder 解析 mybatis-config.xml</a></li>
+        <li><a href="#23-解析-mapper-映射文件">2.3 解析 Mapper 映射文件</a></li>
+        <li><a href="#24-xmlmapperbuilder-解析-mapper-xml">2.4 XMLMapperBuilder 解析 Mapper XML</a></li>
+        <li><a href="#25-构建-mappedstatement">2.5 构建 MappedStatement</a></li>
+      </ul>
+    </li>
+    <li><a href="#三configuration-核心对象">三、Configuration 核心对象</a></li>
+    <li><a href="#四sqlsessionfactory-与-sqlsession">四、SqlSessionFactory 与 SqlSession</a>
+      <ul>
+        <li><a href="#41-defaultsqlsessionfactory">4.1 DefaultSqlSessionFactory</a></li>
+        <li><a href="#42-sqlsession-执行-sql">4.2 SqlSession 执行 SQL</a></li>
+      </ul>
+    </li>
+    <li><a href="#五总结">五、总结</a>
+      <ul>
+        <li><a href="#mybatis-启动到执行的全流程">MyBatis 启动到执行的全流程</a></li>
+        <li><a href="#核心源码文件索引">核心源码文件索引</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">MyBatis（一）：核心架构与配置</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>MyBatis 是 Java 生态中最流行的半自动化 ORM 框架之一。与 JPA/Hibernate 的全自动化不同，MyBatis 将 SQL 的控制权完全交给开发者，同时通过映射机制自动完成结果集的封装。</p>
+<p>本文从整体架构出发，覆盖 MyBatis 的核心组件、配置文件解析流程，以及 SqlSessionFactory 的构建过程。</p>
+<blockquote>
+<p><strong>源码版本：</strong> MyBatis 3.5.x</p>
+</blockquote>
+<h2 id="一mybatis-整体架构">一、MyBatis 整体架构</h2>
+<h3 id="11-架构分层">1.1 架构分层</h3>
+<pre tabindex="0"><code>┌──────────────────────────────────────────────────────┐
+│                    应用层（API）                        │
+│  SqlSession  ←  Mapper 接口  ←  Mapper Proxy         │
+├──────────────────────────────────────────────────────┤
+│                    核心处理层                           │
+│  ┌──────────┐  ┌──────────────┐  ┌─────────────────┐  │
+│  │ 配置解析   │  │ SQL 解析与    │  │ 参数映射 结果映射 │  │
+│  │ XMLConfig │  │ 动态 SQL     │  │ TypeHandler     │  │
+│  │ XMLMapper │  │ StatementHandler│  │ ResultSetHandler│ │
+│  └──────────┘  └──────────────┘  └─────────────────┘  │
+│  ┌──────────┐  ┌──────────────┐  ┌─────────────────┐  │
+│  │ Executor  │  │ 缓存（一级/二级）│  │ 插件 Interceptor │  │
+│  └──────────┘  └──────────────┘  └─────────────────┘  │
+├──────────────────────────────────────────────────────┤
+│                    基础支持层                           │
+│  数据源   │  连接池   │  事务管理   │  日志   │  反射   │
+├──────────────────────────────────────────────────────┤
+│                    数据源（DataSource）                 │
+└──────────────────────────────────────────────────────┘
+</code></pre><h3 id="12-核心组件">1.2 核心组件</h3>
+<table>
+	<thead>
+			<tr>
+					<th>组件</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>SqlSessionFactory</code></td>
+					<td>工厂类，创建 SqlSession</td>
+			</tr>
+			<tr>
+					<td><code>SqlSession</code></td>
+					<td>会话，提供数据库操作方法（select/insert/update/delete）</td>
+			</tr>
+			<tr>
+					<td><code>Executor</code></td>
+					<td>执行器，管理缓存和 StatementHandler 调用</td>
+			</tr>
+			<tr>
+					<td><code>StatementHandler</code></td>
+					<td>处理 JDBC Statement，设置参数和执行 SQL</td>
+			</tr>
+			<tr>
+					<td><code>ParameterHandler</code></td>
+					<td>参数映射，将 Java 对象转为 JDBC 参数</td>
+			</tr>
+			<tr>
+					<td><code>ResultSetHandler</code></td>
+					<td>结果集映射，将 JDBC ResultSet 转为 Java 对象</td>
+			</tr>
+			<tr>
+					<td><code>TypeHandler</code></td>
+					<td>类型转换器，Java 类型 ↔ JDBC 类型</td>
+			</tr>
+			<tr>
+					<td><code>MappedStatement</code></td>
+					<td>映射语句，封装 Mapper XML 中的 select/insert 等标签</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="13-一次完整查询的调用链">1.3 一次完整查询的调用链</h3>
+<pre tabindex="0"><code>Mapper.method()  →  MapperProxy.invoke()
+                      │
+                    SqlSession.selectList()
+                      │
+                    Executor.query()
+                      │
+                    StatementHandler.query()
+                      │
+                    ParameterHandler.setParameters()
+                      │
+                    java.sql.Statement.execute()
+                      │
+                    ResultSetHandler.handleResultSets()
+                      │
+                    返回 Java 对象
+</code></pre><hr>
+<h2 id="二配置文件解析">二、配置文件解析</h2>
+<h3 id="21-入口sqlsessionfactorybuilder">2.1 入口：SqlSessionFactoryBuilder</h3>
+<p>MyBatis 的启动入口是 <code>SqlSessionFactoryBuilder</code>：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 传统方式（XML）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">String</span><span class="w"> </span><span class="n">resource</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;mybatis-config.xml&#34;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">InputStream</span><span class="w"> </span><span class="n">inputStream</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Resources</span><span class="p">.</span><span class="na">getResourceAsStream</span><span class="p">(</span><span class="n">resource</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">SqlSessionFactory</span><span class="w"> </span><span class="n">factory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SqlSessionFactoryBuilder</span><span class="p">().</span><span class="na">build</span><span class="p">(</span><span class="n">inputStream</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// Spring Boot 中由 MyBatis-Spring-Boot-Starter 自动完成</span><span class="w">
+</span></span></span></code></pre></div><p><strong>build() 方法内部：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">SqlSessionFactory</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span><span class="n">InputStream</span><span class="w"> </span><span class="n">inputStream</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">build</span><span class="p">(</span><span class="n">inputStream</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">SqlSessionFactory</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span><span class="n">InputStream</span><span class="w"> </span><span class="n">inputStream</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">environment</span><span class="p">,</span><span class="w"> </span><span class="n">Properties</span><span class="w"> </span><span class="n">properties</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. ★ 创建 XMLConfigBuilder（SAX 解析 mybatis-config.xml）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">XMLConfigBuilder</span><span class="w"> </span><span class="n">parser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">XMLConfigBuilder</span><span class="p">(</span><span class="n">inputStream</span><span class="p">,</span><span class="w"> </span><span class="n">environment</span><span class="p">,</span><span class="w"> </span><span class="n">properties</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 解析配置 → 得到 Configuration（核心配置类）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 根据 Configuration 创建 DefaultSqlSessionFactory</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">build</span><span class="p">(</span><span class="n">parser</span><span class="p">.</span><span class="na">parse</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">throw</span><span class="w"> </span><span class="n">ExceptionFactory</span><span class="p">.</span><span class="na">wrapException</span><span class="p">(</span><span class="s">&#34;Error building SqlSession.&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="22-xmlconfigbuilder-解析-mybatis-configxml">2.2 XMLConfigBuilder 解析 mybatis-config.xml</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// XMLConfigBuilder.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Configuration</span><span class="w"> </span><span class="nf">parse</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">parsed</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">BuilderException</span><span class="p">(</span><span class="s">&#34;Each XMLConfigBuilder can only be used once.&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">parsed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 从 &lt;configuration&gt; 根标签开始解析</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">parseConfiguration</span><span class="p">(</span><span class="n">parser</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;/configuration&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">configuration</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">parseConfiguration</span><span class="p">(</span><span class="n">XNode</span><span class="w"> </span><span class="n">root</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 按顺序解析 mybatis-config.xml 中的各元素</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">propertiesElement</span><span class="p">(</span><span class="n">root</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;properties&#34;</span><span class="p">));</span><span class="w">       </span><span class="c1">// &lt;properties&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Properties</span><span class="w"> </span><span class="n">settings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">settingsAsProperties</span><span class="p">(</span><span class="n">root</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;settings&#34;</span><span class="p">));</span><span class="w"> </span><span class="c1">// &lt;settings&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">loadCustomVfs</span><span class="p">(</span><span class="n">settings</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">loadCustomLogImpl</span><span class="p">(</span><span class="n">settings</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">typeAliasesElement</span><span class="p">(</span><span class="n">root</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;typeAliases&#34;</span><span class="p">));</span><span class="w">     </span><span class="c1">// &lt;typeAliases&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">pluginElement</span><span class="p">(</span><span class="n">root</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;plugins&#34;</span><span class="p">));</span><span class="w">              </span><span class="c1">// &lt;plugins&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">objectFactoryElement</span><span class="p">(</span><span class="n">root</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;objectFactory&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">objectWrapperFactoryElement</span><span class="p">(</span><span class="n">root</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;objectWrapperFactory&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">reflectorFactoryElement</span><span class="p">(</span><span class="n">root</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;reflectorFactory&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">settingsElement</span><span class="p">(</span><span class="n">settings</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">environmentsElement</span><span class="p">(</span><span class="n">root</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;environments&#34;</span><span class="p">));</span><span class="w">   </span><span class="c1">// &lt;environments&gt; ★ 数据源和事务</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">databaseIdProviderElement</span><span class="p">(</span><span class="n">root</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;databaseIdProvider&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">typeHandlerElement</span><span class="p">(</span><span class="n">root</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;typeHandlers&#34;</span><span class="p">));</span><span class="w">    </span><span class="c1">// &lt;typeHandlers&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">mapperElement</span><span class="p">(</span><span class="n">root</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;mappers&#34;</span><span class="p">));</span><span class="w">              </span><span class="c1">// &lt;mappers&gt; ★ 注册 Mapper</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">BuilderException</span><span class="p">(</span><span class="s">&#34;Error parsing SQL Mapper Configuration.&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="23-解析-mapper-映射文件">2.3 解析 Mapper 映射文件</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// XMLConfigBuilder.mapperElement()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">mapperElement</span><span class="p">(</span><span class="n">XNode</span><span class="w"> </span><span class="n">parent</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">parent</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">XNode</span><span class="w"> </span><span class="n">child</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">parent</span><span class="p">.</span><span class="na">getChildren</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="s">&#34;package&#34;</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">child</span><span class="p">.</span><span class="na">getName</span><span class="p">()))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ &lt;package name=&#34;com.example.mapper&#34;/&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="w"> </span><span class="n">mapperPackage</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">child</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;name&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">configuration</span><span class="p">.</span><span class="na">addMappers</span><span class="p">(</span><span class="n">mapperPackage</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// &lt;mapper resource=&#34;...&#34; /&gt; 或 &lt;mapper class=&#34;...&#34; /&gt; 或 &lt;mapper url=&#34;...&#34; /&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="w"> </span><span class="n">resource</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">child</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;resource&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">child</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;url&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="w"> </span><span class="n">mapperClass</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">child</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;class&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resource</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 通过 XMLMapperBuilder 解析 Mapper XML 文件</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">XMLMapperBuilder</span><span class="w"> </span><span class="n">mapperParser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">XMLMapperBuilder</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">Resources</span><span class="p">.</span><span class="na">getResourceAsStream</span><span class="p">(</span><span class="n">resource</span><span class="p">),</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">configuration</span><span class="p">,</span><span class="w"> </span><span class="n">resource</span><span class="p">,</span><span class="w"> </span><span class="n">configuration</span><span class="p">.</span><span class="na">getSqlFragments</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">mapperParser</span><span class="p">.</span><span class="na">parse</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">url</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">XMLMapperBuilder</span><span class="w"> </span><span class="n">mapperParser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">XMLMapperBuilder</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">Resources</span><span class="p">.</span><span class="na">getUrlAsStream</span><span class="p">(</span><span class="n">url</span><span class="p">),</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">configuration</span><span class="p">,</span><span class="w"> </span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="n">configuration</span><span class="p">.</span><span class="na">getSqlFragments</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">mapperParser</span><span class="p">.</span><span class="na">parse</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">mapperClass</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">mapperInterface</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Resources</span><span class="p">.</span><span class="na">classForName</span><span class="p">(</span><span class="n">mapperClass</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">configuration</span><span class="p">.</span><span class="na">addMapper</span><span class="p">(</span><span class="n">mapperInterface</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="24-xmlmapperbuilder-解析-mapper-xml">2.4 XMLMapperBuilder 解析 Mapper XML</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// XMLMapperBuilder.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">parse</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">configuration</span><span class="p">.</span><span class="na">isResourceLoaded</span><span class="p">(</span><span class="n">resource</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 处理 &lt;mapper&gt; 根标签</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">configurationElement</span><span class="p">(</span><span class="n">parser</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;/mapper&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">configuration</span><span class="p">.</span><span class="na">addLoadedResource</span><span class="p">(</span><span class="n">resource</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 将 Mapper 接口绑定到 namespace</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">bindMapperForNamespace</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">configurationElement</span><span class="p">(</span><span class="n">XNode</span><span class="w"> </span><span class="n">context</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">namespace</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;namespace&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 解析 &lt;cache&gt; — 二级缓存配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">cacheElement</span><span class="p">(</span><span class="n">context</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;cache&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 解析 &lt;cache-ref&gt; — 引用其他命名空间的缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">cacheRefElement</span><span class="p">(</span><span class="n">context</span><span class="p">.</span><span class="na">evalNode</span><span class="p">(</span><span class="s">&#34;cache-ref&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. ★ 解析 &lt;parameterMap&gt;（已废弃）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">parameterMapElement</span><span class="p">(</span><span class="n">context</span><span class="p">.</span><span class="na">evalNodes</span><span class="p">(</span><span class="s">&#34;/mapper/parameterMap&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. ★ 解析 &lt;resultMap&gt; — 结果映射</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">resultMapElements</span><span class="p">(</span><span class="n">context</span><span class="p">.</span><span class="na">evalNodes</span><span class="p">(</span><span class="s">&#34;/mapper/resultMap&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 5. ★ 解析 &lt;sql&gt; — SQL 片段</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">sqlElement</span><span class="p">(</span><span class="n">context</span><span class="p">.</span><span class="na">evalNodes</span><span class="p">(</span><span class="s">&#34;/mapper/sql&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 6. ★★ 解析 select|insert|update|delete 语句</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">buildStatementFromContext</span><span class="p">(</span><span class="n">context</span><span class="p">.</span><span class="na">evalNodes</span><span class="p">(</span><span class="s">&#34;select|insert|update|delete&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">BuilderException</span><span class="p">(...);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="25-构建-mappedstatement">2.5 构建 MappedStatement</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// XMLStatementBuilder.java — 解析 &lt;select&gt; 等标签</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">parseStatementNode</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;id&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">parameterMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;parameterMap&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">parameterType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;parameterType&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">resultMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;resultMap&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">resultType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;resultType&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">resultSetType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;resultSetType&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">statementType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">StatementType</span><span class="p">.</span><span class="na">STATEMENT</span><span class="p">.</span><span class="na">name</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. SQL 类型（SELECT/INSERT/UPDATE/DELETE）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">SqlCommandType</span><span class="w"> </span><span class="n">sqlCommandType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SqlCommandType</span><span class="p">.</span><span class="na">valueOf</span><span class="p">(</span><span class="n">context</span><span class="p">.</span><span class="na">getName</span><span class="p">().</span><span class="na">toUpperCase</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 是否使用 JDBC 预编译（默认 PREPARED）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">nodeName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getStringAttribute</span><span class="p">(</span><span class="s">&#34;statementType&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">StatementType</span><span class="p">.</span><span class="na">PREPARED</span><span class="p">.</span><span class="na">name</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">statementType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">nodeName</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 超时设置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Integer</span><span class="w"> </span><span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getIntAttribute</span><span class="p">(</span><span class="s">&#34;timeout&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 4. 解析动态 SQL（&lt;if&gt;、&lt;where&gt; 等标签）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 内部创建 SqlNode 树</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">XMLScriptBuilder</span><span class="w"> </span><span class="n">scriptBuilder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">XMLScriptBuilder</span><span class="p">(</span><span class="n">configuration</span><span class="p">,</span><span class="w"> </span><span class="n">context</span><span class="p">,</span><span class="w"> </span><span class="n">parameterType</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">SqlSource</span><span class="w"> </span><span class="n">sqlSource</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">scriptBuilder</span><span class="p">.</span><span class="na">parseScriptNode</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 5. 构建 MappedStatement</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MappedStatement</span><span class="p">.</span><span class="na">Builder</span><span class="w"> </span><span class="n">statementBuilder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MappedStatement</span><span class="p">.</span><span class="na">Builder</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">configuration</span><span class="p">,</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">sqlSource</span><span class="p">,</span><span class="w"> </span><span class="n">sqlCommandType</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 设置其他属性...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">configuration</span><span class="p">.</span><span class="na">addMappedStatement</span><span class="p">(</span><span class="n">statementBuilder</span><span class="p">.</span><span class="na">build</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="三configuration-核心对象">三、Configuration 核心对象</h2>
+<p>MyBatis 的配置解析最终汇聚为一个 <code>Configuration</code> 对象——它是 MyBatis 运行时所有配置的中央存储。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Configuration</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 环境（数据源 + 事务管理器）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">Environment</span><span class="w"> </span><span class="n">environment</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 所有 MappedStatement（每个 select/insert 等对应一个）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">MappedStatement</span><span class="o">&gt;</span><span class="w"> </span><span class="n">mappedStatements</span><span class="w"> </span><span class="o">=</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">StrictMap</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="s">&#34;Mapped Statements collection&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 所有 Mapper 接口注册</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">MapperRegistry</span><span class="o">&gt;</span><span class="w"> </span><span class="n">mapperRegistry</span><span class="w"> </span><span class="o">=</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">MapperRegistry</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 所有 ResultMap</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMap</span><span class="o">&gt;</span><span class="w"> </span><span class="n">resultMaps</span><span class="w"> </span><span class="o">=</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">StrictMap</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="s">&#34;Result Maps collection&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// TypeAlias 注册</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">TypeAliasRegistry</span><span class="w"> </span><span class="n">typeAliasRegistry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">TypeAliasRegistry</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// TypeHandler 注册</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">TypeHandlerRegistry</span><span class="w"> </span><span class="n">typeHandlerRegistry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">TypeHandlerRegistry</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 所有插件（Interceptor）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">InterceptorChain</span><span class="w"> </span><span class="n">interceptorChain</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">InterceptorChain</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">cacheEnabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">LocalCacheScope</span><span class="w"> </span><span class="n">localCacheScope</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LocalCacheScope</span><span class="p">.</span><span class="na">SESSION</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 懒加载</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">lazyLoadingEnabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">aggressiveLazyLoading</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="四sqlsessionfactory-与-sqlsession">四、SqlSessionFactory 与 SqlSession</h2>
+<h3 id="41-defaultsqlsessionfactory">4.1 DefaultSqlSessionFactory</h3>
+<p>解析配置完成后，<code>SqlSessionFactoryBuilder</code> 创建 <code>DefaultSqlSessionFactory</code>：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultSqlSessionFactory.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DefaultSqlSessionFactory</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">SqlSessionFactory</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Configuration</span><span class="w"> </span><span class="n">configuration</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">SqlSession</span><span class="w"> </span><span class="nf">openSession</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">openSessionFromDataSource</span><span class="p">(</span><span class="n">configuration</span><span class="p">.</span><span class="na">getDefaultExecutorType</span><span class="p">(),</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                         </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="kc">false</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">SqlSession</span><span class="w"> </span><span class="nf">openSessionFromDataSource</span><span class="p">(</span><span class="n">ExecutorType</span><span class="w"> </span><span class="n">execType</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                                  </span><span class="n">TransactionIsolationLevel</span><span class="w"> </span><span class="n">level</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                                  </span><span class="kt">boolean</span><span class="w"> </span><span class="n">autoCommit</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Transaction</span><span class="w"> </span><span class="n">tx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 1. 获取环境配置（数据源 + 事务管理器）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Environment</span><span class="w"> </span><span class="n">environment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">configuration</span><span class="p">.</span><span class="na">getEnvironment</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 2. 创建事务工厂</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">TransactionFactory</span><span class="w"> </span><span class="n">transactionFactory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getTransactionFactoryFromEnvironment</span><span class="p">(</span><span class="n">environment</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">tx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">transactionFactory</span><span class="p">.</span><span class="na">newTransaction</span><span class="p">(</span><span class="n">environment</span><span class="p">.</span><span class="na">getDataSource</span><span class="p">(),</span><span class="w"> </span><span class="n">level</span><span class="p">,</span><span class="w"> </span><span class="n">autoCommit</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 3. ★ 创建 Executor（执行器，有 SIMPLE/REUSE/BATCH 三种）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Executor</span><span class="w"> </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">configuration</span><span class="p">.</span><span class="na">newExecutor</span><span class="p">(</span><span class="n">tx</span><span class="p">,</span><span class="w"> </span><span class="n">execType</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 4. ★ 创建 DefaultSqlSession</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DefaultSqlSession</span><span class="p">(</span><span class="n">configuration</span><span class="p">,</span><span class="w"> </span><span class="n">executor</span><span class="p">,</span><span class="w"> </span><span class="n">autoCommit</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">closeTransaction</span><span class="p">(</span><span class="n">tx</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="n">ExceptionFactory</span><span class="p">.</span><span class="na">wrapException</span><span class="p">(</span><span class="s">&#34;Error opening session.  Cause: &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">e</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="42-sqlsession-执行-sql">4.2 SqlSession 执行 SQL</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultSqlSession.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DefaultSqlSession</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">SqlSession</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Configuration</span><span class="w"> </span><span class="n">configuration</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Executor</span><span class="w"> </span><span class="n">executor</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="nf">selectOne</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">statement</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// selectList 取第一个</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">selectList</span><span class="p">(</span><span class="n">statement</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">list</span><span class="p">.</span><span class="na">size</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">list</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">0</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">selectList</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">statement</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 从 Configuration 中获取 MappedStatement</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">configuration</span><span class="p">.</span><span class="na">getMappedStatement</span><span class="p">(</span><span class="n">statement</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 委托给 Executor 执行</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">executor</span><span class="p">.</span><span class="na">query</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">wrapCollection</span><span class="p">(</span><span class="n">parameter</span><span class="p">),</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">RowBounds</span><span class="p">.</span><span class="na">DEFAULT</span><span class="p">,</span><span class="w"> </span><span class="n">Executor</span><span class="p">.</span><span class="na">NO_RESULT_HANDLER</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">insert</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">statement</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">update</span><span class="p">(</span><span class="n">statement</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">statement</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">configuration</span><span class="p">.</span><span class="na">getMappedStatement</span><span class="p">(</span><span class="n">statement</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">executor</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">wrapCollection</span><span class="p">(</span><span class="n">parameter</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">delete</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">statement</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">update</span><span class="p">(</span><span class="n">statement</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="五总结">五、总结</h2>
+<h3 id="mybatis-启动到执行的全流程">MyBatis 启动到执行的全流程</h3>
+<pre tabindex="0"><code>mybatis-config.xml / Spring Boot 配置
+    │
+    ▼
+SqlSessionFactoryBuilder.build()
+    │
+    ├── XMLConfigBuilder.parse()
+    │     ├── properties → settings → typeAliases
+    │     ├── environments → 数据源 + 事务
+    │     └── mappers → 注册 Mapper XML
+    │
+    ├── XMLMapperBuilder.parse()
+    │     ├── &lt;cache&gt; → 二级缓存配置
+    │     ├── &lt;resultMap&gt; → 结果映射
+    │     ├── &lt;sql&gt; → SQL 片段
+    │     └── &lt;select|insert|update|delete&gt; → MappedStatement
+    │
+    └── Configuration（中央配置对象）
+          │
+          ▼
+    DefaultSqlSessionFactory
+          │
+          ▼
+    SqlSession = DefaultSqlSession(Configuration, Executor)
+          │
+          ▼
+    Mapper 代理 → SqlSession → Executor → ...
+</code></pre><h3 id="核心源码文件索引">核心源码文件索引</h3>
+<table>
+	<thead>
+			<tr>
+					<th>类</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>SqlSessionFactoryBuilder</code></td>
+					<td>入口，解析配置构建 SqlSessionFactory</td>
+			</tr>
+			<tr>
+					<td><code>XMLConfigBuilder</code></td>
+					<td>解析 mybatis-config.xml</td>
+			</tr>
+			<tr>
+					<td><code>XMLMapperBuilder</code></td>
+					<td>解析 Mapper XML 文件</td>
+			</tr>
+			<tr>
+					<td><code>XMLStatementBuilder</code></td>
+					<td>解析 select/insert/update/delete 标签</td>
+			</tr>
+			<tr>
+					<td><code>XMLScriptBuilder</code></td>
+					<td>解析动态 SQL 标签</td>
+			</tr>
+			<tr>
+					<td><code>Configuration</code></td>
+					<td>全局配置的中央存储</td>
+			</tr>
+			<tr>
+					<td><code>DefaultSqlSessionFactory</code></td>
+					<td>创建 SqlSession</td>
+			</tr>
+			<tr>
+					<td><code>DefaultSqlSession</code></td>
+					<td>SQL 会话实现，委托给 Executor</td>
+			</tr>
+			<tr>
+					<td><code>MappedStatement</code></td>
+					<td>封装一条 SQL 语句的完整信息</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>下一篇：</strong> <a href="/posts/mybatis%E4%BA%8Cmapper-%E4%BB%A3%E7%90%86%E5%8E%9F%E7%90%86%E4%B8%8E-sql-%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/">MyBatis（二）：Mapper 代理原理与 SQL 执行流程</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Spring MVC（三）：HandlerMapping 与 HandlerAdapter - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一handlermapping-体系">一、HandlerMapping 体系</a>
+      <ul>
+        <li><a href="#11-handlermapping-接口">1.1 HandlerMapping 接口</a></li>
+        <li><a href="#12-requestmappinghandlermapping-的初始化">1.2 RequestMappingHandlerMapping 的初始化</a></li>
+        <li><a href="#13-映射注册结构">1.3 映射注册结构</a></li>
+        <li><a href="#14-请求匹配过程gethandler">1.4 请求匹配过程——getHandler()</a></li>
+      </ul>
+    </li>
+    <li><a href="#二handleradapter-体系">二、HandlerAdapter 体系</a>
+      <ul>
+        <li><a href="#21-handleradapter-接口">2.1 HandlerAdapter 接口</a></li>
+        <li><a href="#22-requestmappinghandleradapter">2.2 RequestMappingHandlerAdapter</a></li>
+      </ul>
+    </li>
+    <li><a href="#三参数解析器handlermethodargumentresolver">三、参数解析器（HandlerMethodArgumentResolver）</a>
+      <ul>
+        <li><a href="#31-接口定义">3.1 接口定义</a></li>
+        <li><a href="#32-解析过程">3.2 解析过程</a></li>
+        <li><a href="#33-requestparam-的解析">3.3 @RequestParam 的解析</a></li>
+        <li><a href="#34-requestbody-的解析">3.4 @RequestBody 的解析</a></li>
+      </ul>
+    </li>
+    <li><a href="#四返回值处理器handlermethodreturnvaluehandler">四、返回值处理器（HandlerMethodReturnValueHandler）</a>
+      <ul>
+        <li><a href="#41-接口定义">4.1 接口定义</a></li>
+        <li><a href="#42-返回值处理过程">4.2 返回值处理过程</a></li>
+        <li><a href="#43-常见返回值处理器">4.3 常见返回值处理器</a></li>
+        <li><a href="#44-responsebody-的处理">4.4 @ResponseBody 的处理</a></li>
+      </ul>
+    </li>
+    <li><a href="#五webdatabinder-与数据绑定">五、WebDataBinder 与数据绑定</a>
+      <ul>
+        <li><a href="#51-绑定过程">5.1 绑定过程</a></li>
+        <li><a href="#52-类型转换">5.2 类型转换</a></li>
+      </ul>
+    </li>
+    <li><a href="#六总结">六、总结</a>
+      <ul>
+        <li><a href="#handlermapping-匹配过程">HandlerMapping 匹配过程</a></li>
+        <li><a href="#handleradapter-参数与返回值处理">HandlerAdapter 参数与返回值处理</a></li>
+        <li><a href="#核心类速查">核心类速查</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Spring MVC（三）：HandlerMapping 与 HandlerAdapter</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>上一篇我们追踪了 <code>DispatcherServlet.doDispatch()</code> 的完整流程。其中最核心的两个步骤是 <code>getHandler()</code> 和 <code>ha.handle()</code>——它们分别对应了将请求路由到方法、以及执行方法并处理参数/返回值的完整机制。</p>
+<p>本文深入这两个步骤的底层实现。</p>
+<blockquote>
+<p><strong>源码版本：</strong> Spring Framework 5.x</p>
+</blockquote>
+<h2 id="一handlermapping-体系">一、HandlerMapping 体系</h2>
+<h3 id="11-handlermapping-接口">1.1 HandlerMapping 接口</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">HandlerMapping</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 根据请求获取 HandlerExecutionChain</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">HandlerExecutionChain</span><span class="w"> </span><span class="nf">getHandler</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>核心实现类层次：</strong></p>
+<pre tabindex="0"><code>HandlerMapping
+  ├── AbstractHandlerMapping（模板方法基类）
+  │     ├── AbstractUrlHandlerMapping    — URL 路径匹配
+  │     │     └── SimpleUrlHandlerMapping — 显式 URL 映射（静态资源等）
+  │     │
+  │     └── AbstractHandlerMethodMapping — 方法级别的映射
+  │           └── RequestMappingInfoHandlerMapping
+  │                 └── RequestMappingHandlerMapping  ← ★ 最常用
+  │                       （处理 @RequestMapping 注解）
+  │
+  └── BeanNameUrlHandlerMapping — Bean name 作为 URL 路径
+</code></pre><h3 id="12-requestmappinghandlermapping-的初始化">1.2 RequestMappingHandlerMapping 的初始化</h3>
+<p><code>RequestMappingHandlerMapping</code> 在容器初始化时扫描所有 Bean，收集 <code>@RequestMapping</code> 注解。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// RequestMappingHandlerMapping 继承 AbstractHandlerMethodMapping</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// AbstractHandlerMethodMapping 实现了 InitializingBean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 容器启动时调用 afterPropertiesSet()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">RequestMappingHandlerMapping</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">extends</span><span class="w"> </span><span class="n">RequestMappingInfoHandlerMapping</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">implements</span><span class="w"> </span><span class="n">MatchableHandlerMapping</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 在父类初始化扫描中，通过 isHandler() 判断哪些 Bean 是 Controller</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">isHandler</span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">beanType</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 检查是否标注了 @Controller 或 @RequestMapping</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">AnnotatedElementUtils</span><span class="p">.</span><span class="na">hasAnnotation</span><span class="p">(</span><span class="n">beanType</span><span class="p">,</span><span class="w"> </span><span class="n">Controller</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 从类和方法上提取 @RequestMapping 信息</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">RequestMappingInfo</span><span class="w"> </span><span class="nf">getMappingForMethod</span><span class="p">(</span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">handlerType</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 解析方法上的 @RequestMapping</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">RequestMappingInfo</span><span class="w"> </span><span class="n">info</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createRequestMappingInfo</span><span class="p">(</span><span class="n">method</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">info</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 2. 解析类上的 @RequestMapping（拼接类级别路径）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">RequestMappingInfo</span><span class="w"> </span><span class="n">typeInfo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createRequestMappingInfo</span><span class="p">(</span><span class="n">handlerType</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">typeInfo</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">info</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">typeInfo</span><span class="p">.</span><span class="na">combine</span><span class="p">(</span><span class="n">info</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">info</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 创建 RequestMappingInfo</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">RequestMappingInfo</span><span class="w"> </span><span class="nf">createRequestMappingInfo</span><span class="p">(</span><span class="n">AnnotatedElement</span><span class="w"> </span><span class="n">element</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">RequestMapping</span><span class="w"> </span><span class="n">requestMapping</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AnnotatedElementUtils</span><span class="p">.</span><span class="na">findMergedAnnotation</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">element</span><span class="p">,</span><span class="w"> </span><span class="n">RequestMapping</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">requestMapping</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 解析 @RequestMapping 的所有属性</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">RequestMappingInfo</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">paths</span><span class="p">(</span><span class="n">resolveEmbeddedValuesInPatterns</span><span class="p">(</span><span class="n">requestMapping</span><span class="p">.</span><span class="na">path</span><span class="p">()))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">methods</span><span class="p">(</span><span class="n">requestMapping</span><span class="p">.</span><span class="na">method</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">params</span><span class="p">(</span><span class="n">requestMapping</span><span class="p">.</span><span class="na">params</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">headers</span><span class="p">(</span><span class="n">requestMapping</span><span class="p">.</span><span class="na">headers</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">consumes</span><span class="p">(</span><span class="n">requestMapping</span><span class="p">.</span><span class="na">consumes</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">produces</span><span class="p">(</span><span class="n">requestMapping</span><span class="p">.</span><span class="na">produces</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">mappingName</span><span class="p">(</span><span class="n">requestMapping</span><span class="p">.</span><span class="na">name</span><span class="p">())</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="13-映射注册结构">1.3 映射注册结构</h3>
+<p><code>AbstractHandlerMethodMapping</code> 内部维护了URL到方法的映射关系：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractHandlerMethodMapping.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">abstract</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AbstractHandlerMethodMapping</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 核心映射表：URL → MappingRegistration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">MappingRegistry</span><span class="w"> </span><span class="n">mappingRegistry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MappingRegistry</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kd">class</span> <span class="nc">MappingRegistry</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 路径 → 映射列表（一个路径可能匹配多个方法）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">urlLookup</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">LinkedHashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 映射 → HandlerMethod</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">T</span><span class="p">,</span><span class="w"> </span><span class="n">HandlerMethod</span><span class="o">&gt;</span><span class="w"> </span><span class="n">mappingLookup</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">LinkedHashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 所有 HandlerMethod 的列表</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">HandlerMethod</span><span class="o">&gt;</span><span class="w"> </span><span class="n">handlerMethods</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 初始化时的注册过程</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">registerHandlerMethod</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">,</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="n">mapping</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">HandlerMethod</span><span class="w"> </span><span class="n">newHandlerMethod</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createHandlerMethod</span><span class="p">(</span><span class="n">handler</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">mappingRegistry</span><span class="p">.</span><span class="na">register</span><span class="p">(</span><span class="n">mapping</span><span class="p">,</span><span class="w"> </span><span class="n">newHandlerMethod</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="14-请求匹配过程gethandler">1.4 请求匹配过程——getHandler()</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractHandlerMapping.java（模板方法）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">HandlerExecutionChain</span><span class="w"> </span><span class="nf">getHandler</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 由子类实现——查找 Handler</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getHandlerInternal</span><span class="p">(</span><span class="n">request</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">handler</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">handler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getDefaultHandler</span><span class="p">();</span><span class="w">  </span><span class="c1">// 默认处理器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">handler</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 如果 handler 是 String（Bean name），从容器获取</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">handler</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">String</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">handlerName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="p">)</span><span class="w"> </span><span class="n">handler</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">handler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">obtainApplicationContext</span><span class="p">().</span><span class="na">getBean</span><span class="p">(</span><span class="n">handlerName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. ★ 包装为 HandlerExecutionChain（添加拦截器）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">HandlerExecutionChain</span><span class="w"> </span><span class="n">executionChain</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getHandlerExecutionChain</span><span class="p">(</span><span class="n">handler</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">executionChain</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong><code>AbstractHandlerMethodMapping.lookupHandlerMethod()</code>——方法级别的匹配：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractHandlerMethodMapping.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">HandlerMethod</span><span class="w"> </span><span class="nf">lookupHandlerMethod</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">lookupPath</span><span class="p">,</span><span class="w"> </span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Match</span><span class="o">&gt;</span><span class="w"> </span><span class="n">matches</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 直接路径匹配（先查精确路径）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">directPathMatches</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">mappingRegistry</span><span class="p">.</span><span class="na">getMappingsByUrl</span><span class="p">(</span><span class="n">lookupPath</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">directPathMatches</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">addMatchingMappings</span><span class="p">(</span><span class="n">directPathMatches</span><span class="p">,</span><span class="w"> </span><span class="n">matches</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 精确匹配没找到，遍历所有映射</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">matches</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">addMatchingMappings</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">mappingRegistry</span><span class="p">.</span><span class="na">getMappings</span><span class="p">().</span><span class="na">keySet</span><span class="p">(),</span><span class="w"> </span><span class="n">matches</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 处理匹配结果</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">matches</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 多个匹配 → 按条件排序（最精确的排第一）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">matches</span><span class="p">.</span><span class="na">sort</span><span class="p">(</span><span class="n">MATCH_COMPARATOR</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 获取最佳匹配</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Match</span><span class="w"> </span><span class="n">bestMatch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">matches</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">0</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 检查是否有多个相同优先级的匹配 → 冲突</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">matches</span><span class="p">.</span><span class="na">size</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Match</span><span class="w"> </span><span class="n">secondBestMatch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">matches</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">1</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">COMPARATOR</span><span class="p">.</span><span class="na">compare</span><span class="p">(</span><span class="n">bestMatch</span><span class="p">,</span><span class="w"> </span><span class="n">secondBestMatch</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalStateException</span><span class="p">(</span><span class="s">&#34;Ambiguous handler methods mapped ...&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 处理矩阵变量等</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">handleMatch</span><span class="p">(</span><span class="n">bestMatch</span><span class="p">.</span><span class="na">mapping</span><span class="p">,</span><span class="w"> </span><span class="n">lookupPath</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">bestMatch</span><span class="p">.</span><span class="na">handlerMethod</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>匹配条件排序（按精确度）：</strong></p>
+<pre tabindex="0"><code>精确路径 &gt; 路径变量 {id} &gt; 通配符 *
+  ↓
+有 HTTP 方法限定 &gt; 无方法限定
+  ↓
+有 params 条件 &gt; 无 params 条件
+  ↓
+有 consumes 条件 &gt; 无 consumes 条件
+  ↓
+有 produces 条件 &gt; 无 produces 条件
+</code></pre><h2 id="二handleradapter-体系">二、HandlerAdapter 体系</h2>
+<h3 id="21-handleradapter-接口">2.1 HandlerAdapter 接口</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">HandlerAdapter</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 判断是否支持该 Handler</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">supports</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 执行 Handler</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ModelAndView</span><span class="w"> </span><span class="nf">handle</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 获取 Last-Modified</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">long</span><span class="w"> </span><span class="nf">getLastModified</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="22-requestmappinghandleradapter">2.2 RequestMappingHandlerAdapter</h3>
+<p><code>RequestMappingHandlerAdapter</code> 是最核心的 HandlerAdapter，负责执行 <code>@RequestMapping</code> 方法。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// RequestMappingHandlerAdapter 是 DispatcherServlet 中最关键的一个适配器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 它具备两大能力：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 1. 参数解析（Argument Resolvers）— 将 request 数据转为方法参数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 返回值处理（Return Value Handlers）— 将方法返回值转为 ModelAndView</span><span class="w">
+</span></span></span></code></pre></div><p><strong>初始化时加载的解析器和处理器：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// RequestMappingHandlerAdapter.afterPropertiesSet()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">afterPropertiesSet</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 初始化参数解析器（默认已注册 30+ 个）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">this</span><span class="p">.</span><span class="na">argumentResolvers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getDefaultArgumentResolvers</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 初始化参数方法参数解析器（如 @ModelAttribute 方法的参数）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">this</span><span class="p">.</span><span class="na">initBinderArgumentResolvers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getDefaultInitBinderArgumentResolvers</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 初始化返回值处理器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">this</span><span class="p">.</span><span class="na">returnValueHandlers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getDefaultReturnValueHandlers</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 默认注册的参数解析器（部分关键）：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">HandlerMethodArgumentResolver</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">getDefaultArgumentResolvers</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">HandlerMethodArgumentResolver</span><span class="o">&gt;</span><span class="w"> </span><span class="n">resolvers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 基于注解的参数解析</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">RequestParamMethodArgumentResolver</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">,</span><span class="w"> </span><span class="kc">false</span><span class="p">));</span><span class="w">   </span><span class="c1">// @RequestParam</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">RequestParamMapMethodArgumentResolver</span><span class="p">());</span><span class="w">                   </span><span class="c1">// @RequestParam Map</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">PathVariableMethodArgumentResolver</span><span class="p">());</span><span class="w">                      </span><span class="c1">// @PathVariable</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">PathVariableMapMethodArgumentResolver</span><span class="p">());</span><span class="w">                   </span><span class="c1">// @PathVariable Map</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">MatrixVariableMethodArgumentResolver</span><span class="p">());</span><span class="w">                    </span><span class="c1">// @MatrixVariable</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">RequestBodyMethodArgumentResolver</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">));</span><span class="w">            </span><span class="c1">// @RequestBody</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">RequestHeaderMethodArgumentResolver</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">));</span><span class="w">          </span><span class="c1">// @RequestHeader</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">RequestHeaderMapMethodArgumentResolver</span><span class="p">());</span><span class="w">                  </span><span class="c1">// @RequestHeader Map</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">CookieValueMethodArgumentResolver</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">));</span><span class="w">            </span><span class="c1">// @CookieValue</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ExpressionValueMethodArgumentResolver</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">));</span><span class="w">        </span><span class="c1">// @Value</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 基于类型的参数解析</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ServletRequestMethodArgumentResolver</span><span class="p">());</span><span class="w">                    </span><span class="c1">// HttpServletRequest</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ServletResponseMethodArgumentResolver</span><span class="p">());</span><span class="w">                   </span><span class="c1">// HttpServletResponse</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">HttpEntityMethodArgumentResolver</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">));</span><span class="w">             </span><span class="c1">// HttpEntity</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">RedirectAttributesMethodArgumentResolver</span><span class="p">());</span><span class="w">                </span><span class="c1">// RedirectAttributes</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ModelMethodArgumentResolver</span><span class="p">());</span><span class="w">                             </span><span class="c1">// Model</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">MapMethodArgumentResolver</span><span class="p">());</span><span class="w">                               </span><span class="c1">// Map</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ErrorsMethodArgumentResolver</span><span class="p">());</span><span class="w">                            </span><span class="c1">// Errors/BindingResult</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">SessionStatusMethodArgumentResolver</span><span class="p">());</span><span class="w">                     </span><span class="c1">// SessionStatus</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resolvers</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">UriComponentsBuilderMethodArgumentResolver</span><span class="p">());</span><span class="w">              </span><span class="c1">// UriComponentsBuilder</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 其他...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">resolvers</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="三参数解析器handlermethodargumentresolver">三、参数解析器（HandlerMethodArgumentResolver）</h2>
+<h3 id="31-接口定义">3.1 接口定义</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">HandlerMethodArgumentResolver</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 是否支持该参数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">supportsParameter</span><span class="p">(</span><span class="n">MethodParameter</span><span class="w"> </span><span class="n">parameter</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 从 request 中解析参数值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="nf">resolveArgument</span><span class="p">(</span><span class="n">MethodParameter</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                           </span><span class="n">ModelAndViewContainer</span><span class="w"> </span><span class="n">mavContainer</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                           </span><span class="n">NativeWebRequest</span><span class="w"> </span><span class="n">webRequest</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                           </span><span class="n">WebDataBinderFactory</span><span class="w"> </span><span class="n">binderFactory</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="32-解析过程">3.2 解析过程</h3>
+<p><code>RequestMappingHandlerAdapter</code> 在执行目标方法时，通过 <code>InvocableHandlerMethod</code> 逐参数解析：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// InvocableHandlerMethod.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="nf">getMethodArgumentValues</span><span class="p">(</span><span class="n">NativeWebRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                           </span><span class="n">ModelAndViewContainer</span><span class="w"> </span><span class="n">mavContainer</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                           </span><span class="n">Object</span><span class="p">...</span><span class="w"> </span><span class="n">providedArgs</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MethodParameter</span><span class="o">[]</span><span class="w"> </span><span class="n">parameters</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getMethodParameters</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Object</span><span class="o">[</span><span class="n">parameters</span><span class="p">.</span><span class="na">length</span><span class="o">]</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">parameters</span><span class="p">.</span><span class="na">length</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MethodParameter</span><span class="w"> </span><span class="n">parameter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parameters</span><span class="o">[</span><span class="n">i</span><span class="o">]</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">parameter</span><span class="p">.</span><span class="na">initParameterNameDiscovery</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">parameterNameDiscoverer</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 遍历所有参数解析器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">HandlerMethodArgumentResolver</span><span class="w"> </span><span class="n">resolver</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">argumentResolvers</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resolver</span><span class="p">.</span><span class="na">supportsParameter</span><span class="p">(</span><span class="n">parameter</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 解析参数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">args</span><span class="o">[</span><span class="n">i</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resolver</span><span class="p">.</span><span class="na">resolveArgument</span><span class="p">(</span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">mavContainer</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">dataBinderFactory</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">break</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">args</span><span class="o">[</span><span class="n">i</span><span class="o">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalStateException</span><span class="p">(</span><span class="s">&#34;Could not resolve parameter ...&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">args</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="33-requestparam-的解析">3.3 @RequestParam 的解析</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// RequestParamMethodArgumentResolver.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">supportsParameter</span><span class="p">(</span><span class="n">MethodParameter</span><span class="w"> </span><span class="n">parameter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 检查是否标注了 @RequestParam</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">parameter</span><span class="p">.</span><span class="na">hasParameterAnnotation</span><span class="p">(</span><span class="n">RequestParam</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">resolveArgument</span><span class="p">(</span><span class="n">MethodParameter</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="p">...)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">RequestParam</span><span class="w"> </span><span class="n">requestParam</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parameter</span><span class="p">.</span><span class="na">getParameterAnnotation</span><span class="p">(</span><span class="n">RequestParam</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 获取参数名（从注解或 -parameters 编译选项）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">requestParam</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">requestParam</span><span class="p">.</span><span class="na">name</span><span class="p">()</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s">&#34;&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">name</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parameter</span><span class="p">.</span><span class="na">getParameterName</span><span class="p">();</span><span class="w">  </span><span class="c1">// 需要 -parameters 编译选项</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 获取请求中的值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">servletRequest</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">webRequest</span><span class="p">.</span><span class="na">getNativeRequest</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">paramValues</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">servletRequest</span><span class="p">.</span><span class="na">getParameterValues</span><span class="p">(</span><span class="n">name</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 类型转换</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">paramType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parameter</span><span class="p">.</span><span class="na">getParameterType</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">conversionService</span><span class="p">.</span><span class="na">convert</span><span class="p">(</span><span class="n">paramValues</span><span class="p">,</span><span class="w"> </span><span class="n">paramType</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="34-requestbody-的解析">3.4 @RequestBody 的解析</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// RequestBodyMethodArgumentResolver.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">supportsParameter</span><span class="p">(</span><span class="n">MethodParameter</span><span class="w"> </span><span class="n">parameter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">parameter</span><span class="p">.</span><span class="na">hasParameterAnnotation</span><span class="p">(</span><span class="n">RequestBody</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">resolveArgument</span><span class="p">(</span><span class="n">MethodParameter</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="p">...)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 读取请求体（HttpMessageConverter）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">HttpInputMessage</span><span class="w"> </span><span class="n">inputMessage</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ServletServerHttpRequest</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">webRequest</span><span class="p">.</span><span class="na">getNativeRequest</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="p">.</span><span class="na">class</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">paramType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parameter</span><span class="p">.</span><span class="na">getParameterType</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MethodParameter</span><span class="w"> </span><span class="n">methodParam</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parameter</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 遍历所有 HttpMessageConverter</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">//    MappingJackson2HttpMessageConverter（JSON）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">//    MappingJackson2XmlHttpMessageConverter（XML）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">//    StringHttpMessageConverter（String）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">HttpMessageConverter</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">converter</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">messageConverters</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">converter</span><span class="p">.</span><span class="na">canRead</span><span class="p">(</span><span class="n">paramType</span><span class="p">,</span><span class="w"> </span><span class="n">methodParam</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 反序列化请求体为 Java 对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">converter</span><span class="p">.</span><span class="na">read</span><span class="p">(</span><span class="n">paramType</span><span class="p">,</span><span class="w"> </span><span class="n">methodParam</span><span class="p">,</span><span class="w"> </span><span class="n">inputMessage</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="四返回值处理器handlermethodreturnvaluehandler">四、返回值处理器（HandlerMethodReturnValueHandler）</h2>
+<h3 id="41-接口定义">4.1 接口定义</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">HandlerMethodReturnValueHandler</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 是否支持该返回类型</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">supportsReturnType</span><span class="p">(</span><span class="n">MethodParameter</span><span class="w"> </span><span class="n">returnType</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 将返回值写入 response 或添加到 ModelAndView</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleReturnValue</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">returnValue</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                           </span><span class="n">MethodParameter</span><span class="w"> </span><span class="n">returnType</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                           </span><span class="n">ModelAndViewContainer</span><span class="w"> </span><span class="n">mavContainer</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                           </span><span class="n">NativeWebRequest</span><span class="w"> </span><span class="n">webRequest</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="42-返回值处理过程">4.2 返回值处理过程</h3>
+<p><code>RequestMappingHandlerAdapter</code> 在方法执行完成后，遍历返回值处理器处理结果：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ServletInvocableHandlerMethod.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">invokeAndHandle</span><span class="p">(</span><span class="n">NativeWebRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                            </span><span class="n">ModelAndViewContainer</span><span class="w"> </span><span class="n">mavContainer</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                            </span><span class="n">Object</span><span class="p">...</span><span class="w"> </span><span class="n">providedArgs</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 执行目标方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="n">returnValue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">invokeForRequest</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">mavContainer</span><span class="p">,</span><span class="w"> </span><span class="n">providedArgs</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 遍历返回值处理器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">HandlerMethodReturnValueHandler</span><span class="w"> </span><span class="n">handler</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">returnValueHandlers</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">handler</span><span class="p">.</span><span class="na">supportsReturnType</span><span class="p">(</span><span class="n">returnType</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 处理返回值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">handler</span><span class="p">.</span><span class="na">handleReturnValue</span><span class="p">(</span><span class="n">returnValue</span><span class="p">,</span><span class="w"> </span><span class="n">returnType</span><span class="p">,</span><span class="w"> </span><span class="n">mavContainer</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="43-常见返回值处理器">4.3 常见返回值处理器</h3>
+<table>
+	<thead>
+			<tr>
+					<th>处理器</th>
+					<th>返回类型</th>
+					<th>行为</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>ModelAndViewMethodReturnValueHandler</code></td>
+					<td><code>ModelAndView</code></td>
+					<td>直接设置视图和模型</td>
+			</tr>
+			<tr>
+					<td><code>ModelMethodProcessor</code></td>
+					<td><code>Model</code></td>
+					<td>将 Model 内容合并到 mavContainer</td>
+			</tr>
+			<tr>
+					<td><code>ViewMethodReturnValueHandler</code></td>
+					<td><code>View</code></td>
+					<td>设置视图对象</td>
+			</tr>
+			<tr>
+					<td><code>ResponseBodyHandlerMethodReturnValueHandler</code></td>
+					<td><code>@ResponseBody</code> 注解</td>
+					<td>使用 MessageConverter 写入响应体</td>
+			</tr>
+			<tr>
+					<td><code>ViewNameMethodReturnValueHandler</code></td>
+					<td><code>String</code></td>
+					<td>将字符串视为视图名</td>
+			</tr>
+			<tr>
+					<td><code>MapMethodProcessor</code></td>
+					<td><code>Map</code></td>
+					<td>将 Map 添加到 Model 中</td>
+			</tr>
+			<tr>
+					<td><code>HttpEntityMethodProcessor</code></td>
+					<td><code>HttpEntity</code>/<code>ResponseEntity</code></td>
+					<td>写入响应体 + 状态码</td>
+			</tr>
+			<tr>
+					<td><code>CallableMethodReturnValueHandler</code></td>
+					<td><code>Callable</code></td>
+					<td>异步处理</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="44-responsebody-的处理">4.4 @ResponseBody 的处理</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ResponseBodyHandlerMethodReturnValueHandler.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 实际上是 AbstractMessageConverterMethodProcessor 的子类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">supportsReturnType</span><span class="p">(</span><span class="n">MethodParameter</span><span class="w"> </span><span class="n">returnType</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 检查方法或类上是否标了 @ResponseBody</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">returnType</span><span class="p">.</span><span class="na">hasMethodAnnotation</span><span class="p">(</span><span class="n">ResponseBody</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="o">||</span><span class="w"> </span><span class="n">returnType</span><span class="p">.</span><span class="na">getContainingClass</span><span class="p">().</span><span class="na">isAnnotationPresent</span><span class="p">(</span><span class="n">ResponseBody</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleReturnValue</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">returnValue</span><span class="p">,</span><span class="w"> </span><span class="p">...)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 写入响应</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">writeWithMessageConverters</span><span class="p">(</span><span class="n">returnValue</span><span class="p">,</span><span class="w"> </span><span class="n">returnType</span><span class="p">,</span><span class="w"> </span><span class="n">webRequest</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 标记请求已处理完成（不需要视图渲染）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">mavContainer</span><span class="p">.</span><span class="na">setRequestHandled</span><span class="p">(</span><span class="kc">true</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 序列化逻辑（简化的 JSON 序列化）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">writeWithMessageConverters</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="p">...)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 确定客户端可接受的响应类型（Accept 头）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MediaType</span><span class="w"> </span><span class="n">selectedMediaType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">...;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 遍历 MessageConverter</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">HttpMessageConverter</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">converter</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">messageConverters</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">GenericHttpMessageConverter</span><span class="w"> </span><span class="n">genericConverter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">...;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">genericConverter</span><span class="p">.</span><span class="na">canWrite</span><span class="p">(</span><span class="n">targetType</span><span class="p">,</span><span class="w"> </span><span class="n">valueType</span><span class="p">,</span><span class="w"> </span><span class="n">selectedMediaType</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 序列化并写入响应</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">genericConverter</span><span class="p">.</span><span class="na">write</span><span class="p">(</span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="n">selectedMediaType</span><span class="p">,</span><span class="w"> </span><span class="n">outputMessage</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="五webdatabinder-与数据绑定">五、WebDataBinder 与数据绑定</h2>
+<h3 id="51-绑定过程">5.1 绑定过程</h3>
+<p>当方法参数是自定义对象时，<code>WebDataBinder</code> 负责将请求参数绑定到对象字段：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 目标方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@PostMapping</span><span class="p">(</span><span class="s">&#34;/users&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Result</span><span class="w"> </span><span class="nf">create</span><span class="p">(</span><span class="nd">@RequestBody</span><span class="w"> </span><span class="nd">@Valid</span><span class="w"> </span><span class="n">User</span><span class="w"> </span><span class="n">user</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// WebDataBinder 的绑定过程（简化）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">WebDataBinder</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">DataBinder</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">bind</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 获取所有请求参数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="o">[]&gt;</span><span class="w"> </span><span class="n">params</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getParameterMap</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 遍历对象的属性</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">PropertyValues</span><span class="w"> </span><span class="n">pvs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MutablePropertyValues</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">PropertyDescriptor</span><span class="w"> </span><span class="n">pd</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">getTargetObject</span><span class="p">().</span><span class="na">getPropertyDescriptors</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="w"> </span><span class="n">paramName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pd</span><span class="p">.</span><span class="na">getName</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">params</span><span class="p">.</span><span class="na">containsKey</span><span class="p">(</span><span class="n">paramName</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 3. 类型转换并赋值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">pvs</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">paramName</span><span class="p">,</span><span class="w"> </span><span class="n">params</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">paramName</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 应用绑定</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">super</span><span class="p">.</span><span class="na">bind</span><span class="p">(</span><span class="n">pvs</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="52-类型转换">5.2 类型转换</h3>
+<p>Spring MVC 内置了丰富的类型转换器：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 自动支持的类型转换：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 字符串 → int / long / double / boolean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 字符串 → LocalDate / LocalDateTime（@DateTimeFormat）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 字符串 → 枚举（名称匹配）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 数组 ↔ 集合</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 等等</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@GetMapping</span><span class="p">(</span><span class="s">&#34;/search&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Result</span><span class="w"> </span><span class="nf">search</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nd">@RequestParam</span><span class="w"> </span><span class="nd">@DateTimeFormat</span><span class="p">(</span><span class="n">pattern</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;yyyy-MM-dd&#34;</span><span class="p">)</span><span class="w"> </span><span class="n">LocalDate</span><span class="w"> </span><span class="n">start</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nd">@RequestParam</span><span class="w"> </span><span class="nd">@DateTimeFormat</span><span class="p">(</span><span class="n">pattern</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;yyyy-MM-dd&#34;</span><span class="p">)</span><span class="w"> </span><span class="n">LocalDate</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// Spring 自动将字符串解析为 LocalDate</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="六总结">六、总结</h2>
+<h3 id="handlermapping-匹配过程">HandlerMapping 匹配过程</h3>
+<pre tabindex="0"><code>请求 URL: GET /api/users/123
+    │
+    ▼
+RequestMappingHandlerMapping.getHandlerInternal()
+    │
+    ├── 从 mappingRegistry 查找路径匹配
+    │     ├── 直接路径匹配：/api/users/{id} ✓
+    │     └── 通配符匹配：/api/** ✓（优先级低）
+    │
+    ├── 按条件排序（精确度高的排前面）
+    │
+    └── 返回 HandlerMethod{UserController.getById(Long)}
+          └── 包装为 HandlerExecutionChain
+                ├── HandlerMethod
+                ├── Interceptor1
+                └── Interceptor2
+</code></pre><h3 id="handleradapter-参数与返回值处理">HandlerAdapter 参数与返回值处理</h3>
+<pre tabindex="0"><code>方法签名：Result&lt;User&gt; getById(@PathVariable Long id)
+
+参数解析过程：
+  @PathVariable Long id
+    → PathVariableMethodArgumentResolver
+    → 从 URL 路径提取 id 值
+    → 类型转换为 Long
+    → 返回 123L
+
+返回值处理过程：
+  Result&lt;User&gt;
+    → ResponseBodyHandlerMethodReturnValueHandler
+    → MappingJackson2HttpMessageConverter
+    → 序列化为 JSON → 写入响应体
+</code></pre><h3 id="核心类速查">核心类速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>类</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>RequestMappingHandlerMapping</code></td>
+					<td>处理 @RequestMapping 注解，建立 URL→Handler 映射</td>
+			</tr>
+			<tr>
+					<td><code>RequestMappingHandlerAdapter</code></td>
+					<td>执行 Handler，参数解析 + 返回值处理</td>
+			</tr>
+			<tr>
+					<td><code>HandlerMethodArgumentResolver</code></td>
+					<td>从 Request 中解析方法参数（30+ 实现）</td>
+			</tr>
+			<tr>
+					<td><code>HandlerMethodReturnValueHandler</code></td>
+					<td>处理方法返回值</td>
+			</tr>
+			<tr>
+					<td><code>HttpMessageConverter</code></td>
+					<td>请求体/响应体的序列化反序列化</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>上一篇：</strong> <a href="/posts/spring-mvc%E4%BA%8Cdispatcherservlet-%E8%AF%B7%E6%B1%82%E5%A4%84%E7%90%86%E6%B5%81%E7%A8%8B/">Spring MVC（二）：DispatcherServlet 请求处理流程</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/spring-mvc%E5%9B%9B%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B8%8E%E8%A7%86%E5%9B%BE%E8%A7%A3%E6%9E%90/">Spring MVC（四）：异常处理与视图解析</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

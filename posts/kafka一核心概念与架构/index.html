@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Kafka（一）：核心概念与架构 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一kafka-的整体架构">一、Kafka 的整体架构</a>
+      <ul>
+        <li><a href="#11-核心组件">1.1 核心组件</a></li>
+      </ul>
+    </li>
+    <li><a href="#二topic-与-partition">二、Topic 与 Partition</a>
+      <ul>
+        <li><a href="#21-分区结构">2.1 分区结构</a></li>
+        <li><a href="#22-分区数设计">2.2 分区数设计</a></li>
+        <li><a href="#23-分区与消费者组">2.3 分区与消费者组</a></li>
+      </ul>
+    </li>
+    <li><a href="#三消息模型">三、消息模型</a>
+      <ul>
+        <li><a href="#31-点对点模式-vs-发布订阅模式">3.1 点对点模式 vs 发布订阅模式</a></li>
+        <li><a href="#32-消息结构">3.2 消息结构</a></li>
+      </ul>
+    </li>
+    <li><a href="#四集群架构">四、集群架构</a>
+      <ul>
+        <li><a href="#41-broker-与-controller">4.1 Broker 与 Controller</a></li>
+        <li><a href="#42-leader-与-replica">4.2 Leader 与 Replica</a></li>
+        <li><a href="#43-zookeeper-的角色">4.3 ZooKeeper 的角色</a></li>
+      </ul>
+    </li>
+    <li><a href="#五基础操作">五、基础操作</a>
+      <ul>
+        <li><a href="#51-命令行操作">5.1 命令行操作</a></li>
+        <li><a href="#52-server-配置">5.2 Server 配置</a></li>
+      </ul>
+    </li>
+    <li><a href="#六总结">六、总结</a>
+      <ul>
+        <li><a href="#kafka-核心特性">Kafka 核心特性</a></li>
+        <li><a href="#基础概念速查">基础概念速查</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Kafka（一）：核心概念与架构</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>Kafka 是 Apache 基金会旗下的分布式消息流平台，最初由 LinkedIn 开发，于 2011 年开源。与传统的消息队列不同，Kafka 在设计上更侧重于<strong>高吞吐量</strong>、<strong>持久化存储</strong>和<strong>流式处理</strong>。</p>
+<p>本文从最基础的架构出发，逐步覆盖 Kafka 的核心概念和组件。</p>
+<h2 id="一kafka-的整体架构">一、Kafka 的整体架构</h2>
+<pre tabindex="0"><code>                    Producers（生产者）
+                      │    │    │
+                      ▼    ▼    ▼
+              ┌───────────────────────┐
+              │      Kafka Cluster     │
+              │  ┌─────┐ ┌─────┐      │
+              │  │Broker│ │Broker│ ...  │
+              │  │      │ │      │      │
+              │  │P0 P3│ │P1 P4│      │
+              │  │  (Leader/Replica)   │
+              │  └─────┘ └─────┘      │
+              └───────────────────────┘
+                      │    │    │
+                      ▼    ▼    ▼
+                    ┌──────────────┐
+                    │   Zookeeper   │
+                    │  (元数据管理)  │
+                    └──────────────┘
+                      │    │    │
+                      ▼    ▼    ▼
+                    Consumers（消费者）
+                    Consumer Group
+</code></pre><h3 id="11-核心组件">1.1 核心组件</h3>
+<table>
+	<thead>
+			<tr>
+					<th>组件</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>Broker</strong></td>
+					<td>Kafka 服务器节点，一个集群由多个 Broker 组成</td>
+			</tr>
+			<tr>
+					<td><strong>Topic</strong></td>
+					<td>消息的主题类别，生产者向 Topic 发消息，消费者从 Topic 拉消息</td>
+			</tr>
+			<tr>
+					<td><strong>Partition</strong></td>
+					<td>Topic 的分区，一个 Topic 有多个分区，每个分区有序</td>
+			</tr>
+			<tr>
+					<td><strong>Producer</strong></td>
+					<td>消息生产者</td>
+			</tr>
+			<tr>
+					<td><strong>Consumer</strong></td>
+					<td>消息消费者</td>
+			</tr>
+			<tr>
+					<td><strong>Consumer Group</strong></td>
+					<td>消费者组，组内消费者共同消费 Topic 的消息</td>
+			</tr>
+			<tr>
+					<td><strong>ZooKeeper</strong></td>
+					<td>负责集群元数据管理、Leader 选举（2.8+ 逐步移除）</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="二topic-与-partition">二、Topic 与 Partition</h2>
+<h3 id="21-分区结构">2.1 分区结构</h3>
+<pre tabindex="0"><code>Topic: orders
+    │
+    ├── Partition 0（分区 0）
+    │     ┌────┬────┬────┬────┬────┬────┐
+    │     │ msg0│ msg1│ msg2│ msg3│ msg4│    → 追加写入
+    │     │offset│offset│offset│offset│offset│
+    │     │ 0  │ 1  │ 2  │ 3  │ 4  │
+    │     └────┴────┴────┴────┴────┴────┘
+    │
+    ├── Partition 1
+    │     ┌────┬────┬────┬────┐
+    │     │msg0│ msg1│ msg2│ msg3│
+    │     │off0│off1│off2│off3│
+    │     └────┴────┴────┴────┘
+    │
+    └── Partition 2
+          ┌────┬────┬────┐
+          │msg0│ msg1│ msg2│
+          │off0│off1│off2│
+          └────┴────┴────┘
+
+每个 Partition 是：
+- 有序的、不可变的消息序列
+- 每个消息用 offset（偏移量）唯一标识
+- 新消息追加到末尾（顺序写，高性能）
+- 消息保留一定时间后自动删除（默认 7 天）
+</code></pre><h3 id="22-分区数设计">2.2 分区数设计</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 创建 Topic 时指定分区数</span>
+</span></span><span class="line"><span class="cl">bin/kafka-topics.sh --create <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --topic orders <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --bootstrap-server localhost:9092 <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --partitions <span class="m">6</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --replication-factor <span class="m">3</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 修改分区数（只能增加，不能减少）</span>
+</span></span><span class="line"><span class="cl">bin/kafka-topics.sh --alter <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --topic orders <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --bootstrap-server localhost:9092 <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --partitions <span class="m">12</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 查看 Topic 详情</span>
+</span></span><span class="line"><span class="cl">bin/kafka-topics.sh --describe <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --topic orders <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --bootstrap-server localhost:9092
+</span></span></code></pre></div><p><strong>分区数选择建议：</strong></p>
+<pre tabindex="0"><code>分区数 = max(生产者并行度, 消费者并行度)
+
+参考：
+- 分区数太少 → 吞吐量上不去（并行度不够）
+- 分区数太多 → 文件句柄占用多、Leader 选举慢
+- 建议：初期设 6-12，后续按需增加
+- 注意：分区数只能增加不能减少
+</code></pre><h3 id="23-分区与消费者组">2.3 分区与消费者组</h3>
+<pre tabindex="0"><code>Topic (orders, 6 个分区)
+
+同一消费者组内：
+├── Group A (3 个消费者)
+│     ├── Consumer A1 → Partition 0, 1
+│     ├── Consumer A2 → Partition 2, 3
+│     └── Consumer A3 → Partition 4, 5
+│
+│  每个分区只能被组内的一个消费者消费
+│  消费者数 ≤ 分区数
+
+不同消费者组之间独立消费：
+├── Group A (3 个消费者) ← 消费全部 6 个分区
+└── Group B (2 个消费者) ← 也消费全部 6 个分区
+</code></pre><hr>
+<h2 id="三消息模型">三、消息模型</h2>
+<h3 id="31-点对点模式-vs-发布订阅模式">3.1 点对点模式 vs 发布订阅模式</h3>
+<pre tabindex="0"><code>点对点（Queue）：同一消费者组内
+  Producer → Topic → Partition → 组内一个消费者消费
+  消息被消费后不会再次被同组消费
+
+发布订阅（Pub/Sub）：不同消费者组
+  Producer → Topic → Partition → GroupA 消费 → 也到 GroupB 消费
+  每个消费者组都能收到完整的消息
+</code></pre><h3 id="32-消息结构">3.2 消息结构</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Kafka 消息的核心字段</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ProducerRecord</span><span class="o">&lt;</span><span class="n">K</span><span class="p">,</span><span class="w"> </span><span class="n">V</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">topic</span><span class="p">;</span><span class="w">          </span><span class="c1">// 主题</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Integer</span><span class="w"> </span><span class="n">partition</span><span class="p">;</span><span class="w">     </span><span class="c1">// 分区（可选，由分区器决定）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">K</span><span class="w"> </span><span class="n">key</span><span class="p">;</span><span class="w">                 </span><span class="c1">// 键（用于分区路由）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">V</span><span class="w"> </span><span class="n">value</span><span class="p">;</span><span class="w">               </span><span class="c1">// 值（消息体）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Long</span><span class="w"> </span><span class="n">timestamp</span><span class="p">;</span><span class="w">        </span><span class="c1">// 时间戳</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Headers</span><span class="w"> </span><span class="n">headers</span><span class="p">;</span><span class="w">       </span><span class="c1">// 消息头</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="四集群架构">四、集群架构</h2>
+<h3 id="41-broker-与-controller">4.1 Broker 与 Controller</h3>
+<pre tabindex="0"><code>在 Kafka 集群中，一个 Broker 被选为 Controller。
+Controller 负责管理集群的元数据：
+├── 管理每个 Partition 的 Leader/Replica 列表
+├── 处理 Broker 上下线
+├── 触发 Partition 的 Leader 选举
+└── 更新元数据后通知其他 Broker
+</code></pre><h3 id="42-leader-与-replica">4.2 Leader 与 Replica</h3>
+<pre tabindex="0"><code>Topic: orders, Partition 0
+
+Broker 1 (Leader)    ── 读写请求都经过 Leader
+  └── 同步复制 ──▶  Broker 2 (Replica)
+  └── 同步复制 ──▶  Broker 3 (Replica)
+
+ISR（In-Sync Replica）：与 Leader 保持同步的副本集合
+当 Leader 宕机时，从 ISR 中选举新的 Leader
+</code></pre><h3 id="43-zookeeper-的角色">4.3 ZooKeeper 的角色</h3>
+<pre tabindex="0"><code>Kafka 依赖 ZooKeeper 存储集群元数据：
+├── Broker 注册 / 发现
+├── Controller 选举
+├── Topic 元数据
+├── Consumer Group 的 offset（0.9+ 偏移量已存储在 Kafka 内部 Topic）
+└── 集群配置
+
+# Kafka 2.8+ 开始支持 KRaft 模式，逐步移除 ZooKeeper 依赖
+</code></pre><hr>
+<h2 id="五基础操作">五、基础操作</h2>
+<h3 id="51-命令行操作">5.1 命令行操作</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 启动 ZooKeeper</span>
+</span></span><span class="line"><span class="cl">bin/zookeeper-server-start.sh config/zookeeper.properties
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 启动 Kafka Broker</span>
+</span></span><span class="line"><span class="cl">bin/kafka-server-start.sh config/server.properties
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 创建 Topic</span>
+</span></span><span class="line"><span class="cl">bin/kafka-topics.sh --create <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --topic <span class="nb">test</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --bootstrap-server localhost:9092 <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --partitions <span class="m">3</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --replication-factor <span class="m">1</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 控制台生产者</span>
+</span></span><span class="line"><span class="cl">bin/kafka-console-producer.sh <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --topic <span class="nb">test</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --bootstrap-server localhost:9092
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 控制台消费者</span>
+</span></span><span class="line"><span class="cl">bin/kafka-console-consumer.sh <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --topic <span class="nb">test</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --bootstrap-server localhost:9092 <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --from-beginning
+</span></span></code></pre></div><h3 id="52-server-配置">5.2 Server 配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-properties" data-lang="properties"><span class="line"><span class="cl"><span class="c1"># server.properties</span>
+</span></span><span class="line"><span class="cl"><span class="na">broker.id</span><span class="o">=</span><span class="s">0</span>
+</span></span><span class="line"><span class="cl"><span class="na">listeners</span><span class="o">=</span><span class="s">PLAINTEXT://0.0.0.0:9092</span>
+</span></span><span class="line"><span class="cl"><span class="na">log.dirs</span><span class="o">=</span><span class="s">/data/kafka/logs</span>
+</span></span><span class="line"><span class="cl"><span class="na">num.partitions</span><span class="o">=</span><span class="s">3</span>
+</span></span><span class="line"><span class="cl"><span class="na">default.replication.factor</span><span class="o">=</span><span class="s">2</span>
+</span></span><span class="line"><span class="cl"><span class="na">log.retention.hours</span><span class="o">=</span><span class="s">168</span>
+</span></span><span class="line"><span class="cl"><span class="na">log.segment.bytes</span><span class="o">=</span><span class="s">1073741824</span>
+</span></span><span class="line"><span class="cl"><span class="na">zookeeper.connect</span><span class="o">=</span><span class="s">localhost:2181</span>
+</span></span></code></pre></div><hr>
+<h2 id="六总结">六、总结</h2>
+<h3 id="kafka-核心特性">Kafka 核心特性</h3>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>高吞吐量</td>
+					<td>顺序写磁盘、零拷贝、批量发送</td>
+			</tr>
+			<tr>
+					<td>持久化</td>
+					<td>消息落盘，可配置保留时间</td>
+			</tr>
+			<tr>
+					<td>高可用</td>
+					<td>Partition 多副本，自动 Leader 选举</td>
+			</tr>
+			<tr>
+					<td>可扩展</td>
+					<td>在线增加 Broker、Topic 分区</td>
+			</tr>
+			<tr>
+					<td>顺序保证</td>
+					<td>单个 Partition 内消息有序</td>
+			</tr>
+			<tr>
+					<td>流处理</td>
+					<td>配合 Kafka Streams / ksqlDB</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="基础概念速查">基础概念速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>概念</th>
+					<th>一句话</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Broker</td>
+					<td>Kafka 服务器</td>
+			</tr>
+			<tr>
+					<td>Topic</td>
+					<td>消息的分类</td>
+			</tr>
+			<tr>
+					<td>Partition</td>
+					<td>Topic 的分片，有序消息序列</td>
+			</tr>
+			<tr>
+					<td>Offset</td>
+					<td>分区内消息的唯一标识</td>
+			</tr>
+			<tr>
+					<td>Producer</td>
+					<td>消息发送者</td>
+			</tr>
+			<tr>
+					<td>Consumer</td>
+					<td>消息接收者</td>
+			</tr>
+			<tr>
+					<td>Consumer Group</td>
+					<td>消费者组，组内协作消费</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>下一篇：</strong> <a href="/posts/kafka%E4%BA%8C%E7%94%9F%E4%BA%A7%E8%80%85%E5%8E%9F%E7%90%86/">Kafka（二）：生产者原理</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

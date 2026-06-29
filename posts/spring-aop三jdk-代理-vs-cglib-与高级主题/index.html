@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Spring AOP（三）：JDK 代理 vs CGLib 与高级主题 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一jdk-动态代理">一、JDK 动态代理</a>
+      <ul>
+        <li><a href="#11-原理">1.1 原理</a></li>
+        <li><a href="#12-核心实现">1.2 核心实现</a></li>
+        <li><a href="#13-验证">1.3 验证</a></li>
+      </ul>
+    </li>
+    <li><a href="#二cglib-代理">二、CGLib 代理</a>
+      <ul>
+        <li><a href="#21-原理">2.1 原理</a></li>
+        <li><a href="#22-核心实现">2.2 核心实现</a></li>
+        <li><a href="#23-验证">2.3 验证</a></li>
+      </ul>
+    </li>
+    <li><a href="#三两种代理方式的对比">三、两种代理方式的对比</a>
+      <ul>
+        <li><a href="#31-核心差异">3.1 核心差异</a></li>
+        <li><a href="#32-调用性能测试">3.2 调用性能测试</a></li>
+        <li><a href="#33-如何强制指定代理方式">3.3 如何强制指定代理方式</a></li>
+        <li><a href="#34-spring-boot-中的默认行为">3.4 Spring Boot 中的默认行为</a></li>
+      </ul>
+    </li>
+    <li><a href="#四exposeproxy-与-aopcontext">四、exposeProxy 与 AopContext</a>
+      <ul>
+        <li><a href="#41-问题回顾">4.1 问题回顾</a></li>
+        <li><a href="#42-exposeproxy-解决方案">4.2 exposeProxy 解决方案</a></li>
+        <li><a href="#43-原理">4.3 原理</a></li>
+      </ul>
+    </li>
+    <li><a href="#五spring-aop-vs-aspectj">五、Spring AOP vs AspectJ</a>
+      <ul>
+        <li><a href="#51-对比">5.1 对比</a></li>
+        <li><a href="#52-何时需要-aspectj">5.2 何时需要 AspectJ</a></li>
+        <li><a href="#53-spring-中使用有限-aspectjload-time-weaving">5.3 Spring 中使用有限 AspectJ（load-time weaving）</a></li>
+      </ul>
+    </li>
+    <li><a href="#六aop-的最佳实践">六、AOP 的最佳实践</a>
+      <ul>
+        <li><a href="#61-切面设计原则">6.1 切面设计原则</a></li>
+        <li><a href="#62-通知类型的选择">6.2 通知类型的选择</a></li>
+        <li><a href="#63-用自定义注解驱动-aop">6.3 用自定义注解驱动 AOP</a></li>
+        <li><a href="#64-性能考量">6.4 性能考量</a></li>
+      </ul>
+    </li>
+    <li><a href="#七总结">七、总结</a>
+      <ul>
+        <li><a href="#代理方式决策">代理方式决策</a></li>
+        <li><a href="#最佳实践清单">最佳实践清单</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Spring AOP（三）：JDK 代理 vs CGLib 与高级主题</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>前两篇分别覆盖了 AOP 的使用和源码流程。本篇聚焦于 AOP 的底层实现机制：<strong>JDK 动态代理</strong>和 <strong>CGLib</strong> 两种代理方式的工作原理、差异和选型，以及 exposeProxy、AspectJ 对比等高级话题。</p>
+<h2 id="一jdk-动态代理">一、JDK 动态代理</h2>
+<h3 id="11-原理">1.1 原理</h3>
+<p>JDK 动态代理是 Java 原生支持的代理方式，基于 <code>java.lang.reflect.Proxy</code> 和 <code>InvocationHandler</code> 实现。</p>
+<p><strong>核心限制：</strong> 目标对象<strong>必须实现至少一个接口</strong>，代理对象只能转换为目标对象的接口类型，不能转换为目标类本身。</p>
+<h3 id="12-核心实现">1.2 核心实现</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// JdkDynamicAopProxy.java（Spring 源码精简）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">final</span><span class="w"> </span><span class="kd">class</span> <span class="nc">JdkDynamicAopProxy</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">AopProxy</span><span class="p">,</span><span class="w"> </span><span class="n">InvocationHandler</span><span class="p">,</span><span class="w"> </span><span class="n">Serializable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">AdvisedSupport</span><span class="w"> </span><span class="n">advised</span><span class="p">;</span><span class="w">  </span><span class="c1">// 持有 Advisor 配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">getProxy</span><span class="p">(</span><span class="n">ClassLoader</span><span class="w"> </span><span class="n">classLoader</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 获取目标类实现的所有接口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Class</span><span class="o">&lt;?&gt;[]</span><span class="w"> </span><span class="n">proxiedInterfaces</span><span class="w"> </span><span class="o">=</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">AopProxyUtils</span><span class="p">.</span><span class="na">completeProxiedInterfaces</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">advised</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ JDK 原生 API 创建代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">Proxy</span><span class="p">.</span><span class="na">newProxyInstance</span><span class="p">(</span><span class="n">classLoader</span><span class="p">,</span><span class="w"> </span><span class="n">proxiedInterfaces</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">proxy</span><span class="p">,</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 上一篇中详细解释的拦截链调用逻辑</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>生成的代理类结构（伪代码）：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// JDK 为 UserService 生成的代理类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">$Proxy0</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">Proxy</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">UserService</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">InvocationHandler</span><span class="w"> </span><span class="n">h</span><span class="p">;</span><span class="w">  </span><span class="c1">// 即 JdkDynamicAopProxy</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">$Proxy0</span><span class="p">(</span><span class="n">InvocationHandler</span><span class="w"> </span><span class="n">h</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">h</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">h</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doSomething</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 所有方法调用都转发给 InvocationHandler</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">h</span><span class="p">.</span><span class="na">invoke</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">getDoSomethingMethod</span><span class="p">(),</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="13-验证">1.3 验证</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserService</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">UserServiceInterface</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doSomething</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 调用</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">UserServiceInterface</span><span class="w"> </span><span class="n">proxy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getBean</span><span class="p">(</span><span class="n">UserService</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="n">proxy</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">UserService</span><span class="p">);</span><span class="w">  </span><span class="c1">// false！只能转接口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="n">proxy</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">UserServiceInterface</span><span class="p">);</span><span class="w">  </span><span class="c1">// true</span><span class="w">
+</span></span></span></code></pre></div><h2 id="二cglib-代理">二、CGLib 代理</h2>
+<h3 id="21-原理">2.1 原理</h3>
+<p>CGLib 基于 ASM 字节码技术，通过<strong>生成目标类的子类</strong>来实现代理。它不要求目标类实现接口。</p>
+<p><strong>核心限制：</strong> 目标类不能是 <code>final</code> 的，目标方法不能是 <code>final</code> 或 <code>static</code>。</p>
+<h3 id="22-核心实现">2.2 核心实现</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// CglibAopProxy.java（Spring 源码精简）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">class</span> <span class="nc">CglibAopProxy</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">AopProxy</span><span class="p">,</span><span class="w"> </span><span class="n">Serializable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">AdvisedSupport</span><span class="w"> </span><span class="n">advised</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">getProxy</span><span class="p">(</span><span class="n">ClassLoader</span><span class="w"> </span><span class="n">classLoader</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 创建 Enhancer（CGLib 的核心类）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Enhancer</span><span class="w"> </span><span class="n">enhancer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Enhancer</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">enhancer</span><span class="p">.</span><span class="na">setSuperclass</span><span class="p">(</span><span class="n">proxiedSuperclass</span><span class="p">);</span><span class="w">  </span><span class="c1">// 目标类作为父类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">enhancer</span><span class="p">.</span><span class="na">setInterfaces</span><span class="p">(</span><span class="n">AopProxyUtils</span><span class="p">.</span><span class="na">completeProxiedInterfaces</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">advised</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">enhancer</span><span class="p">.</span><span class="na">setNamingPolicy</span><span class="p">(</span><span class="n">SpringNamingPolicy</span><span class="p">.</span><span class="na">INSTANCE</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 设置回调——拦截器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Callback</span><span class="o">[]</span><span class="w"> </span><span class="n">callbacks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getCallbacks</span><span class="p">(</span><span class="n">rootClass</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">enhancer</span><span class="p">.</span><span class="na">setCallbacks</span><span class="p">(</span><span class="n">callbacks</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 生成代理对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">enhancer</span><span class="p">.</span><span class="na">create</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>主要的 Callback——DynamicAdvisedInterceptor：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// CglibAopProxy.DynamicAdvisedInterceptor</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DynamicAdvisedInterceptor</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">MethodInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">AdvisedSupport</span><span class="w"> </span><span class="n">advised</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">intercept</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">proxy</span><span class="p">,</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                             </span><span class="n">MethodProxy</span><span class="w"> </span><span class="n">methodProxy</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">advised</span><span class="p">.</span><span class="na">getTargetSource</span><span class="p">().</span><span class="na">getTarget</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">targetClass</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">target</span><span class="p">.</span><span class="na">getClass</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 与 JDK 代理一样，获取拦截链并执行</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">chain</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">advised</span><span class="p">.</span><span class="na">getInterceptorsAndDynamicInterceptionAdvice</span><span class="p">(</span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">targetClass</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">retVal</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">chain</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 没有通知 → 直接调用目标方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">retVal</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">methodProxy</span><span class="p">.</span><span class="na">invoke</span><span class="p">(</span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 创建 CglibMethodInvocation（包裹方法调用）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">retVal</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CglibMethodInvocation</span><span class="p">(</span><span class="n">proxy</span><span class="p">,</span><span class="w"> </span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">,</span><span class="w"> </span><span class="n">targetClass</span><span class="p">,</span><span class="w"> </span><span class="n">chain</span><span class="p">,</span><span class="w"> </span><span class="n">methodProxy</span><span class="p">).</span><span class="na">proceed</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">retVal</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>生成的代理类结构（伪代码）：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// CGLib 为 UserService 生成的代理类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserService$$EnhancerByCGLIB$$xxx</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">UserService</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">MethodInterceptor</span><span class="w"> </span><span class="n">interceptor</span><span class="p">;</span><span class="w">  </span><span class="c1">// 即 DynamicAdvisedInterceptor</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doSomething</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 拦截方法调用，转发给 MethodInterceptor</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">interceptor</span><span class="p">.</span><span class="na">intercept</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">getDoSomethingMethod</span><span class="p">(),</span><span class="w"> </span><span class="n">args</span><span class="p">,</span><span class="w"> </span><span class="n">methodProxy</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="23-验证">2.3 验证</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserService</span><span class="w"> </span><span class="p">{</span><span class="w">  </span><span class="c1">// 没有接口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doSomething</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 调用</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">UserService</span><span class="w"> </span><span class="n">proxy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">context</span><span class="p">.</span><span class="na">getBean</span><span class="p">(</span><span class="n">UserService</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="n">proxy</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">UserService</span><span class="p">);</span><span class="w">  </span><span class="c1">// true！CGLib 通过继承实现</span><span class="w">
+</span></span></span></code></pre></div><h2 id="三两种代理方式的对比">三、两种代理方式的对比</h2>
+<h3 id="31-核心差异">3.1 核心差异</h3>
+<table>
+	<thead>
+			<tr>
+					<th>维度</th>
+					<th>JDK 动态代理</th>
+					<th>CGLib</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>原理</td>
+					<td>实现接口（Proxy + InvocationHandler）</td>
+					<td>继承父类（Enhancer + MethodInterceptor）</td>
+			</tr>
+			<tr>
+					<td>要求</td>
+					<td>必须实现至少一个接口</td>
+					<td>类不能是 final</td>
+			</tr>
+			<tr>
+					<td>生成代理对象时机</td>
+					<td>运行时（<code>Proxy.newProxyInstance()</code>）</td>
+					<td>运行时（<code>Enhancer.create()</code>）</td>
+			</tr>
+			<tr>
+					<td>代理类</td>
+					<td><code>$Proxy0</code> 实现目标接口</td>
+					<td><code>Xxx$$EnhancerByCGLIB$$xxx</code> 继承目标类</td>
+			</tr>
+			<tr>
+					<td>方法调用</td>
+					<td>通过 InvocationHandler</td>
+					<td>通过 MethodInterceptor + MethodProxy</td>
+			</tr>
+			<tr>
+					<td>性能（创建）</td>
+					<td>快</td>
+					<td>较慢（ASM 字节码生成）</td>
+			</tr>
+			<tr>
+					<td>性能（调用）</td>
+					<td>稍慢（反射）</td>
+					<td>快（FastClass 机制）</td>
+			</tr>
+			<tr>
+					<td>是否可代理 final 方法</td>
+					<td>可（接口里没有 final 方法）</td>
+					<td>否（不能继承 override）</td>
+			</tr>
+			<tr>
+					<td>是否可代理 static 方法</td>
+					<td>否</td>
+					<td>否</td>
+			</tr>
+			<tr>
+					<td>Spring 默认</td>
+					<td>目标有接口时</td>
+					<td>目标无接口时</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="32-调用性能测试">3.2 调用性能测试</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 大概性能数据（不同 JDK 版本有差异，仅供参考）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// JDK 8 + Spring 5.x</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 创建代理对象：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//   JDK Proxy:   ~2μs</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//   CGLib:       ~15μs（首次需 ASM 生成字节码）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 方法调用（无 AOP）：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//   Direct call:               ~30ns</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//   JDK Proxy invoke:          ~150ns（反射调用）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//   CGLib methodProxy.invoke:  ~80ns（FastClass 索引调用）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 方法调用（有 AOP 通知链）：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//   差异不大，主要开销在通知链本身</span><span class="w">
+</span></span></span></code></pre></div><p><strong>CGLib 的 FastClass 机制：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// CGLib 为每个类（UserService 和 UserService$$Enhancer...）生成一个 FastClass</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// FastClass 是一个索引表，通过 int 索引直接调用方法，避免反射</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// FastClass 原理（伪代码）：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">class</span> <span class="nc">UserService$$FastClass</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">index</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">obj</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">index</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">0</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="p">((</span><span class="n">UserService</span><span class="p">)</span><span class="w"> </span><span class="n">obj</span><span class="p">).</span><span class="na">doSomething</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">1</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="p">((</span><span class="n">UserService</span><span class="p">)</span><span class="w"> </span><span class="n">obj</span><span class="p">).</span><span class="na">anotherMethod</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// MethodProxy 内部同时持有目标类 FastClass 和代理类 FastClass 的索引</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 所以 methodProxy.invoke(target, args) 极快——只是一个 int 索引的 switch</span><span class="w">
+</span></span></span></code></pre></div><h3 id="33-如何强制指定代理方式">3.3 如何强制指定代理方式</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 方式一：@EnableAspectJAutoProxy</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableAspectJAutoProxy</span><span class="p">(</span><span class="n">proxyTargetClass</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">)</span><span class="w">  </span><span class="c1">// 强制 CGLib</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AopConfig</span><span class="w"> </span><span class="p">{}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 方式二：XML</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">&lt;</span><span class="n">aop</span><span class="p">:</span><span class="n">aspectj</span><span class="o">-</span><span class="n">autoproxy</span><span class="w"> </span><span class="n">proxy</span><span class="o">-</span><span class="n">target</span><span class="o">-</span><span class="kd">class</span><span class="err">=&#34;</span><span class="nc">true</span><span class="s">&#34;/&gt;
+</span></span></span><span class="line"><span class="cl"><span class="s">
+</span></span></span><span class="line"><span class="cl"><span class="s">// 方式三：Spring Boot 全局配置
+</span></span></span><span class="line"><span class="cl"><span class="s">spring.aop.proxy-target-class=true  // Spring Boot 2.x 默认就是 true
+</span></span></span></code></pre></div><h3 id="34-spring-boot-中的默认行为">3.4 Spring Boot 中的默认行为</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Spring Boot 2.0 起：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// spring.aop.proxy-target-class 默认为 true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 即默认使用 CGLib 代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 原因：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 1. 大部分 Spring Boot 应用用 @Service/@Component，不显式实现接口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. CGLib 调用性能更好</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. 避免了&#34;强制要求接口&#34;的侵入式设计</span><span class="w">
+</span></span></span></code></pre></div><h2 id="四exposeproxy-与-aopcontext">四、exposeProxy 与 AopContext</h2>
+<h3 id="41-问题回顾">4.1 问题回顾</h3>
+<p>自调用导致 AOP 失效的问题在本系列第一篇中提过。Spring 提供了 <code>exposeProxy</code> 机制来补救：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserService</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doSomething</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 自调用：this 是原始对象，AOP 不生效</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">internalMethod</span><span class="p">();</span><span class="w">  </span><span class="c1">// @Transactional 失效</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">internalMethod</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="42-exposeproxy-解决方案">4.2 exposeProxy 解决方案</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. 启用 exposeProxy</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableAspectJAutoProxy</span><span class="p">(</span><span class="n">exposeProxy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">)</span><span class="w">  </span><span class="c1">// 暴露代理到 AopContext</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AopConfig</span><span class="w"> </span><span class="p">{}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 通过 AopContext 获取当前代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserService</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doSomething</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 从 AopContext 获取当前代理对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">((</span><span class="n">UserService</span><span class="p">)</span><span class="w"> </span><span class="n">AopContext</span><span class="p">.</span><span class="na">currentProxy</span><span class="p">()).</span><span class="na">internalMethod</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">internalMethod</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="43-原理">4.3 原理</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// JdkDynamicAopProxy.invoke() 中：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">advised</span><span class="p">.</span><span class="na">exposeProxy</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 将当前代理对象存入 ThreadLocal</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">oldProxy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AopContext</span><span class="p">.</span><span class="na">setCurrentProxy</span><span class="p">(</span><span class="n">proxy</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">setProxyContext</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// AopContext 的实现：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AopContext</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ThreadLocal</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">currentProxy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ThreadLocal</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">currentProxy</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">proxy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">currentProxy</span><span class="p">.</span><span class="na">get</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">proxy</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalStateException</span><span class="p">(</span><span class="s">&#34;...&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">proxy</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>注意事项：</strong></p>
+<ul>
+<li><code>exposeProxy</code> 会带来少量性能开销（ThreadLocal 读写）</li>
+<li>耦合了 <code>AopContext</code> API，不是很优雅</li>
+<li>更推荐的方式：将自调用方法提取到另一个 Service 中</li>
+</ul>
+<h2 id="五spring-aop-vs-aspectj">五、Spring AOP vs AspectJ</h2>
+<h3 id="51-对比">5.1 对比</h3>
+<table>
+	<thead>
+			<tr>
+					<th>维度</th>
+					<th>Spring AOP</th>
+					<th>AspectJ</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>实现方式</td>
+					<td>运行时代理（JDK/CGLib）</td>
+					<td>编译期织入（字节码增强）</td>
+			</tr>
+			<tr>
+					<td>连接点</td>
+					<td>仅方法调用</td>
+					<td>方法、字段、构造器、初始化等</td>
+			</tr>
+			<tr>
+					<td>代理范围</td>
+					<td>Spring 容器管理的 Bean 才可代理</td>
+					<td>任意 Java 对象</td>
+			</tr>
+			<tr>
+					<td>性能</td>
+					<td>运行时代理有调用开销</td>
+					<td>编译期织入，无运行时开销</td>
+			</tr>
+			<tr>
+					<td>使用复杂度</td>
+					<td>简单，与 Spring 集成好</td>
+					<td>需要特定编译器（ajc）</td>
+			</tr>
+			<tr>
+					<td>是否改变类结构</td>
+					<td>否（生成代理类）</td>
+					<td>是（直接修改原 Class）</td>
+			</tr>
+			<tr>
+					<td>是否支持 final 类/方法</td>
+					<td>JDK 支持接口，CGLib 不支持 final</td>
+					<td>支持（编译时直接织入代码）</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="52-何时需要-aspectj">5.2 何时需要 AspectJ</h3>
+<p>Spring AOP 能满足 95% 以上的需求。以下场景需要考虑 AspectJ：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 场景 1：需要拦截 final 方法或构造器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 场景 2：需要拦截字段的读写（get/set）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 场景 3：需要拦截不在 Spring 容器中的对象（如 new 创建的对象）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 场景 4：对性能要求极高，无法接受运行时代理的开销</span><span class="w">
+</span></span></span></code></pre></div><h3 id="53-spring-中使用有限-aspectjload-time-weaving">5.3 Spring 中使用有限 AspectJ（load-time weaving）</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableLoadTimeWeaving</span><span class="w">  </span><span class="c1">// 启用 AspectJ 加载时织入</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AspectJConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 需要配置 agent: -javaagent:spring-instrument-5.x.jar</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="六aop-的最佳实践">六、AOP 的最佳实践</h2>
+<h3 id="61-切面设计原则">6.1 切面设计原则</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. 切面单一职责</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// ✅ 好的设计：日志切面只做日志，事务切面只做事务</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// ❌ 坏的设计：一个切面既做日志又做事务又做缓存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 切面粒度适中</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// ✅ 使用自定义注解做精确的切点</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Target</span><span class="p">(</span><span class="n">ElementType</span><span class="p">.</span><span class="na">METHOD</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Retention</span><span class="p">(</span><span class="n">RetentionPolicy</span><span class="p">.</span><span class="na">RUNTIME</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="nd">@interface</span><span class="w"> </span><span class="n">Monitored</span><span class="w"> </span><span class="p">{}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Aspect</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">MonitorAspect</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Around</span><span class="p">(</span><span class="s">&#34;@annotation(Monitored)&#34;</span><span class="p">)</span><span class="w">  </span><span class="c1">// 只拦截标注了 @Monitored 的方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">monitor</span><span class="p">(</span><span class="n">ProceedingJoinPoint</span><span class="w"> </span><span class="n">pjp</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="62-通知类型的选择">6.2 通知类型的选择</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ✅ 优先选择非环绕通知（如果需要功能足够）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Before</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">权限校验</span><span class="err">、</span><span class="n">参数校验</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@AfterReturning</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">结果处理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@AfterThrowing</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">异常处理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@After</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">资源清理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// ⚠️ 环绕通知只在必要时使用</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Around</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">性能监控</span><span class="err">、</span><span class="n">重试</span><span class="err">、</span><span class="n">缓存</span><span class="err">、</span><span class="n">事务</span><span class="w">
+</span></span></span></code></pre></div><h3 id="63-用自定义注解驱动-aop">6.3 用自定义注解驱动 AOP</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 自定义注解</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Target</span><span class="p">(</span><span class="n">ElementType</span><span class="p">.</span><span class="na">METHOD</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Retention</span><span class="p">(</span><span class="n">RetentionPolicy</span><span class="p">.</span><span class="na">RUNTIME</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="nd">@interface</span><span class="w"> </span><span class="n">Cacheable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="nf">key</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="nf">ttl</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="n">60</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 切面</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Aspect</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">CacheAspect</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">CacheManager</span><span class="w"> </span><span class="n">cacheManager</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">CacheAspect</span><span class="p">(</span><span class="n">CacheManager</span><span class="w"> </span><span class="n">cacheManager</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">cacheManager</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cacheManager</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Around</span><span class="p">(</span><span class="s">&#34;@annotation(cacheable)&#34;</span><span class="p">)</span><span class="w">  </span><span class="c1">// 直接绑定注解参数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">cache</span><span class="p">(</span><span class="n">ProceedingJoinPoint</span><span class="w"> </span><span class="n">pjp</span><span class="p">,</span><span class="w"> </span><span class="n">Cacheable</span><span class="w"> </span><span class="n">cacheable</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">cacheKey</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">generateKey</span><span class="p">(</span><span class="n">cacheable</span><span class="p">.</span><span class="na">key</span><span class="p">(),</span><span class="w"> </span><span class="n">pjp</span><span class="p">.</span><span class="na">getArgs</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">cached</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cacheManager</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">cacheKey</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">cached</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">cached</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pjp</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">cacheManager</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">cacheKey</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">cacheable</span><span class="p">.</span><span class="na">ttl</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="64-性能考量">6.4 性能考量</h3>
+<ul>
+<li>非环绕通知每次都要判断方法是否匹配（Pointcut 匹配），尽量减少切点的复杂度</li>
+<li>如果切点表达式很复杂，考虑用 <code>@annotation</code> 代替复杂的 <code>execution</code> 表达式</li>
+<li>成熟的 Spring 应用可能有几十个切面，每次方法调用都要遍历所有 Advisor 检查匹配</li>
+</ul>
+<h2 id="七总结">七、总结</h2>
+<h3 id="代理方式决策">代理方式决策</h3>
+<pre tabindex="0"><code>目标类 → 是否有接口？
+  ├── 是 → Spring 默认 JDK 代理
+  │        可以通过 proxyTargetClass=true 强制 CGLib
+  │
+  └── 否 → CGLib 代理（无接口时自动 fallback）
+  
+CGLib 不可用的情况：
+  ├── 目标类是 final class
+  └── 目标方法是 final/static
+</code></pre><h3 id="最佳实践清单">最佳实践清单</h3>
+<table>
+	<thead>
+			<tr>
+					<th>实践</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>优先用 <code>@annotation</code> 切点</td>
+					<td>比 <code>execution</code> 更精确、性能更好</td>
+			</tr>
+			<tr>
+					<td>优先用非环绕通知</td>
+					<td>除非需要控制方法执行流程</td>
+			</tr>
+			<tr>
+					<td>提取自调用方法到独立 Service</td>
+					<td>比 <code>AopContext.currentProxy()</code> 更清洁</td>
+			</tr>
+			<tr>
+					<td>自定义注解驱动 AOP</td>
+					<td>语义清晰，不依赖包路径</td>
+			</tr>
+			<tr>
+					<td>避免切面数量过多</td>
+					<td>每次方法调用都要遍历匹配</td>
+			</tr>
+			<tr>
+					<td>关注 <code>@Order</code> 顺序</td>
+					<td>多个切面时明确执行顺序</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>上一篇：</strong> <a href="/posts/spring-aop%E4%BA%8Caop-%E6%BA%90%E7%A0%81%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/">Spring AOP（二）：AOP 源码深度解析</a></p>
+<p><strong>系列索引：</strong></p>
+<ul>
+<li><a href="/posts/spring-aop%E4%B8%80aop-%E6%A6%82%E5%BF%B5%E4%B8%8E%E4%BA%94%E7%A7%8D%E9%80%9A%E7%9F%A5%E7%B1%BB%E5%9E%8B/">Spring AOP（一）：AOP 概念与五种通知类型</a></li>
+<li><a href="/posts/spring-aop%E4%BA%8Caop-%E6%BA%90%E7%A0%81%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/">Spring AOP（二）：AOP 源码深度解析</a></li>
+<li><a href="/posts/spring-aop%E4%B8%89jdk-%E4%BB%A3%E7%90%86-vs-cglib-%E4%B8%8E%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98/">Spring AOP（三）：JDK 代理 vs CGLib 与高级主题</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>分布式系统设计（八）：事件驱动与 CQRS - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一事件驱动架构">一、事件驱动架构</a>
+      <ul>
+        <li><a href="#11-核心思想">1.1 核心思想</a></li>
+        <li><a href="#12-事件-vs-命令">1.2 事件 vs 命令</a></li>
+        <li><a href="#13-事件设计">1.3 事件设计</a></li>
+        <li><a href="#14-spring-事件驱动示例">1.4 Spring 事件驱动示例</a></li>
+      </ul>
+    </li>
+    <li><a href="#二cqrs">二、CQRS</a>
+      <ul>
+        <li><a href="#21-读写分离">2.1 读写分离</a></li>
+        <li><a href="#22-最简单的-cqrs">2.2 最简单的 CQRS</a></li>
+        <li><a href="#23-分离存储">2.3 分离存储</a></li>
+        <li><a href="#24-完整-cqrs--事件驱动架构">2.4 完整 CQRS + 事件驱动架构</a></li>
+      </ul>
+    </li>
+    <li><a href="#三事件溯源event-sourcing">三、事件溯源（Event Sourcing）</a>
+      <ul>
+        <li><a href="#31-传统-vs-事件溯源">3.1 传统 vs 事件溯源</a></li>
+        <li><a href="#32-事件溯源的好处">3.2 事件溯源的好处</a></li>
+        <li><a href="#33-事件溯源的挑战">3.3 事件溯源的挑战</a></li>
+      </ul>
+    </li>
+    <li><a href="#四ddd-与事件驱动">四、DDD 与事件驱动</a>
+      <ul>
+        <li><a href="#41-限界上下文">4.1 限界上下文</a></li>
+        <li><a href="#42-聚合与事件">4.2 聚合与事件</a></li>
+      </ul>
+    </li>
+    <li><a href="#五总结">五、总结</a>
+      <ul>
+        <li><a href="#模式对比">模式对比</a></li>
+        <li><a href="#推荐路径">推荐路径</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">分布式系统设计（八）：事件驱动与 CQRS</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>事件驱动架构和 CQRS 是微服务架构中重要的设计模式。事件驱动让服务之间通过事件异步通信，CQRS 将读和写操作分离到不同的模型。</p>
+<h2 id="一事件驱动架构">一、事件驱动架构</h2>
+<h3 id="11-核心思想">1.1 核心思想</h3>
+<pre tabindex="0"><code>事件驱动架构（Event-Driven Architecture, EDA）的核心：
+
+服务不直接调用其他服务，而是发布事件。
+其他服务订阅感兴趣的事件并进行处理。
+
+发布者（Publisher）：发布事件，不知道谁在处理
+订阅者（Subscriber）：订阅事件，不知道谁发布的
+事件总线（Event Bus）：消息队列或事件流平台
+
+优点：
+- 松耦合：发布者和订阅者互不感知
+- 扩展性：可以随时添加新的订阅者
+- 可追溯：事件日志记录了系统的所有变更
+</code></pre><h3 id="12-事件-vs-命令">1.2 事件 vs 命令</h3>
+<pre tabindex="0"><code>命令（Command）：
+  明确告诉系统要做什么
+  &#34;创建订单&#34;、&#34;扣减库存&#34;
+  通常同步执行，等待结果
+
+事件（Event）：
+  通知系统已经发生了什么
+  &#34;订单已创建&#34;、&#34;库存已扣减&#34;
+  通常异步执行，不等待结果
+
+命令是请求（Request），事件是事实（Fact）
+</code></pre><h3 id="13-事件设计">1.3 事件设计</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 事件的结构</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DomainEvent</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">eventId</span><span class="p">;</span><span class="w">        </span><span class="c1">// 事件唯一 ID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">eventType</span><span class="p">;</span><span class="w">      </span><span class="c1">// 事件类型</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">aggregateId</span><span class="p">;</span><span class="w">    </span><span class="c1">// 聚合 ID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">data</span><span class="p">;</span><span class="w">  </span><span class="c1">// 事件数据</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">timestamp</span><span class="p">;</span><span class="w">        </span><span class="c1">// 发生时间</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">version</span><span class="p">;</span><span class="w">           </span><span class="c1">// 事件版本</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 事件命名规范：{实体}_{动词语态}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">OrderCreated</span><span class="w">       </span><span class="err">—</span><span class="w"> </span><span class="n">订单已创建</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">OrderPaid</span><span class="w">          </span><span class="err">—</span><span class="w"> </span><span class="n">订单已支付</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">InventoryReduced</span><span class="w">   </span><span class="err">—</span><span class="w"> </span><span class="n">库存已扣减</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">PaymentRefunded</span><span class="w">    </span><span class="err">—</span><span class="w"> </span><span class="n">已退款</span><span class="w">
+</span></span></span></code></pre></div><h3 id="14-spring-事件驱动示例">1.4 Spring 事件驱动示例</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. 事件</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderCreatedEvent</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">userId</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">BigDecimal</span><span class="w"> </span><span class="n">amount</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 发布事件</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderService</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">ApplicationEventPublisher</span><span class="w"> </span><span class="n">eventPublisher</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">createOrder</span><span class="p">(</span><span class="n">OrderRequest</span><span class="w"> </span><span class="n">request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Order</span><span class="w"> </span><span class="n">order</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orderRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="n">request</span><span class="p">.</span><span class="na">toOrder</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">eventPublisher</span><span class="p">.</span><span class="na">publishEvent</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">new</span><span class="w"> </span><span class="n">OrderCreatedEvent</span><span class="p">(</span><span class="n">order</span><span class="p">.</span><span class="na">getId</span><span class="p">(),</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                      </span><span class="n">order</span><span class="p">.</span><span class="na">getUserId</span><span class="p">(),</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                      </span><span class="n">order</span><span class="p">.</span><span class="na">getAmount</span><span class="p">()));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. 订阅事件</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderEventListener</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Async</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">onOrderCreated</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 发送短信通知</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">smsService</span><span class="p">.</span><span class="na">sendOrderConfirmation</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="na">getUserId</span><span class="p">(),</span><span class="w"> </span><span class="n">event</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 4. 另一个订阅者</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">InventoryListener</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Async</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">onOrderCreated</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 扣减库存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">inventoryService</span><span class="p">.</span><span class="na">deduct</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="二cqrs">二、CQRS</h2>
+<h3 id="21-读写分离">2.1 读写分离</h3>
+<pre tabindex="0"><code>CQRS（Command Query Responsibility Segregation）：
+将读操作和写操作分离到不同的模型。
+
+传统 CRUD：
+  同一个 Model 既处理读（Query）也处理写（Command）
+
+CQRS：
+  Command（写）：使用 Command Model
+    └── INSERT / UPDATE / DELETE
+    └── 返回成功/失败，不返回查询数据
+
+  Query（读）：使用 Query Model
+    └── SELECT
+    └── 返回查询结果，不修改数据
+</code></pre><h3 id="22-最简单的-cqrs">2.2 最简单的 CQRS</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Command（写）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderCommandService</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">createOrder</span><span class="p">(</span><span class="n">CreateOrderCommand</span><span class="w"> </span><span class="n">command</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Order</span><span class="w"> </span><span class="n">order</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Order</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">order</span><span class="p">.</span><span class="na">setUserId</span><span class="p">(</span><span class="n">command</span><span class="p">.</span><span class="na">getUserId</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">order</span><span class="p">.</span><span class="na">setAmount</span><span class="p">(</span><span class="n">command</span><span class="p">.</span><span class="na">getAmount</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">orderRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="n">order</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">eventPublisher</span><span class="p">.</span><span class="na">publishEvent</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">OrderCreatedEvent</span><span class="p">(</span><span class="n">order</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// Query（读）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderQueryService</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 使用专门的查询模型（可以是视图表、缓存、ES）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">OrderVO</span><span class="w"> </span><span class="nf">findOrder</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">orderQueryRepository</span><span class="p">.</span><span class="na">findById</span><span class="p">(</span><span class="n">orderId</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Page</span><span class="o">&lt;</span><span class="n">OrderVO</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">findUserOrders</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">userId</span><span class="p">,</span><span class="w"> </span><span class="n">Pageable</span><span class="w"> </span><span class="n">pageable</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">orderQueryRepository</span><span class="p">.</span><span class="na">findByUserId</span><span class="p">(</span><span class="n">userId</span><span class="p">,</span><span class="w"> </span><span class="n">pageable</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="23-分离存储">2.3 分离存储</h3>
+<pre tabindex="0"><code>写入库（Command DB）：用于事务操作
+  └── MySQL（3NF 规范化）
+  └── 只为写入服务优化
+
+读取库（Query DB）：用于查询
+  └── Elasticsearch（全文搜索）
+  └── Redis（缓存）
+  └── MongoDB（反范式化）
+  └── MySQL（宽表 + 冗余）
+
+数据同步：
+  Command DB → 事件 → Event Bus → 同步到 Query DB
+
+优点：
+├── 读写互不干扰（读负载不影响写性能）
+├── 读模型可以为特定查询优化
+└── 读写可以独立扩展
+</code></pre><h3 id="24-完整-cqrs--事件驱动架构">2.4 完整 CQRS + 事件驱动架构</h3>
+<pre tabindex="0"><code>客户端
+  │
+  ├── Command（写请求）→ Command Service → Command DB
+  │                                            │
+  │                                            ▼
+  │                                          Event（领域事件）
+  │                                            │
+  │                                            ▼
+  │                                        Event Bus
+  │                                            │
+  │                    ┌───────────────────────┤
+  │                    │                       │
+  │                    ▼                       ▼
+  │              Event Handler            Event Handler
+  │                    │                       │
+  │                    ▼                       ▼
+  │              Query DB（读）          Other Service
+  │                    │
+  │                    ▼
+  ├── Query（读请求） → Query Service → Query DB
+</code></pre><hr>
+<h2 id="三事件溯源event-sourcing">三、事件溯源（Event Sourcing）</h2>
+<h3 id="31-传统-vs-事件溯源">3.1 传统 vs 事件溯源</h3>
+<pre tabindex="0"><code>传统方式（记录当前状态）：
+  UPDATE users SET balance = balance - 100 WHERE id = 1
+  当前余额 = 900
+
+事件溯源（记录所有变更事件）：
+  {&#34;event&#34;: &#34;AccountCreated&#34;, &#34;balance&#34;: 1000}
+  {&#34;event&#34;: &#34;MoneyWithdrawn&#34;, &#34;amount&#34;: 100}
+  {&#34;event&#34;: &#34;MoneyDeposited&#34;, &#34;amount&#34;: 500}
+  当前余额 = 1000 - 100 + 500 = 1400（通过重放事件计算）
+</code></pre><h3 id="32-事件溯源的好处">3.2 事件溯源的好处</h3>
+<pre tabindex="0"><code>1. 完整审计
+   所有状态变更记录在案
+   可追溯谁在什么时间做了什么
+
+2. 时间旅行
+   可以恢复到任意历史状态
+   排查问题时回放到出问题的时间点
+
+3. 事件驱动友好
+   事件本身就是发布给其他服务的消息
+</code></pre><h3 id="33-事件溯源的挑战">3.3 事件溯源的挑战</h3>
+<pre tabindex="0"><code>1. 存储量
+   事件日志会持续增长
+   需要定期创建快照（Snapshot）
+
+2. 事件版本管理
+   事件结构会随着业务变化而变更
+   需要兼容新旧版本的事件
+
+3. 学习曲线
+   与传统的 CRUD 思维不同
+   团队需要时间适应
+
+4. 查询困难
+   通过重放事件来读取当前状态效率低
+   需要配合 CQRS（单独维护读取模型）
+</code></pre><hr>
+<h2 id="四ddd-与事件驱动">四、DDD 与事件驱动</h2>
+<h3 id="41-限界上下文">4.1 限界上下文</h3>
+<pre tabindex="0"><code>DDD 中的限界上下文（Bounded Context）天然对应微服务的边界。
+
+每个限界上下文：
+├── 有独立的领域模型
+├── 通过事件与其他上下文通信
+└── 有自己的数据库
+
+限界上下文之间的通信方式：
+├── 事件（推荐）：发布事件，异步通知
+├── API：同步调用，请求/响应
+└── 共享内核：共享部分模型（谨慎使用）
+</code></pre><h3 id="42-聚合与事件">4.2 聚合与事件</h3>
+<pre tabindex="0"><code>聚合（Aggregate）是 DDD 中的一致性边界。
+
+聚合规则：
+1. 一个事务只修改一个聚合
+2. 聚合内部保证强一致
+3. 聚合之间通过事件实现最终一致
+
+订单聚合：
+├── Order（聚合根）
+├── OrderItem（实体）
+└── OrderAddress（值对象）
+
+修改 Order 聚合时触发的事件：
+OrderCreated → Inventory.deduct()
+OrderCreated → Payment.debit()
+</code></pre><hr>
+<h2 id="五总结">五、总结</h2>
+<h3 id="模式对比">模式对比</h3>
+<table>
+	<thead>
+			<tr>
+					<th>模式</th>
+					<th>核心思想</th>
+					<th>适用场景</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>事件驱动</td>
+					<td>异步事件解耦</td>
+					<td>跨服务通信</td>
+			</tr>
+			<tr>
+					<td>CQRS</td>
+					<td>读写分离</td>
+					<td>读写负载差异大</td>
+			</tr>
+			<tr>
+					<td>事件溯源</td>
+					<td>记录事件而非状态</td>
+					<td>审计、追溯</td>
+			</tr>
+			<tr>
+					<td>DDD</td>
+					<td>限界上下文</td>
+					<td>复杂业务建模</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="推荐路径">推荐路径</h3>
+<pre tabindex="0"><code>1. 从事件驱动开始（最简单的解耦方式）
+2. 当查询复杂时引入 CQRS（读写分离）
+3. 当需要审计追溯时引入事件溯源（记录事件）
+4. 使用 DDD 指导服务拆分（限界上下文）
+</code></pre><p><strong>相关阅读：</strong></p>
+<ul>
+<li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E4%B8%83%E5%88%86%E5%B8%83%E5%BC%8F%E4%BA%8B%E5%8A%A1/">分布式系统设计（七）：分布式事务</a></li>
+<li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E4%B8%80%E8%AE%BE%E8%AE%A1%E6%80%9D%E6%83%B3%E4%B8%8E%E6%96%B9%E6%B3%95%E8%AE%BA/">分布式系统设计（一）：设计思想与方法论</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

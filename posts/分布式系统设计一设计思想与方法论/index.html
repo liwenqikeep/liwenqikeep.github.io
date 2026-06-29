@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>分布式系统设计（一）：设计思想与方法论 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一分而治之divide-and-conquer">一、分而治之（Divide and Conquer）</a></li>
+    <li><a href="#二无状态设计">二、无状态设计</a>
+      <ul>
+        <li><a href="#21-原则">2.1 原则</a></li>
+        <li><a href="#22-哪些应该无状态">2.2 哪些应该无状态</a></li>
+        <li><a href="#23-无状态的好处">2.3 无状态的好处</a></li>
+      </ul>
+    </li>
+    <li><a href="#三读写分离">三、读写分离</a>
+      <ul>
+        <li><a href="#31-数据库读写分离">3.1 数据库读写分离</a></li>
+        <li><a href="#32-缓存--数据库读写分离">3.2 缓存 + 数据库读写分离</a></li>
+      </ul>
+    </li>
+    <li><a href="#四最终一致性">四、最终一致性</a>
+      <ul>
+        <li><a href="#41-一致性模型">4.1 一致性模型</a></li>
+        <li><a href="#42-最终一致性的实现">4.2 最终一致性的实现</a></li>
+      </ul>
+    </li>
+    <li><a href="#五幂等性">五、幂等性</a>
+      <ul>
+        <li><a href="#51-需要幂等的场景">5.1 需要幂等的场景</a></li>
+        <li><a href="#52-幂等性实现方案">5.2 幂等性实现方案</a></li>
+      </ul>
+    </li>
+    <li><a href="#六服务降级与熔断">六、服务降级与熔断</a>
+      <ul>
+        <li><a href="#61-服务降级">6.1 服务降级</a></li>
+        <li><a href="#62-熔断">6.2 熔断</a></li>
+      </ul>
+    </li>
+    <li><a href="#七异步解耦">七、异步解耦</a>
+      <ul>
+        <li><a href="#71-同步-vs-异步">7.1 同步 vs 异步</a></li>
+        <li><a href="#72-异步解耦的好处">7.2 异步解耦的好处</a></li>
+      </ul>
+    </li>
+    <li><a href="#八总结">八、总结</a>
+      <ul>
+        <li><a href="#分布式设计原则速记">分布式设计原则速记</a></li>
+        <li><a href="#核心权衡">核心权衡</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">分布式系统设计（一）：设计思想与方法论</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>构建分布式系统与构建单体应用的最大区别在于：<strong>你必须假定你所依赖的任何东西都可能失败</strong>。网络会断、机器会宕、磁盘会坏、消息会丢。</p>
+<p>本文不讨论某个具体技术，而是总结分布式系统设计的核心思想和通用方法论——这些思想贯穿在所有分布式系统的设计和实现中。</p>
+<h2 id="一分而治之divide-and-conquer">一、分而治之（Divide and Conquer）</h2>
+<p>分布式系统的核心思想就是分治——<strong>把一个大问题拆分成多个小问题，分别解决，再合并结果</strong>。</p>
+<pre tabindex="0"><code>应用层面的分治：
+├── 水平拆分（分片）：按某个维度拆分数据
+│     └── 用户表按 user_id % 16 拆到 16 个库
+│
+├── 垂直拆分（服务化）：按业务领域拆分
+│     └── 订单服务、用户服务、支付服务
+│
+└── 任务拆分（并行计算）
+      └── MapReduce：分片处理 → 汇总结果
+</code></pre><p><strong>分治的核心问题：拆分后如何协同？</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>拆分类型</th>
+					<th>协同方式</th>
+					<th>代表技术</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>数据分片</td>
+					<td>路由计算</td>
+					<td>Redis Cluster、MyCat</td>
+			</tr>
+			<tr>
+					<td>服务拆分</td>
+					<td>RPC / 消息</td>
+					<td>Dubbo、Kafka</td>
+			</tr>
+			<tr>
+					<td>任务拆分</td>
+					<td>结果聚合</td>
+					<td>MapReduce</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="二无状态设计">二、无状态设计</h2>
+<h3 id="21-原则">2.1 原则</h3>
+<blockquote>
+<p><strong>状态集中管理，服务节点保持无状态。</strong></p>
+</blockquote>
+<pre tabindex="0"><code>✅ 正确的做法：
+请求 → 负载均衡 → 任意 Node → 共享存储（DB/Redis）
+每个节点不保存用户状态
+
+❌ 错误的做法：
+请求 → 负载均衡 → Node A（保存了用户 session）
+下次请求 → 负载均衡 → Node B（没有该 session）
+</code></pre><h3 id="22-哪些应该无状态">2.2 哪些应该无状态</h3>
+<table>
+	<thead>
+			<tr>
+					<th>组件</th>
+					<th>状态</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Web 服务器</td>
+					<td>❌ 无状态</td>
+					<td>Session 放在 Redis</td>
+			</tr>
+			<tr>
+					<td>微服务实例</td>
+					<td>❌ 无状态</td>
+					<td>可随意扩缩容</td>
+			</tr>
+			<tr>
+					<td>API 网关</td>
+					<td>❌ 无状态</td>
+					<td>路由和限流逻辑</td>
+			</tr>
+			<tr>
+					<td>数据库</td>
+					<td>✅ 有状态</td>
+					<td>数据持久化在磁盘</td>
+			</tr>
+			<tr>
+					<td>缓存</td>
+					<td>✅ 有状态</td>
+					<td>数据在内存中</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="23-无状态的好处">2.3 无状态的好处</h3>
+<pre tabindex="0"><code>1. 弹性伸缩
+   任意节点可被替换
+   新增节点立即提供服务
+
+2. 故障恢复
+   某节点宕机 → 流量切换到其他节点
+   不影响业务连续性
+
+3. 滚动升级
+   逐个替换节点，不影响整体服务
+</code></pre><hr>
+<h2 id="三读写分离">三、读写分离</h2>
+<p>将读操作和写操作分离到不同的节点或不同的存储系统中。</p>
+<h3 id="31-数据库读写分离">3.1 数据库读写分离</h3>
+<pre tabindex="0"><code>主库（Write）：INSERT / UPDATE / DELETE
+从库（Read）：SELECT
+
+写请求 → Master → 同步 → Slave1 / Slave2 → 读请求
+</code></pre><p><strong>关键挑战：主从延迟</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 写后立即读的问题</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">User</span><span class="w"> </span><span class="nf">createUser</span><span class="p">(</span><span class="n">User</span><span class="w"> </span><span class="n">user</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">userDao</span><span class="p">.</span><span class="na">insert</span><span class="p">(</span><span class="n">user</span><span class="p">);</span><span class="w">          </span><span class="c1">// 写入主库</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">userDao</span><span class="p">.</span><span class="na">findById</span><span class="p">(</span><span class="n">user</span><span class="p">.</span><span class="na">getId</span><span class="p">());</span><span class="w">  </span><span class="c1">// 读到从库 → 可能延迟</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 解决方案：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 1. 写后强制读主库</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 前端延迟展示</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. 业务允许短暂的不一致</span><span class="w">
+</span></span></span></code></pre></div><h3 id="32-缓存--数据库读写分离">3.2 缓存 + 数据库读写分离</h3>
+<pre tabindex="0"><code>写：更新数据库 → 删除缓存
+读：查缓存 → 未命中 → 查数据库 → 回填缓存
+
+这是最常见的 Cache Aside 模式。
+</code></pre><hr>
+<h2 id="四最终一致性">四、最终一致性</h2>
+<h3 id="41-一致性模型">4.1 一致性模型</h3>
+<table>
+	<thead>
+			<tr>
+					<th>模型</th>
+					<th>说明</th>
+					<th>代价</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>强一致性</td>
+					<td>读一定读到最新写入</td>
+					<td>可用性降低，延迟增加</td>
+			</tr>
+			<tr>
+					<td>弱一致性</td>
+					<td>读可能读到旧数据</td>
+					<td>可用性高</td>
+			</tr>
+			<tr>
+					<td>最终一致性</td>
+					<td>过一段时间后一定能读到最新数据</td>
+					<td>折中方案</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="42-最终一致性的实现">4.2 最终一致性的实现</h3>
+<pre tabindex="0"><code>最终一致性的常见实现：
+
+1. 异步消息
+   主操作成功后，发消息让下游异步处理
+   消息中间件保证消息不丢
+
+2. 定期对账
+   定时任务检查两边数据是否一致
+   不一致则补偿修复
+
+3. 回调重试
+   失败后重试，直到成功
+   配合幂等性保证不会重复执行
+</code></pre><hr>
+<h2 id="五幂等性">五、幂等性</h2>
+<p>幂等性是指<strong>同一个操作执行多次和执行一次的效果相同</strong>。</p>
+<h3 id="51-需要幂等的场景">5.1 需要幂等的场景</h3>
+<pre tabindex="0"><code>1. 网络超时后重试
+2. MQ 消息重复消费
+3. 前端重复提交
+4. 支付回调重复通知
+</code></pre><h3 id="52-幂等性实现方案">5.2 幂等性实现方案</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 方案一：唯一键约束</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Insert</span><span class="p">(</span><span class="s">&#34;INSERT INTO orders(id, ...) VALUES(#{id}, ...) &#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;ON DUPLICATE KEY UPDATE ...&#34;</span><span class="p">)</span><span class="w">  </span><span class="c1">// 重复则忽略</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">createOrder</span><span class="p">(</span><span class="n">Order</span><span class="w"> </span><span class="n">order</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 方案二：状态机</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 订单状态流转：INIT → PAID → SHIPPED → COMPLETED</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 已经 PAID 的订单，再次收到支付回调时直接返回成功</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">processPayCallback</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Order</span><span class="w"> </span><span class="n">order</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orderDao</span><span class="p">.</span><span class="na">findById</span><span class="p">(</span><span class="n">orderId</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">order</span><span class="p">.</span><span class="na">getStatus</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">OrderStatus</span><span class="p">.</span><span class="na">PAID</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="p">;</span><span class="w">  </span><span class="c1">// 已处理，直接返回</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 处理支付成功逻辑</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 方案三：去重表</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 使用 Redis SETNX 或数据库唯一键</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">tryProcess</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">businessKey</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setIfAbsent</span><span class="p">(</span><span class="s">&#34;dedup:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">businessKey</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;1&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">Duration</span><span class="p">.</span><span class="na">ofHours</span><span class="p">(</span><span class="n">24</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="六服务降级与熔断">六、服务降级与熔断</h2>
+<h3 id="61-服务降级">6.1 服务降级</h3>
+<pre tabindex="0"><code>有策略地放弃一些非核心功能，保证核心功能的可用性。
+
+降级分类：
+├── 限流降级：超过阈值后返回降级响应
+├── 超时降级：外部依赖超时后返回默认值
+├── 异常降级：外部依赖异常时返回缓存数据
+└── 功能降级：暂时关闭非核心功能
+</code></pre><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 降级示例：推荐服务超时时返回空列表</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">recommendProducts</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">userId</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">recommendService</span><span class="p">.</span><span class="na">getRecommend</span><span class="p">(</span><span class="n">userId</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">TimeoutException</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;推荐服务超时，返回默认推荐&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">Collections</span><span class="p">.</span><span class="na">emptyList</span><span class="p">();</span><span class="w">  </span><span class="c1">// 降级</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="62-熔断">6.2 熔断</h3>
+<pre tabindex="0"><code>熔断器三种状态：
+CLOSED（关闭）→ 正常运行，请求正常通过
+OPEN（打开）  → 故障率过高，直接拒绝请求
+HALF_OPEN（半开）→ 尝试放行少量请求，检测是否恢复
+
+             故障率超阈值
+  CLOSED ─────────────────▶ OPEN
+    ↑                        │
+    │    HALF_OPEN 成功     │
+    │◀──────────────────────│
+    │                        │
+    │      超时后进入半开    │
+    │◀───────────────────────│
+</code></pre><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 使用 Resilience4j 实现熔断</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@CircuitBreaker</span><span class="p">(</span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;userService&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">fallbackMethod</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;getDefaultUser&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">User</span><span class="w"> </span><span class="nf">getUser</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">userService</span><span class="p">.</span><span class="na">findById</span><span class="p">(</span><span class="n">id</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">User</span><span class="w"> </span><span class="nf">getDefaultUser</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="n">t</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;用户服务熔断，返回默认用户&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">t</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">User</span><span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;default&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="七异步解耦">七、异步解耦</h2>
+<h3 id="71-同步-vs-异步">7.1 同步 vs 异步</h3>
+<pre tabindex="0"><code>同步调用：
+服务A → 等待 → 服务B → 等待 → 服务C
+        ↑ 整个链路中最慢的环节决定响应时间
+
+异步消息：
+服务A → 消息队列 → 服务B → 消息队列 → 服务C
+      ↘ 立即返回，由 MQ 保证最终送达
+</code></pre><h3 id="72-异步解耦的好处">7.2 异步解耦的好处</h3>
+<pre tabindex="0"><code>1. 削峰填谷
+   秒杀请求 → MQ → 按能力消费
+   不是一次性压垮下游
+
+2. 故障隔离
+   下游宕机 → MQ 积压 → 恢复后继续消费
+   不需要上游感知
+
+3. 异步编排
+   订单创建 → 发短信 / 发邮件 / 更新库存 / 积分
+   这些操作不需要同步等待
+</code></pre><hr>
+<h2 id="八总结">八、总结</h2>
+<h3 id="分布式设计原则速记">分布式设计原则速记</h3>
+<table>
+	<thead>
+			<tr>
+					<th>原则</th>
+					<th>一句话</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>分治</td>
+					<td>大问题拆小问题，分而治之</td>
+			</tr>
+			<tr>
+					<td>无状态</td>
+					<td>节点不保存状态，状态放共享存储</td>
+			</tr>
+			<tr>
+					<td>读写分离</td>
+					<td>读写操作分离到不同节点</td>
+			</tr>
+			<tr>
+					<td>最终一致性</td>
+					<td>不强求任何时候一致，保证最终一致</td>
+			</tr>
+			<tr>
+					<td>幂等性</td>
+					<td>同一操作执行多次和执行一次效果相同</td>
+			</tr>
+			<tr>
+					<td>降级熔断</td>
+					<td>有策略地放弃非核心功能</td>
+			</tr>
+			<tr>
+					<td>异步解耦</td>
+					<td>通过消息中间件解耦上下游</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="核心权衡">核心权衡</h3>
+<pre tabindex="0"><code>一致性 ←------------------→ 可用性
+（越一致越慢）            （越快越可能不一致）
+
+延迟 ←--------------------→ 吞吐量
+（处理越快）              （批量越大）
+
+强耦合 ←------------------→ 解耦
+（开发简单）              （运维复杂）
+</code></pre><p><strong>相关阅读：</strong></p>
+<ul>
+<li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E4%BA%8C%E5%88%86%E5%B8%83%E5%BC%8F%E7%90%86%E8%AE%BA-cap/base/%E4%B8%80%E8%87%B4%E6%80%A7/">分布式系统设计（二）：分布式理论 CAP/BASE/一致性</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

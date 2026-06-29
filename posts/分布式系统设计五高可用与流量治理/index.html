@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>分布式系统设计（五）：高可用与流量治理 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一高可用设计">一、高可用设计</a>
+      <ul>
+        <li><a href="#11-冗余部署">1.1 冗余部署</a></li>
+        <li><a href="#12-同城双活-vs-异地多活">1.2 同城双活 vs 异地多活</a></li>
+        <li><a href="#13-故障隔离">1.3 故障隔离</a></li>
+      </ul>
+    </li>
+    <li><a href="#二负载均衡">二、负载均衡</a>
+      <ul>
+        <li><a href="#21-常见算法">2.1 常见算法</a></li>
+        <li><a href="#22-四层-vs-七层负载均衡">2.2 四层 vs 七层负载均衡</a></li>
+      </ul>
+    </li>
+    <li><a href="#三限流">三、限流</a>
+      <ul>
+        <li><a href="#31-限流算法">3.1 限流算法</a></li>
+        <li><a href="#32-令牌桶实现">3.2 令牌桶实现</a></li>
+        <li><a href="#33-分布式限流">3.3 分布式限流</a></li>
+      </ul>
+    </li>
+    <li><a href="#四熔断与降级">四、熔断与降级</a>
+      <ul>
+        <li><a href="#41-熔断器状态机">4.1 熔断器状态机</a></li>
+        <li><a href="#42-熔断配置">4.2 熔断配置</a></li>
+      </ul>
+    </li>
+    <li><a href="#五api-网关">五、API 网关</a>
+      <ul>
+        <li><a href="#51-网关的功能">5.1 网关的功能</a></li>
+        <li><a href="#52-常见网关对比">5.2 常见网关对比</a></li>
+      </ul>
+    </li>
+    <li><a href="#六总结">六、总结</a>
+      <ul>
+        <li><a href="#高可用设计原则">高可用设计原则</a></li>
+        <li><a href="#流量治理速查">流量治理速查</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">分布式系统设计（五）：高可用与流量治理</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>高可用的本质是 <strong>消除单点</strong> 和 <strong>控制流量</strong>。消除单点通过冗余实现（多副本、多机房），控制流量通过限流、熔断、降级等手段实现。</p>
+<h2 id="一高可用设计">一、高可用设计</h2>
+<h3 id="11-冗余部署">1.1 冗余部署</h3>
+<pre tabindex="0"><code>单点故障 → 冗余消除
+
+无状态服务（水平扩展）：
+  Nginx → 业务实例1 + 业务实例2 + 业务实例3
+           （任意实例下线，流量自动切到其他实例）
+
+有状态服务（主从架构）：
+  MySQL Master → MySQL Slave1 + Slave2
+  Master 下线 → 自动切换其中一个 Slave 为 Master
+</code></pre><h3 id="12-同城双活-vs-异地多活">1.2 同城双活 vs 异地多活</h3>
+<pre tabindex="0"><code>同城双活：
+  两个机房在同一城市
+  网络延迟 1-3ms
+  可以做双活写入
+
+异地多活：
+  两个机房在不同城市（如北京 + 上海）
+  网络延迟 10-50ms
+  数据同步复杂，通常只做读写分离
+
+两地三中心：
+  同城两个机房（双活）+ 异地一个机房（灾备）
+  常见的金融级高可用方案
+</code></pre><h3 id="13-故障隔离">1.3 故障隔离</h3>
+<pre tabindex="0"><code>舱壁模式（Bulkhead）：
+  将系统拆分为独立的舱室
+  一个舱室故障不影响其他舱室
+
+线程池隔离：
+  为不同的服务分配独立的线程池
+  订单线程池满了 → 只影响订单服务
+  支付线程池正常 → 支付服务正常
+
+信号量隔离：
+  限制并发数量，超过则直接拒绝
+  比线程池隔离更轻量
+</code></pre><hr>
+<h2 id="二负载均衡">二、负载均衡</h2>
+<h3 id="21-常见算法">2.1 常见算法</h3>
+<table>
+	<thead>
+			<tr>
+					<th>算法</th>
+					<th>说明</th>
+					<th>适用场景</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>轮询（RR）</td>
+					<td>依次分发</td>
+					<td>后端能力均等</td>
+			</tr>
+			<tr>
+					<td>加权轮询</td>
+					<td>按权重分发</td>
+					<td>后端配置不等</td>
+			</tr>
+			<tr>
+					<td>最少连接</td>
+					<td>分发到连接最少的节点</td>
+					<td>长连接场景</td>
+			</tr>
+			<tr>
+					<td>一致性哈希</td>
+					<td>相同请求到相同节点</td>
+					<td>缓存场景</td>
+			</tr>
+			<tr>
+					<td>随机</td>
+					<td>随机选择</td>
+					<td>全场景可用</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="22-四层-vs-七层负载均衡">2.2 四层 vs 七层负载均衡</h3>
+<pre tabindex="0"><code>四层负载均衡（LVS、F5）：
+  工作在传输层（TCP/UDP）
+  根据 IP + 端口转发
+  性能极高，不解析 HTTP 内容
+  适合 TCP 长连接
+
+七层负载均衡（Nginx、HAProxy）：
+  工作在应用层（HTTP/HTTPS）
+  可以根据 URL、Header、Cookie 分发
+  功能丰富，性能略低于四层
+  适合 HTTP 应用
+</code></pre><hr>
+<h2 id="三限流">三、限流</h2>
+<h3 id="31-限流算法">3.1 限流算法</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. 计数器算法（固定窗口）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 简单但有临界问题：第1秒最后100ms和第2秒前100ms都可能满</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 滑动窗口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 将时间窗口细分为多个小格</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 解决固定窗口的临界问题</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. 漏桶算法（Leaky Bucket）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 请求先进桶，以固定速率出桶处理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 可以削峰，但无法应对突发流量</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 4. 令牌桶算法（Token Bucket，推荐）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 以固定速率生成令牌放入桶</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 请求需要获取令牌才能处理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 可以应对突发流量（桶内有积压令牌）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 5. 滑动日志</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 记录每个请求的时间戳</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 统计时间窗口内的请求数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 精确但占用内存大</span><span class="w">
+</span></span></span></code></pre></div><h3 id="32-令牌桶实现">3.2 令牌桶实现</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-python" data-lang="python"><span class="line"><span class="cl"><span class="k">class</span> <span class="nc">TokenBucket</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rate</span><span class="p">,</span> <span class="n">capacity</span><span class="p">):</span>
+</span></span><span class="line"><span class="cl">        <span class="bp">self</span><span class="o">.</span><span class="n">rate</span> <span class="o">=</span> <span class="n">rate</span>            <span class="c1"># 每秒生成令牌数</span>
+</span></span><span class="line"><span class="cl">        <span class="bp">self</span><span class="o">.</span><span class="n">capacity</span> <span class="o">=</span> <span class="n">capacity</span>    <span class="c1"># 桶容量（最大突发流量）</span>
+</span></span><span class="line"><span class="cl">        <span class="bp">self</span><span class="o">.</span><span class="n">tokens</span> <span class="o">=</span> <span class="n">capacity</span>      <span class="c1"># 当前令牌数</span>
+</span></span><span class="line"><span class="cl">        <span class="bp">self</span><span class="o">.</span><span class="n">last_refill</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="k">def</span> <span class="nf">try_acquire</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+</span></span><span class="line"><span class="cl">        <span class="c1"># 1. 补充令牌</span>
+</span></span><span class="line"><span class="cl">        <span class="n">now</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">        <span class="n">elapsed</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">last_refill</span>
+</span></span><span class="line"><span class="cl">        <span class="bp">self</span><span class="o">.</span><span class="n">tokens</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">capacity</span><span class="p">,</span> 
+</span></span><span class="line"><span class="cl">                         <span class="bp">self</span><span class="o">.</span><span class="n">tokens</span> <span class="o">+</span> <span class="n">elapsed</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">rate</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">        <span class="bp">self</span><span class="o">.</span><span class="n">last_refill</span> <span class="o">=</span> <span class="n">now</span>
+</span></span><span class="line"><span class="cl">        
+</span></span><span class="line"><span class="cl">        <span class="c1"># 2. 检查是否有可用令牌</span>
+</span></span><span class="line"><span class="cl">        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">tokens</span> <span class="o">&gt;=</span> <span class="mi">1</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">            <span class="bp">self</span><span class="o">.</span><span class="n">tokens</span> <span class="o">-=</span> <span class="mi">1</span>
+</span></span><span class="line"><span class="cl">            <span class="k">return</span> <span class="kc">True</span>
+</span></span><span class="line"><span class="cl">        <span class="k">return</span> <span class="kc">False</span>
+</span></span></code></pre></div><h3 id="33-分布式限流">3.3 分布式限流</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 基于 Redis 的滑动窗口限流</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">tryAcquire</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">maxCount</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">windowSeconds</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">luaScript</span><span class="w"> </span><span class="o">=</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;local key = KEYS[1]\n&#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;local now = redis.call(&#39;TIME&#39;)[1]\n&#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;local window = ARGV[1]\n&#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;local max = ARGV[2]\n&#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;redis.call(&#39;ZREMRANGEBYSCORE&#39;, key, 0, now - window)\n&#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;local count = redis.call(&#39;ZCARD&#39;, key)\n&#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;if tonumber(count) &lt; tonumber(max) then\n&#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;    redis.call(&#39;ZADD&#39;, key, now, now .. &#39;_&#39; .. math.random())\n&#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;    redis.call(&#39;EXPIRE&#39;, key, window)\n&#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;    return 1\n&#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;end\n&#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="s">&#34;return 0&#34;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">execute</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">DefaultRedisScript</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">luaScript</span><span class="p">,</span><span class="w"> </span><span class="n">Long</span><span class="p">.</span><span class="na">class</span><span class="p">),</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="n">key</span><span class="p">),</span><span class="w"> </span><span class="n">String</span><span class="p">.</span><span class="na">valueOf</span><span class="p">(</span><span class="n">windowSeconds</span><span class="p">),</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="p">.</span><span class="na">valueOf</span><span class="p">(</span><span class="n">maxCount</span><span class="p">))</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="四熔断与降级">四、熔断与降级</h2>
+<h3 id="41-熔断器状态机">4.1 熔断器状态机</h3>
+<pre tabindex="0"><code>CLOSED（关闭）
+  ├── 请求正常通过
+  ├── 统计失败率
+  └── 失败率 &gt; 阈值 → OPEN
+
+OPEN（打开）
+  ├── 请求直接失败（快速失败）
+  ├── 等待超时时间
+  └── 超时 → HALF_OPEN
+
+HALF_OPEN（半开）
+  ├── 放行少量请求
+  ├── 成功 → CLOSED
+  └── 失败 → OPEN
+</code></pre><h3 id="42-熔断配置">4.2 熔断配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Resilience4j 熔断配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">CircuitBreakerConfig</span><span class="w"> </span><span class="n">config</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CircuitBreakerConfig</span><span class="p">.</span><span class="na">custom</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">.</span><span class="na">failureRateThreshold</span><span class="p">(</span><span class="n">50</span><span class="p">)</span><span class="w">                  </span><span class="c1">// 失败率阈值 50%</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">.</span><span class="na">slidingWindowSize</span><span class="p">(</span><span class="n">100</span><span class="p">)</span><span class="w">                    </span><span class="c1">// 滑动窗口大小</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">.</span><span class="na">minimumNumberOfCalls</span><span class="p">(</span><span class="n">10</span><span class="p">)</span><span class="w">                  </span><span class="c1">// 最少呼叫数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">.</span><span class="na">waitDurationInOpenState</span><span class="p">(</span><span class="n">Duration</span><span class="p">.</span><span class="na">ofSeconds</span><span class="p">(</span><span class="n">30</span><span class="p">))</span><span class="w">  </span><span class="c1">// 打开状态持续时间</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">.</span><span class="na">permittedNumberOfCallsInHalfOpenState</span><span class="p">(</span><span class="n">5</span><span class="p">)</span><span class="w">  </span><span class="c1">// 半开状态允许的请求数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="五api-网关">五、API 网关</h2>
+<h3 id="51-网关的功能">5.1 网关的功能</h3>
+<pre tabindex="0"><code>├── 路由转发：根据请求路径路由到不同的后端服务
+├── 认证鉴权：统一验证 Token
+├── 限流熔断：对后端服务进行保护
+├── 日志监控：统一记录请求日志
+├── 协议转换：HTTP → Dubbo / gRPC
+└── 灰度发布：按比例路由到不同版本
+</code></pre><h3 id="52-常见网关对比">5.2 常见网关对比</h3>
+<table>
+	<thead>
+			<tr>
+					<th>网关</th>
+					<th>特点</th>
+					<th>适用场景</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Nginx</td>
+					<td>高性能、成熟稳定</td>
+					<td>七层负载均衡</td>
+			</tr>
+			<tr>
+					<td>Kong</td>
+					<td>基于 Nginx，插件丰富</td>
+					<td>API 管理</td>
+			</tr>
+			<tr>
+					<td>Spring Cloud Gateway</td>
+					<td>Java 生态，响应式</td>
+					<td>Spring Cloud</td>
+			</tr>
+			<tr>
+					<td>APISIX</td>
+					<td>高可用，动态路由</td>
+					<td>云原生</td>
+			</tr>
+			<tr>
+					<td>Zuul</td>
+					<td>Netflix 维护</td>
+					<td>Spring Cloud（已维护模式）</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="六总结">六、总结</h2>
+<h3 id="高可用设计原则">高可用设计原则</h3>
+<pre tabindex="0"><code>1. 无状态 → 水平扩展
+2. 有状态 → 主从复制 + 自动切换
+3. 依赖隔离 → 线程池/信号量隔离
+4. 预防 → 限流（令牌桶）
+5. 保护 → 熔断（快速失败）
+6. 容错 → 降级（返回默认值）
+7. 重试 → 超时重试+幂等性
+</code></pre><h3 id="流量治理速查">流量治理速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>手段</th>
+					<th>作用</th>
+					<th>实现</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>负载均衡</td>
+					<td>分发流量</td>
+					<td>Nginx / LVS</td>
+			</tr>
+			<tr>
+					<td>限流</td>
+					<td>控制速率</td>
+					<td>令牌桶 / 滑动窗口</td>
+			</tr>
+			<tr>
+					<td>熔断</td>
+					<td>快速失败</td>
+					<td>Hystrix / Resilience4j</td>
+			</tr>
+			<tr>
+					<td>降级</td>
+					<td>有损服务</td>
+					<td>本地缓存 / 默认值</td>
+			</tr>
+			<tr>
+					<td>网关</td>
+					<td>统一入口</td>
+					<td>Nginx / Spring Cloud Gateway</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>相关阅读：</strong></p>
+<ul>
+<li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E5%9B%9B%E5%88%86%E5%B8%83%E5%BC%8F%E7%BB%84%E4%BB%B6/">分布式系统设计（四）：分布式组件</a></li>
+<li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E5%85%AD%E5%BE%AE%E6%9C%8D%E5%8A%A1%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/">分布式系统设计（六）：微服务架构设计</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>MyBatis 结果映射进阶（二）：级联查询、鉴别器与延迟加载源码 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一defaultresultsethandler-核心流程">一、DefaultResultSetHandler 核心流程</a>
+      <ul>
+        <li><a href="#11-入口handleresultsets">1.1 入口：handleResultSets</a></li>
+        <li><a href="#12-handleresultset逐行处理">1.2 handleResultSet——逐行处理</a></li>
+        <li><a href="#13-简单映射的逐行处理">1.3 简单映射的逐行处理</a></li>
+        <li><a href="#14-嵌套结果的多行合并">1.4 嵌套结果的多行合并</a></li>
+      </ul>
+    </li>
+    <li><a href="#二延迟加载lazy-loading">二、延迟加载（Lazy Loading）</a>
+      <ul>
+        <li><a href="#21-配置延迟加载">2.1 配置延迟加载</a></li>
+        <li><a href="#22-延迟加载的源码实现">2.2 延迟加载的源码实现</a></li>
+        <li><a href="#23-实际执行延迟加载">2.3 实际执行延迟加载</a></li>
+      </ul>
+    </li>
+    <li><a href="#三鉴别器的运行时行为">三、鉴别器的运行时行为</a></li>
+    <li><a href="#四主键生成与自增主键">四、主键生成与自增主键</a>
+      <ul>
+        <li><a href="#41-usegeneratedkeys">4.1 useGeneratedKeys</a></li>
+        <li><a href="#42-主键回填的源码">4.2 主键回填的源码</a></li>
+      </ul>
+    </li>
+    <li><a href="#五完整的-resultset-处理时序">五、完整的 ResultSet 处理时序</a></li>
+    <li><a href="#六总结">六、总结</a>
+      <ul>
+        <li><a href="#结果映射的核心组件">结果映射的核心组件</a></li>
+        <li><a href="#关键设计点">关键设计点</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">MyBatis 结果映射进阶（二）：级联查询、鉴别器与延迟加载源码</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>上一篇覆盖了 resultMap 的各种配置方式。本文深入到 <code>DefaultResultSetHandler</code> 的源码，完整追踪 MyBatis 如何将 JDBC ResultSet 的一行行数据转化为复杂的 Java 对象图——包括级联对象、集合、鉴别器和延迟加载的实现机制。</p>
+<blockquote>
+<p><strong>源码版本：</strong> MyBatis 3.5.x</p>
+</blockquote>
+<h2 id="一defaultresultsethandler-核心流程">一、DefaultResultSetHandler 核心流程</h2>
+<h3 id="11-入口handleresultsets">1.1 入口：handleResultSets</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultResultSetHandler.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">handleResultSets</span><span class="p">(</span><span class="n">Statement</span><span class="w"> </span><span class="n">stmt</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">SQLException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">multipleResults</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">resultSetCount</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 获取第一个 ResultSet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ResultSetWrapper</span><span class="w"> </span><span class="n">rsw</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ResultSetWrapper</span><span class="p">(</span><span class="n">stmt</span><span class="p">.</span><span class="na">getResultSet</span><span class="p">(),</span><span class="w"> </span><span class="n">configuration</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 获取 MappedStatement 中配置的 ResultMap</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ResultMap</span><span class="o">&gt;</span><span class="w"> </span><span class="n">resultMaps</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mappedStatement</span><span class="p">.</span><span class="na">getResultMaps</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">rsw</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">resultMaps</span><span class="p">.</span><span class="na">size</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">resultSetCount</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ResultMap</span><span class="w"> </span><span class="n">resultMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resultMaps</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">resultSetCount</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 核心方法：处理 ResultSet 到 Java 对象的映射</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">handleResultSet</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> </span><span class="n">multipleResults</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 处理多结果集（下一个 ResultSet）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rsw</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getNextResultSet</span><span class="p">(</span><span class="n">stmt</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">resultSetCount</span><span class="o">++</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 如果只有一个结果，直接返回</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">collapseSingleResultList</span><span class="p">(</span><span class="n">multipleResults</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="12-handleresultset逐行处理">1.2 handleResultSet——逐行处理</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultResultSetHandler.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleResultSet</span><span class="p">(</span><span class="n">ResultSetWrapper</span><span class="w"> </span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMap</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">multipleResults</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMapping</span><span class="w"> </span><span class="n">parentMapping</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resultMap</span><span class="p">.</span><span class="na">hasNestedResultMaps</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 有嵌套结果映射（association/collection 的嵌套结果方式）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 需要处理多行合并（同一部门的多行用户数据合到一个集合中）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">handleRowValuesForNestedResultMap</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> </span><span class="n">multipleResults</span><span class="p">,</span><span class="w"> </span><span class="n">parentMapping</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 简单映射（无关联对象嵌套）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">handleRowValuesForSimpleResultMap</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> </span><span class="n">multipleResults</span><span class="p">,</span><span class="w"> </span><span class="n">parentMapping</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="13-简单映射的逐行处理">1.3 简单映射的逐行处理</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultResultSetHandler.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleRowValuesForSimpleResultMap</span><span class="p">(</span><span class="n">ResultSetWrapper</span><span class="w"> </span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMap</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                                </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">results</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMapping</span><span class="w"> </span><span class="n">parentMapping</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">rsw</span><span class="p">.</span><span class="na">getResultSet</span><span class="p">().</span><span class="na">next</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 对每一行结果创建一个对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">rowValue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getRowValue</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">storeObject</span><span class="p">(</span><span class="n">results</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="n">rowValue</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="14-嵌套结果的多行合并">1.4 嵌套结果的多行合并</h3>
+<p>这是处理 <code>collection</code> 和 <code>association</code> 嵌套结果的核心逻辑：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultResultSetHandler.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleRowValuesForNestedResultMap</span><span class="p">(</span><span class="n">ResultSetWrapper</span><span class="w"> </span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMap</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                                </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">results</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMapping</span><span class="w"> </span><span class="n">parentMapping</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 缓存：用于跨行合并（同一个 Department 对象只创建一次）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">final</span><span class="w"> </span><span class="n">DefaultMap</span><span class="o">&lt;</span><span class="n">Object</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">uniqueKeys</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DefaultHashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">rsw</span><span class="p">.</span><span class="na">getResultSet</span><span class="p">().</span><span class="na">next</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 获取当前行对应的对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">rowValue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getRowValue</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">rowValue</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 2. ★ 生成唯一键（根据 &lt;id&gt; 元素）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">CacheKey</span><span class="w"> </span><span class="n">uniqueKey</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createUniqueKey</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 3. 检查该唯一键是否已存在</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Object</span><span class="w"> </span><span class="n">existingObject</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">uniqueKeys</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">uniqueKey</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">existingObject</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 新对象 → 保存</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">uniqueKeys</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">uniqueKey</span><span class="p">,</span><span class="w"> </span><span class="n">rowValue</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">results</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">rowValue</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 已存在 → 合并当前行的数据到已有对象中</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// （将当前行的 User 数据加入已有 Department 的 users 集合）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">mergeRowValue</span><span class="p">(</span><span class="n">rowValue</span><span class="p">,</span><span class="w"> </span><span class="n">existingObject</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="二延迟加载lazy-loading">二、延迟加载（Lazy Loading）</h2>
+<h3 id="21-配置延迟加载">2.1 配置延迟加载</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;settings&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- 开启延迟加载（默认 false） --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;setting</span> <span class="na">name=</span><span class="s">&#34;lazyLoadingEnabled&#34;</span> <span class="na">value=</span><span class="s">&#34;true&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- 积极加载（默认 false）：当开启时，访问一个懒加载属性会加载所有懒加载属性 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;setting</span> <span class="na">name=</span><span class="s">&#34;aggressiveLazyLoading&#34;</span> <span class="na">value=</span><span class="s">&#34;false&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- 延迟加载触发方法（默认值） --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;setting</span> <span class="na">name=</span><span class="s">&#34;lazyLoadTriggerMethods&#34;</span> <span class="na">value=</span><span class="s">&#34;equals,clone,hashCode,toString&#34;</span><span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/settings&gt;</span>
+</span></span></code></pre></div><h3 id="22-延迟加载的源码实现">2.2 延迟加载的源码实现</h3>
+<p>延迟加载的核心思路是：<strong>不直接返回实际对象，而是返回一个代理对象</strong>。当代理对象的某个方法被调用时，才真正去执行 SQL 获取数据。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultResultSetHandler.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">createResultObject</span><span class="p">(</span><span class="n">ResultSetWrapper</span><span class="w"> </span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMap</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                   </span><span class="n">String</span><span class="w"> </span><span class="n">columnPrefix</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">SQLException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ... 常规创建对象 ...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 如果开启了延迟加载，且存在嵌套查询</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resultMap</span><span class="p">.</span><span class="na">hasNestedQueries</span><span class="p">()</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">lazyLoadingEnabled</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 使用 Javassist 或 CGLib 创建代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">configuration</span><span class="p">.</span><span class="na">isUseActualParamName</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 创建延迟加载代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>ProxyFactory——创建延迟加载代理：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ProxyFactory.java — MyBatis 的延迟加载代理工厂</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">ProxyFactory</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 创建延迟加载代理</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="nf">createProxy</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">ResultLoaderMap</span><span class="w"> </span><span class="n">lazyLoader</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                       </span><span class="n">Configuration</span><span class="w"> </span><span class="n">configuration</span><span class="p">,</span><span class="w"> </span><span class="n">ObjectFactory</span><span class="w"> </span><span class="n">objectFactory</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                       </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;&gt;</span><span class="w"> </span><span class="n">constructorArgTypes</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">constructorArgs</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 判断是否是代理对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">isProxy</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">object</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>JavassistProxyFactory 的实现：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// JavassistProxyFactory.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">JavassistProxyFactory</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">ProxyFactory</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">createProxy</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">ResultLoaderMap</span><span class="w"> </span><span class="n">lazyLoader</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                               </span><span class="n">Configuration</span><span class="w"> </span><span class="n">configuration</span><span class="p">,</span><span class="w"> </span><span class="n">ObjectFactory</span><span class="w"> </span><span class="n">objectFactory</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                               </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;&gt;</span><span class="w"> </span><span class="n">constructorArgTypes</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">constructorArgs</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 创建 Enhancer（动态生成子类）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">EnhancedResultObjectProxyImpl</span><span class="p">.</span><span class="na">createProxy</span><span class="p">(</span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">lazyLoader</span><span class="p">,</span><span class="w"> </span><span class="n">configuration</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">objectFactory</span><span class="p">,</span><span class="w"> </span><span class="n">constructorArgTypes</span><span class="p">,</span><span class="w"> </span><span class="n">constructorArgs</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 内部类：CGLib 的 MethodInterceptor</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">class</span> <span class="nc">EnhancedResultObjectProxyImpl</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">MethodHandler</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ResultLoaderMap</span><span class="w"> </span><span class="n">lazyLoader</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">enhanced</span><span class="p">,</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">methodProxy</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">methodName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">method</span><span class="p">.</span><span class="na">getName</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 判断是否是延迟加载属性的 getter 方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">lazyLoader</span><span class="p">.</span><span class="na">size</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">lazyLoader</span><span class="p">.</span><span class="na">isLoaded</span><span class="p">(</span><span class="n">methodName</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">isLazyLoadTrigger</span><span class="p">(</span><span class="n">methodName</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="c1">// ★ 触发延迟加载：执行嵌套查询，填充所有懒加载属性</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">lazyLoader</span><span class="p">.</span><span class="na">loadAll</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">isPropertyGetter</span><span class="p">(</span><span class="n">methodName</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="c1">// ★ 只加载当前 getter 对应的属性</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">lazyLoader</span><span class="p">.</span><span class="na">load</span><span class="p">(</span><span class="n">methodName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 调用实际方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">methodProxy</span><span class="p">.</span><span class="na">invoke</span><span class="p">(</span><span class="n">enhanced</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="23-实际执行延迟加载">2.3 实际执行延迟加载</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ResultLoaderMap.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ResultLoaderMap</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">LoadPair</span><span class="o">&gt;</span><span class="w"> </span><span class="n">loaderMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">load</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">property</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">SQLException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">LoadPair</span><span class="w"> </span><span class="n">pair</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">loaderMap</span><span class="p">.</span><span class="na">remove</span><span class="p">(</span><span class="n">property</span><span class="p">.</span><span class="na">toUpperCase</span><span class="p">(</span><span class="n">Locale</span><span class="p">.</span><span class="na">ENGLISH</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">pair</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 执行嵌套查询，加载数据</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">pair</span><span class="p">.</span><span class="na">load</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">loadAll</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">SQLException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">final</span><span class="w"> </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">methodNameSet</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">loaderMap</span><span class="p">.</span><span class="na">keySet</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 遍历所有延迟加载属性，依次加载</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">methodName</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">methodNameSet</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">load</span><span class="p">(</span><span class="n">methodName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ LoadPair 内部封装了实际的查询调用</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">class</span> <span class="nc">LoadPair</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ResultLoader</span><span class="w"> </span><span class="n">loader</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">void</span><span class="w"> </span><span class="nf">load</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">SQLException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 执行 SqlSession.selectList() — 发出一条新 SQL</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Object</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">loader</span><span class="p">.</span><span class="na">loadResult</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 设置目标对象的属性值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">metaObject</span><span class="p">.</span><span class="na">setValue</span><span class="p">(</span><span class="n">property</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="三鉴别器的运行时行为">三、鉴别器的运行时行为</h2>
+<p>鉴别器在运行时通过 <code>resolveDiscriminatedResultMap</code> 方法动态确定使用哪个 <code>resultMap</code>：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultResultSetHandler.getRowValue() 中</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">getRowValue</span><span class="p">(</span><span class="n">ResultSetWrapper</span><span class="w"> </span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMap</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                            </span><span class="n">String</span><span class="w"> </span><span class="n">columnPrefix</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">SQLException</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 创建结果对象</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="n">resultObject</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createResultObject</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> </span><span class="n">columnPrefix</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resultObject</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 如果有鉴别器，重新获取匹配的 resultMap</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resultMap</span><span class="p">.</span><span class="na">hasDiscriminator</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">resultMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resolveDiscriminatedResultMap</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> </span><span class="n">columnPrefix</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 执行实际的映射...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">resultObject</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>鉴别器的多级处理：</strong></p>
+<pre tabindex="0"><code>SQL 结果：vehicle_type = &#34;CAR&#34;
+    │
+    ▼
+resolveDiscriminatedResultMap(vehicleMap)
+    │
+    ├── 获取 vehicle_type 列值 → &#34;CAR&#34;
+    ├── 查找 CAR 对应的 resultMap → &#34;carMap&#34;
+    ├── carMap 也有鉴别器吗？
+    │     ├── 无 → 返回 carMap
+    │     └── 有 → 递归
+    │
+    ▼
+返回最终的 ResultMap → carMap（可能包含额外属性 doorCount）
+</code></pre><hr>
+<h2 id="四主键生成与自增主键">四、主键生成与自增主键</h2>
+<h3 id="41-usegeneratedkeys">4.1 useGeneratedKeys</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;insert</span> <span class="na">id=</span><span class="s">&#34;insert&#34;</span> <span class="na">useGeneratedKeys=</span><span class="s">&#34;true&#34;</span> <span class="na">keyProperty=</span><span class="s">&#34;id&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    INSERT INTO users (name, email) VALUES (#{name}, #{email})
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/insert&gt;</span>
+</span></span></code></pre></div><h3 id="42-主键回填的源码">4.2 主键回填的源码</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultResultSetHandler.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleOutputParameters</span><span class="p">(</span><span class="n">CallableStatement</span><span class="w"> </span><span class="n">cs</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ... 处理存储过程的输出参数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 在 BaseExecutor 中</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 执行更新</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">doUpdate</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 如果配置了 useGeneratedKeys，处理自增主键回填</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ms</span><span class="p">.</span><span class="na">getKeyGenerator</span><span class="p">()</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ms</span><span class="p">.</span><span class="na">getKeyGenerator</span><span class="p">().</span><span class="na">processAfter</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">clearLocalCache</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>Jdbc3KeyGenerator——JDBC 自增主键回填：</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Jdbc3KeyGenerator.java</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Jdbc3KeyGenerator</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">KeyGenerator</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">processAfter</span><span class="p">(</span><span class="n">Executor</span><span class="w"> </span><span class="n">executor</span><span class="p">,</span><span class="w"> </span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">Statement</span><span class="w"> </span><span class="n">stmt</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 从 JDBC Statement 中获取自增主键值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">ResultSet</span><span class="w"> </span><span class="n">rs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">stmt</span><span class="p">.</span><span class="na">getGeneratedKeys</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">rs</span><span class="p">.</span><span class="na">next</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="kd">final</span><span class="w"> </span><span class="n">Configuration</span><span class="w"> </span><span class="n">configuration</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">getConfiguration</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="kd">final</span><span class="w"> </span><span class="n">TypeHandlerRegistry</span><span class="w"> </span><span class="n">typeHandlerRegistry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">configuration</span><span class="p">.</span><span class="na">getTypeHandlerRegistry</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 将主键值设置回参数对象的 keyProperty 属性</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">String</span><span class="w"> </span><span class="n">keyProperty</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">getKeyProperties</span><span class="p">()</span><span class="o">[</span><span class="n">0</span><span class="o">]</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">MetaObject</span><span class="w"> </span><span class="n">metaObject</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">configuration</span><span class="p">.</span><span class="na">newMetaObject</span><span class="p">(</span><span class="n">parameter</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">metaObject</span><span class="p">.</span><span class="na">hasSetter</span><span class="p">(</span><span class="n">keyProperty</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">keyPropertyType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">metaObject</span><span class="p">.</span><span class="na">getSetterType</span><span class="p">(</span><span class="n">keyProperty</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">TypeHandler</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">typeHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">typeHandlerRegistry</span><span class="p">.</span><span class="na">getTypeHandler</span><span class="p">(</span><span class="n">keyPropertyType</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">metaObject</span><span class="p">.</span><span class="na">setValue</span><span class="p">(</span><span class="n">keyProperty</span><span class="p">,</span><span class="w"> </span><span class="n">typeHandler</span><span class="p">.</span><span class="na">getResult</span><span class="p">(</span><span class="n">rs</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="五完整的-resultset-处理时序">五、完整的 ResultSet 处理时序</h2>
+<pre tabindex="0"><code>handleResultSets(Statement)
+    │
+    ├── ResultSetWrapper 包装 ResultSet
+    │
+    ├── 循环处理每个 ResultMap（多结果集）
+    │     │
+    │     ├── 有嵌套结果映射？
+    │     │     ├── 是 → handleRowValuesForNestedResultMap
+    │     │     │         ├── 逐行读取结果集
+    │     │     │         ├── 生成唯一键（&lt;id&gt; 列）
+    │     │     │         ├── 缓存判断：新对象/已有对象
+    │     │     │         └── 递归处理嵌套的 association/collection
+    │     │     │
+    │     │     └── 否 → handleRowValuesForSimpleResultMap
+    │     │                 └── 逐行读取 → getRowValue()
+    │     │
+    │     └── getRowValue()
+    │           ├── createResultObject() — 创建 Java 对象
+    │           ├── 检查鉴别器 → resolveDiscriminatedResultMap()
+    │           ├── 遍历 ResultMapping 映射每个字段
+    │           │     ├── 简单字段 → TypeHandler.getResult() → setValue()
+    │           │     ├── association → 递归/嵌套查询
+    │           │     └── collection → 递归/嵌套查询
+    │           └── 延迟加载 → 创建代理对象
+    │
+    └── collapseSingleResultList() → 返回
+</code></pre><hr>
+<h2 id="六总结">六、总结</h2>
+<h3 id="结果映射的核心组件">结果映射的核心组件</h3>
+<table>
+	<thead>
+			<tr>
+					<th>组件</th>
+					<th>职责</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>ResultSetWrapper</code></td>
+					<td>包装 ResultSet，缓存列名和 TypeHandler</td>
+			</tr>
+			<tr>
+					<td><code>ResultMap</code></td>
+					<td>描述 Java 对象与数据库列的映射关系</td>
+			</tr>
+			<tr>
+					<td><code>ResultMapping</code></td>
+					<td>一个字段/关联的映射描述</td>
+			</tr>
+			<tr>
+					<td><code>DefaultResultSetHandler</code></td>
+					<td>核心，执行实际映射和对象创建</td>
+			</tr>
+			<tr>
+					<td><code>TypeHandler</code></td>
+					<td>类型转换</td>
+			</tr>
+			<tr>
+					<td><code>ProxyFactory</code></td>
+					<td>创建延迟加载代理对象</td>
+			</tr>
+			<tr>
+					<td><code>ResultLoaderMap</code></td>
+					<td>管理延迟加载的属性和触发</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="关键设计点">关键设计点</h3>
+<ul>
+<li><strong>级联结果去重</strong>：通过 <code>&lt;id&gt;</code> 元素和 <code>uniqueKeys</code> 缓存实现</li>
+<li><strong>延迟加载</strong>：通过代理对象 + <code>ResultLoaderMap</code> 实现</li>
+<li><strong>鉴别器</strong>：运行时递归确定使用哪个 resultMap</li>
+</ul>
+<hr>
+<p><strong>上一篇：</strong> <a href="/posts/mybatis-%E7%BB%93%E6%9E%9C%E6%98%A0%E5%B0%84%E8%BF%9B%E9%98%B6%E4%B8%80resultmap-%E9%AB%98%E7%BA%A7%E7%94%A8%E6%B3%95/">MyBatis 结果映射进阶（一）：resultMap 高级用法</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

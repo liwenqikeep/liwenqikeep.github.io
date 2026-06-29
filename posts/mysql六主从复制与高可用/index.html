@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>MySQL（六）：主从复制与高可用 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一主从复制架构">一、主从复制架构</a>
+      <ul>
+        <li><a href="#11-基本架构">1.1 基本架构</a></li>
+        <li><a href="#12-复制三种常见拓扑">1.2 复制三种常见拓扑</a></li>
+      </ul>
+    </li>
+    <li><a href="#二复制原理">二、复制原理</a>
+      <ul>
+        <li><a href="#21-三线程工作模型">2.1 三线程工作模型</a></li>
+        <li><a href="#22-复制的完整流程">2.2 复制的完整流程</a></li>
+      </ul>
+    </li>
+    <li><a href="#三复制配置">三、复制配置</a>
+      <ul>
+        <li><a href="#31-主库配置">3.1 主库配置</a></li>
+        <li><a href="#32-从库配置">3.2 从库配置</a></li>
+        <li><a href="#33-建立复制">3.3 建立复制</a></li>
+      </ul>
+    </li>
+    <li><a href="#四复制模式">四、复制模式</a>
+      <ul>
+        <li><a href="#41-异步复制默认">4.1 异步复制（默认）</a></li>
+        <li><a href="#42-半同步复制">4.2 半同步复制</a></li>
+        <li><a href="#43-组复制mysql-group-replication-mgr">4.3 组复制（MySQL Group Replication, MGR）</a></li>
+      </ul>
+    </li>
+    <li><a href="#五gtid-复制">五、GTID 复制</a>
+      <ul>
+        <li><a href="#51-gtid-概念">5.1 GTID 概念</a></li>
+        <li><a href="#52-gtid-复制的优点">5.2 GTID 复制的优点</a></li>
+        <li><a href="#53-启用-gtid">5.3 启用 GTID</a></li>
+      </ul>
+    </li>
+    <li><a href="#六读写分离">六、读写分离</a>
+      <ul>
+        <li><a href="#61-应用层实现">6.1 应用层实现</a></li>
+        <li><a href="#62-中间件方案">6.2 中间件方案</a></li>
+      </ul>
+    </li>
+    <li><a href="#七主从延迟">七、主从延迟</a>
+      <ul>
+        <li><a href="#71-延迟原因">7.1 延迟原因</a></li>
+        <li><a href="#72-查看延迟">7.2 查看延迟</a></li>
+        <li><a href="#73-解决延迟">7.3 解决延迟</a></li>
+      </ul>
+    </li>
+    <li><a href="#八常见复制异常">八、常见复制异常</a>
+      <ul>
+        <li><a href="#81-复制中断">8.1 复制中断</a></li>
+        <li><a href="#82-主从切换">8.2 主从切换</a></li>
+      </ul>
+    </li>
+    <li><a href="#九总结">九、总结</a>
+      <ul>
+        <li><a href="#复制模式对比">复制模式对比</a></li>
+        <li><a href="#主从架构最佳实践">主从架构最佳实践</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">MySQL（六）：主从复制与高可用</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>主从复制是 MySQL 高可用架构的基石。通过将一台主库的数据实时同步到多个从库，可以实现<strong>读写分离</strong>（分担查询压力）、<strong>数据备份</strong>（冗余存储）和<strong>故障切换</strong>（高可用）。</p>
+<p>本文从复制原理出发，逐步深入到复制模式、GTID、常见问题和架构方案。</p>
+<h2 id="一主从复制架构">一、主从复制架构</h2>
+<h3 id="11-基本架构">1.1 基本架构</h3>
+<pre tabindex="0"><code>                主库（Master）
+                     │
+                     ├── 所有写操作在主库执行
+                     │
+                     ▼
+               Binary Log（binlog）
+                     │
+        ┌────────────┼────────────┐
+        │            │            │
+        ▼            ▼            ▼
+     从库1         从库2         从库3
+    (读请求)      (读请求/备份)  (报表查询)
+</code></pre><h3 id="12-复制三种常见拓扑">1.2 复制三种常见拓扑</h3>
+<pre tabindex="0"><code>一主一从                 一主多从                级联复制
+┌──────┐               ┌──────┐               ┌──────┐
+│ 主库  │               │ 主库  │               │ 主库  │
+└──┬───┘               └──┬───┘               └──┬───┘
+   │                       │                       │
+   ▼                       ├────┬────┬────┐        ▼
+┌──────┐               ┌──┴──┐│  │  │  │     ┌──────┐
+│ 从库  │               │ 从1 ││  │  │  │     │ 从1  │
+└──────┘               └─────┘│  │  │  │     └──┬───┘
+                            从2  从3  从4          │
+                                                 ▼
+                                              ┌──────┐
+                                              │ 从2  │
+                                              └──────┘
+</code></pre><hr>
+<h2 id="二复制原理">二、复制原理</h2>
+<h3 id="21-三线程工作模型">2.1 三线程工作模型</h3>
+<pre tabindex="0"><code>主库：                    从库：
+┌─────────────┐         ┌──────────────────┐
+│ Binlog Dump │         │ I/O Thread       │
+│ Thread      │──────▶  │ (接收 binlog)    │
+│ (发送binlog)│         │       │          │
+└─────────────┘         │       ▼          │
+                        │ Relay Log        │
+                        │ (中继日志)        │
+                        │       │          │
+                        │       ▼          │
+                        │ SQL Thread       │
+                        │ (重放 relay log) │
+                        └──────────────────┘
+</code></pre><p><strong>三个线程的职责：</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>线程</th>
+					<th>位置</th>
+					<th>职责</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Binlog Dump Thread</td>
+					<td>主库</td>
+					<td>读取 binlog 并发送给从库</td>
+			</tr>
+			<tr>
+					<td>I/O Thread</td>
+					<td>从库</td>
+					<td>接收 binlog 并写入 relay log</td>
+			</tr>
+			<tr>
+					<td>SQL Thread</td>
+					<td>从库</td>
+					<td>读取 relay log 并回放执行</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="22-复制的完整流程">2.2 复制的完整流程</h3>
+<pre tabindex="0"><code>1. 从库执行 CHANGE MASTER TO 配置主库信息
+2. 从库执行 START SLAVE
+3. 从库 I/O Thread 连接主库
+4. 主库 Binlog Dump Thread 发送 binlog
+5. 从库 I/O Thread 接收并写入 relay log
+6. 从库 SQL Thread 读取 relay log 并回放
+7. 从库数据与主库保持一致
+</code></pre><hr>
+<h2 id="三复制配置">三、复制配置</h2>
+<h3 id="31-主库配置">3.1 主库配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ini" data-lang="ini"><span class="line"><span class="cl"><span class="c1"># my.cnf — 主库</span>
+</span></span><span class="line"><span class="cl"><span class="k">[mysqld]</span>
+</span></span><span class="line"><span class="cl"><span class="na">server_id</span> <span class="o">=</span> <span class="s">1                    # 唯一 ID（不能重复）</span>
+</span></span><span class="line"><span class="cl"><span class="na">log_bin</span> <span class="o">=</span> <span class="s">mysql-bin              # 开启 binlog</span>
+</span></span><span class="line"><span class="cl"><span class="na">binlog_format</span> <span class="o">=</span> <span class="s">ROW              # ROW 格式（推荐）</span>
+</span></span><span class="line"><span class="cl"><span class="na">binlog_do_db</span> <span class="o">=</span> <span class="s">test_db           # 只复制指定库（可选）</span>
+</span></span><span class="line"><span class="cl"><span class="na">expire_logs_days</span> <span class="o">=</span> <span class="s">7             # binlog 保留天数</span>
+</span></span><span class="line"><span class="cl"><span class="na">max_binlog_size</span> <span class="o">=</span> <span class="s">100M           # 单个 binlog 大小</span>
+</span></span></code></pre></div><h3 id="32-从库配置">3.2 从库配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ini" data-lang="ini"><span class="line"><span class="cl"><span class="c1"># my.cnf — 从库</span>
+</span></span><span class="line"><span class="cl"><span class="k">[mysqld]</span>
+</span></span><span class="line"><span class="cl"><span class="na">server_id</span> <span class="o">=</span> <span class="s">2                    # 唯一 ID（与主库不同）</span>
+</span></span><span class="line"><span class="cl"><span class="na">log_bin</span> <span class="o">=</span> <span class="s">mysql-bin              # 从库也开启 binlog（可选，用于级联）</span>
+</span></span><span class="line"><span class="cl"><span class="na">relay_log</span> <span class="o">=</span> <span class="s">mysql-relay-bin      # 中继日志</span>
+</span></span><span class="line"><span class="cl"><span class="na">read_only</span> <span class="o">=</span> <span class="s">1                    # 从库只读（防止误写）</span>
+</span></span><span class="line"><span class="cl"><span class="na">relay_log_recovery</span> <span class="o">=</span> <span class="s">1           # relay log 崩溃恢复</span>
+</span></span></code></pre></div><h3 id="33-建立复制">3.3 建立复制</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 主库创建复制用户
+</span></span></span><span class="line"><span class="cl"><span class="k">CREATE</span><span class="w"> </span><span class="k">USER</span><span class="w"> </span><span class="s1">&#39;repl&#39;</span><span class="o">@</span><span class="s1">&#39;%&#39;</span><span class="w"> </span><span class="n">IDENTIFIED</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="s1">&#39;password&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">GRANT</span><span class="w"> </span><span class="n">REPLICATION</span><span class="w"> </span><span class="n">SLAVE</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="o">*</span><span class="p">.</span><span class="o">*</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="s1">&#39;repl&#39;</span><span class="o">@</span><span class="s1">&#39;%&#39;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">FLUSH</span><span class="w"> </span><span class="k">PRIVILEGES</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 查看主库状态
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">MASTER</span><span class="w"> </span><span class="n">STATUS</span><span class="err">\</span><span class="k">G</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 记录 File 和 Position
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 从库配置
+</span></span></span><span class="line"><span class="cl"><span class="n">CHANGE</span><span class="w"> </span><span class="n">MASTER</span><span class="w"> </span><span class="k">TO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_HOST</span><span class="o">=</span><span class="s1">&#39;192.168.1.100&#39;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_PORT</span><span class="o">=</span><span class="mi">3306</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_USER</span><span class="o">=</span><span class="s1">&#39;repl&#39;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_PASSWORD</span><span class="o">=</span><span class="s1">&#39;password&#39;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_LOG_FILE</span><span class="o">=</span><span class="s1">&#39;mysql-bin.000001&#39;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_LOG_POS</span><span class="o">=</span><span class="mi">123456789</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 启动复制
+</span></span></span><span class="line"><span class="cl"><span class="k">START</span><span class="w"> </span><span class="n">SLAVE</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 查看复制状态
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">SLAVE</span><span class="w"> </span><span class="n">STATUS</span><span class="err">\</span><span class="k">G</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 主要关注：
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- Slave_IO_Running: Yes    ← I/O 线程是否正常
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- Slave_SQL_Running: Yes   ← SQL 线程是否正常
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- Seconds_Behind_Master: 0 ← 从库延迟（秒）
+</span></span></span></code></pre></div><hr>
+<h2 id="四复制模式">四、复制模式</h2>
+<h3 id="41-异步复制默认">4.1 异步复制（默认）</h3>
+<pre tabindex="0"><code>主库提交事务后立即返回，不等待从库确认
+┌──────┐           ┌──────┐
+│ 主库  │── binlog ─▶ 从库  │
+│ 提交  │           │ 接收  │
+│ 返回  │           │  稍后  │
+└──────┘           └──────┘
+
+优点：主库性能影响最小
+缺点：主库宕机时，已提交但未同步到从库的数据会丢失
+</code></pre><h3 id="42-半同步复制">4.2 半同步复制</h3>
+<pre tabindex="0"><code>主库提交事务后，等待至少一个从库确认收到 binlog
+┌──────┐           ┌──────┐
+│ 主库  │── binlog ─▶ 从库  │
+│ 等待  │◀── ACK ─── │ 接收  │
+│ 返回  │           └──────┘
+└──────┘
+
+安装：
+INSTALL PLUGIN rpl_semi_sync_master SONAME &#39;semisync_master.so&#39;;
+INSTALL PLUGIN rpl_semi_sync_slave SONAME &#39;semisync_slave.so&#39;;
+
+配置：
+rpl_semi_sync_master_enabled = 1
+rpl_semi_sync_slave_enabled = 1
+rpl_semi_sync_master_timeout = 1000  -- 超时 1s 后降级为异步
+
+优点：数据安全性更高
+缺点：增加事务提交延迟
+</code></pre><h3 id="43-组复制mysql-group-replication-mgr">4.3 组复制（MySQL Group Replication, MGR）</h3>
+<pre tabindex="0"><code>MySQL 5.7+ 引入，基于 Paxos 协议的多主复制
+多个节点组成一个复制组，每个节点都可读写
+
+使用场景：要求强一致性的高可用方案
+限制：所有表必须有主键
+</code></pre><hr>
+<h2 id="五gtid-复制">五、GTID 复制</h2>
+<h3 id="51-gtid-概念">5.1 GTID 概念</h3>
+<p>GTID（Global Transaction Identifier）是 MySQL 5.6+ 引入的全局事务标识符。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- GTID 格式：server_uuid:transaction_id
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 如：3e11fa47-61ca-11eb-8c9a-0050568c3e01:12345
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 每个事务在提交时生成唯一的 GTID
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- GTID 在 binlog 中记录，全局唯一
+</span></span></span></code></pre></div><h3 id="52-gtid-复制的优点">5.2 GTID 复制的优点</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 传统复制：需要手动指定 binlog 文件名和位置
+</span></span></span><span class="line"><span class="cl"><span class="n">CHANGE</span><span class="w"> </span><span class="n">MASTER</span><span class="w"> </span><span class="k">TO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_LOG_FILE</span><span class="o">=</span><span class="s1">&#39;mysql-bin.000001&#39;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_LOG_POS</span><span class="o">=</span><span class="mi">123456789</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- GTID 复制：自动追踪同步位置
+</span></span></span><span class="line"><span class="cl"><span class="n">CHANGE</span><span class="w"> </span><span class="n">MASTER</span><span class="w"> </span><span class="k">TO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_HOST</span><span class="o">=</span><span class="s1">&#39;192.168.1.100&#39;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_PORT</span><span class="o">=</span><span class="mi">3306</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_USER</span><span class="o">=</span><span class="s1">&#39;repl&#39;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_PASSWORD</span><span class="o">=</span><span class="s1">&#39;password&#39;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MASTER_AUTO_POSITION</span><span class="o">=</span><span class="mi">1</span><span class="p">;</span><span class="w">  </span><span class="c1">-- 自动定位
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 优点：
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 1. 无需手动找 binlog 位置
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 2. 主从切换更简单
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 3. 更容易判断主从一致性
+</span></span></span></code></pre></div><h3 id="53-启用-gtid">5.3 启用 GTID</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ini" data-lang="ini"><span class="line"><span class="cl"><span class="c1"># my.cnf</span>
+</span></span><span class="line"><span class="cl"><span class="na">gtid_mode</span> <span class="o">=</span> <span class="s">ON</span>
+</span></span><span class="line"><span class="cl"><span class="na">enforce_gtid_consistency</span> <span class="o">=</span> <span class="s">ON</span>
+</span></span></code></pre></div><hr>
+<h2 id="六读写分离">六、读写分离</h2>
+<h3 id="61-应用层实现">6.1 应用层实现</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 使用 Spring 的 AbstractRoutingDataSource</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ReadWriteRoutingDataSource</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">AbstractRoutingDataSource</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">WRITE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;write&#34;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">READ</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;read&#34;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">determineCurrentLookupKey</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 从 ThreadLocal 中获取当前请求类型</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">DataSourceContextHolder</span><span class="p">.</span><span class="na">get</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">type</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">type</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">WRITE</span><span class="p">;</span><span class="w">  </span><span class="c1">// 默认写库</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 注解标记</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Target</span><span class="p">(</span><span class="n">ElementType</span><span class="p">.</span><span class="na">METHOD</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Retention</span><span class="p">(</span><span class="n">RetentionPolicy</span><span class="p">.</span><span class="na">RUNTIME</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="nd">@interface</span><span class="w"> </span><span class="n">DataSource</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="nf">value</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="s">&#34;write&#34;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 通过 AOP 切换数据源</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Aspect</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DataSourceAspect</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Before</span><span class="p">(</span><span class="s">&#34;@annotation(ds)&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">switchDataSource</span><span class="p">(</span><span class="n">JoinPoint</span><span class="w"> </span><span class="n">point</span><span class="p">,</span><span class="w"> </span><span class="n">DataSource</span><span class="w"> </span><span class="n">ds</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">DataSourceContextHolder</span><span class="p">.</span><span class="na">set</span><span class="p">(</span><span class="n">ds</span><span class="p">.</span><span class="na">value</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="62-中间件方案">6.2 中间件方案</h3>
+<table>
+	<thead>
+			<tr>
+					<th>中间件</th>
+					<th>特点</th>
+					<th>适用场景</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>ProxySQL</strong></td>
+					<td>功能强大，支持查询路由</td>
+					<td>生产推荐</td>
+			</tr>
+			<tr>
+					<td><strong>MyCat</strong></td>
+					<td>分库分表 + 读写分离</td>
+					<td>大规模分片</td>
+			</tr>
+			<tr>
+					<td><strong>ShardingSphere</strong></td>
+					<td>应用层集成</td>
+					<td>Java 项目</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="七主从延迟">七、主从延迟</h2>
+<h3 id="71-延迟原因">7.1 延迟原因</h3>
+<pre tabindex="0"><code>常见延迟原因：
+1. 主库大事务（如一次 DELETE 大量数据）
+2. 从库 SQL Thread 单线程重放（MySQL 5.6 前）
+3. 从库硬件性能差（CPU、IOPS）
+4. 主库写压力过大
+5. 大表的 DDL 操作
+</code></pre><h3 id="72-查看延迟">7.2 查看延迟</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">SLAVE</span><span class="w"> </span><span class="n">STATUS</span><span class="err">\</span><span class="k">G</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- Seconds_Behind_Master: 0  ← 延迟秒数
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 更精确的延迟监控（基于心跳，更准确）
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">SLAVE</span><span class="w"> </span><span class="n">STATUS</span><span class="err">\</span><span class="k">G</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- Slave_IO_Running: Yes
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- Slave_SQL_Running: Yes
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- Retrieved_Gtid_Set: ...
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- Executed_Gtid_Set: ...
+</span></span></span></code></pre></div><h3 id="73-解决延迟">7.3 解决延迟</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 方式1：并行复制（MySQL 5.7+）
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 从库多线程并行回放 relay log
+</span></span></span><span class="line"><span class="cl"><span class="n">slave_parallel_workers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="w">              </span><span class="c1">-- 并行线程数
+</span></span></span><span class="line"><span class="cl"><span class="n">slave_parallel_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LOGICAL_CLOCK</span><span class="w">     </span><span class="c1">-- 基于组提交的并行
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 方式2：避免大事务
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 大批量更新拆分为小批量
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 方式3：合理使用读写分离
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 对实时性要求高的查询走主库
+</span></span></span></code></pre></div><hr>
+<h2 id="八常见复制异常">八、常见复制异常</h2>
+<h3 id="81-复制中断">8.1 复制中断</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 常见错误及处理
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 1. 主键冲突
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 从库尝试插入已存在的记录
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 解决：跳过该事务
+</span></span></span><span class="line"><span class="cl"><span class="k">SET</span><span class="w"> </span><span class="k">GLOBAL</span><span class="w"> </span><span class="n">sql_slave_skip_counter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">START</span><span class="w"> </span><span class="n">SLAVE</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 2. 从库表不存在
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 从库缺少表（可能 DDL 没同步）
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 解决：在从库创建缺失的表
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 3. 主从数据不一致
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 使用 pt-table-checksum 检查
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 使用 pt-table-sync 修复
+</span></span></span></code></pre></div><h3 id="82-主从切换">8.2 主从切换</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 计划内切换
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 1. 确认从库追赶上主库
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">SLAVE</span><span class="w"> </span><span class="n">STATUS</span><span class="err">\</span><span class="k">G</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- Seconds_Behind_Master = 0
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 2. 停止主库写入
+</span></span></span><span class="line"><span class="cl"><span class="n">FLUSH</span><span class="w"> </span><span class="n">TABLES</span><span class="w"> </span><span class="k">WITH</span><span class="w"> </span><span class="k">READ</span><span class="w"> </span><span class="k">LOCK</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 3. 等待从库追上
+</span></span></span><span class="line"><span class="cl"><span class="k">SHOW</span><span class="w"> </span><span class="n">SLAVE</span><span class="w"> </span><span class="n">STATUS</span><span class="err">\</span><span class="k">G</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 4. 将从库提升为主库
+</span></span></span><span class="line"><span class="cl"><span class="n">STOP</span><span class="w"> </span><span class="n">SLAVE</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">RESET</span><span class="w"> </span><span class="n">SLAVE</span><span class="w"> </span><span class="k">ALL</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 5. 切换应用连接
+</span></span></span><span class="line"><span class="cl"><span class="c1">-- 将从库 IP 设为主库
+</span></span></span></code></pre></div><hr>
+<h2 id="九总结">九、总结</h2>
+<h3 id="复制模式对比">复制模式对比</h3>
+<table>
+	<thead>
+			<tr>
+					<th>模式</th>
+					<th>数据安全</th>
+					<th>性能影响</th>
+					<th>适用场景</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>异步复制</td>
+					<td>可能丢数据</td>
+					<td>无</td>
+					<td>性能优先</td>
+			</tr>
+			<tr>
+					<td>半同步复制</td>
+					<td>不丢数据</td>
+					<td>较小延迟</td>
+					<td>生产环境推荐</td>
+			</tr>
+			<tr>
+					<td>组复制（MGR）</td>
+					<td>强一致</td>
+					<td>较大延迟</td>
+					<td>金融级一致性</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="主从架构最佳实践">主从架构最佳实践</h3>
+<table>
+	<thead>
+			<tr>
+					<th>实践</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>开启半同步复制</td>
+					<td>数据安全与性能的平衡</td>
+			</tr>
+			<tr>
+					<td>使用 GTID</td>
+					<td>简化切换，避免定位 binlog 位置</td>
+			</tr>
+			<tr>
+					<td>设置 read_only=1</td>
+					<td>从库只读，防止误写入</td>
+			</tr>
+			<tr>
+					<td>监控延迟</td>
+					<td>Seconds_Behind_Master</td>
+			</tr>
+			<tr>
+					<td>并行复制</td>
+					<td>slave_parallel_workers &gt;= 4</td>
+			</tr>
+			<tr>
+					<td>大事务拆分</td>
+					<td>避免主从延迟</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<p><strong>上一篇：</strong> <a href="/posts/mysql%E4%BA%94%E6%97%A5%E5%BF%97%E7%B3%BB%E7%BB%9F/">MySQL（五）：日志系统</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/mysql%E4%B8%83%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E4%B8%8E%E6%9E%B6%E6%9E%84/">MySQL（七）：性能优化与架构</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

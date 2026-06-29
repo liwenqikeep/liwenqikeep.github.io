@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Kafka（二）：生产者原理 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一生产者发送流程">一、生产者发送流程</a>
+      <ul>
+        <li><a href="#11-整体架构">1.1 整体架构</a></li>
+        <li><a href="#12-java-api-生产者">1.2 Java API 生产者</a></li>
+      </ul>
+    </li>
+    <li><a href="#二分区策略">二、分区策略</a>
+      <ul>
+        <li><a href="#21-默认分区器">2.1 默认分区器</a></li>
+        <li><a href="#22-自定义分区器">2.2 自定义分区器</a></li>
+      </ul>
+    </li>
+    <li><a href="#三发送参数详解">三、发送参数详解</a>
+      <ul>
+        <li><a href="#31-关键配置">3.1 关键配置</a></li>
+        <li><a href="#32-acks-详解">3.2 acks 详解</a></li>
+        <li><a href="#33-重试与幂等性">3.3 重试与幂等性</a></li>
+      </ul>
+    </li>
+    <li><a href="#四消息序列化">四、消息序列化</a>
+      <ul>
+        <li><a href="#41-自定义序列化器">4.1 自定义序列化器</a></li>
+      </ul>
+    </li>
+    <li><a href="#五消息发送原理">五、消息发送原理</a>
+      <ul>
+        <li><a href="#51-recordaccumulator">5.1 RecordAccumulator</a></li>
+        <li><a href="#52-批量发送条件">5.2 批量发送条件</a></li>
+      </ul>
+    </li>
+    <li><a href="#六生产者事务">六、生产者事务</a>
+      <ul>
+        <li><a href="#61-事务-api">6.1 事务 API</a></li>
+        <li><a href="#62-事务原理">6.2 事务原理</a></li>
+      </ul>
+    </li>
+    <li><a href="#七总结">七、总结</a>
+      <ul>
+        <li><a href="#生产者配置推荐">生产者配置推荐</a></li>
+        <li><a href="#发送路径速记">发送路径速记</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Kafka（二）：生产者原理</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>生产者（Producer）是 Kafka 消息的入口。理解生产者的工作原理——包括<strong>发送流程</strong>、<strong>分区策略</strong>、<strong>拦截器</strong>、<strong>序列化器</strong>以及<strong>幂等性与事务</strong>——能帮助我们更好地保证消息的正确性和性能。</p>
+<h2 id="一生产者发送流程">一、生产者发送流程</h2>
+<h3 id="11-整体架构">1.1 整体架构</h3>
+<pre tabindex="0"><code>Producer 发送消息的完整流程：
+
+Producer.createRecord(topic, key, value)
+    │
+    ├── 1. 拦截器（Interceptor）— 发送前拦截/修改
+    │
+    ├── 2. 序列化器（Serializer）— key/value 序列化为字节
+    │
+    ├── 3. 分区器（Partitioner）— 确定发送到哪个分区
+    │
+    ├── 4. RecordAccumulator（消息累加器）
+    │     └── 消息暂存到双端队列中，等待发送
+    │
+    ├── 5. Sender 线程批量发送
+    │     └── 从 RecordAccumulator 拉取消息
+    │     └── 构建请求，发送到 Broker
+    │
+    └── 6. Broker 处理并响应
+          ├── acks=0：不等待确认
+          ├── acks=1：等待 Leader 写入成功
+          └── acks=all：等待 ISR 全部写入成功
+</code></pre><h3 id="12-java-api-生产者">1.2 Java API 生产者</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.kafka.clients.producer.*</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">KafkaProducerExample</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 配置生产者</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Properties</span><span class="w"> </span><span class="n">props</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Properties</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">BOOTSTRAP_SERVERS_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;localhost:9092&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">KEY_SERIALIZER_CLASS_CONFIG</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                  </span><span class="s">&#34;org.apache.kafka.common.serialization.StringSerializer&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">VALUE_SERIALIZER_CLASS_CONFIG</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                  </span><span class="s">&#34;org.apache.kafka.common.serialization.StringSerializer&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">ACKS_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;all&#34;</span><span class="p">);</span><span class="w">          </span><span class="c1">// 最可靠</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">RETRIES_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="n">3</span><span class="p">);</span><span class="w">            </span><span class="c1">// 重试次数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">BATCH_SIZE_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="n">16384</span><span class="p">);</span><span class="w">     </span><span class="c1">// 批量大小</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">LINGER_MS_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="n">5</span><span class="p">);</span><span class="w">          </span><span class="c1">// 等待时间</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 创建生产者</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">KafkaProducer</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">producer</span><span class="w"> </span><span class="o">=</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">new</span><span class="w"> </span><span class="n">KafkaProducer</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">props</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 发送消息（三种方式）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 方式一：发后即忘（不关心结果）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">producer</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ProducerRecord</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="s">&#34;my-topic&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;key1&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;value1&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 方式二：同步发送</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">RecordMetadata</span><span class="w"> </span><span class="n">metadata</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">producer</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="k">new</span><span class="w"> </span><span class="n">ProducerRecord</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="s">&#34;my-topic&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;key2&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;value2&#34;</span><span class="p">)).</span><span class="na">get</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">printf</span><span class="p">(</span><span class="s">&#34;发送成功: partition=%d, offset=%d%n&#34;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">metadata</span><span class="p">.</span><span class="na">partition</span><span class="p">(),</span><span class="w"> </span><span class="n">metadata</span><span class="p">.</span><span class="na">offset</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">e</span><span class="p">.</span><span class="na">printStackTrace</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 方式三：异步发送（回调）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">producer</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ProducerRecord</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="s">&#34;my-topic&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;key3&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;value3&#34;</span><span class="p">),</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">(</span><span class="n">metadata</span><span class="p">,</span><span class="w"> </span><span class="n">exception</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">exception</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">exception</span><span class="p">.</span><span class="na">printStackTrace</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">printf</span><span class="p">(</span><span class="s">&#34;发送成功: partition=%d, offset=%d%n&#34;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                </span><span class="n">metadata</span><span class="p">.</span><span class="na">partition</span><span class="p">(),</span><span class="w"> </span><span class="n">metadata</span><span class="p">.</span><span class="na">offset</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">});</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 关闭生产者</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">producer</span><span class="p">.</span><span class="na">close</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="二分区策略">二、分区策略</h2>
+<h3 id="21-默认分区器">2.1 默认分区器</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 默认分区逻辑（DefaultPartitioner）：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 1. key 不为 null → 对 key 哈希取模（相同 key 到同一分区）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. key 为 null → 轮询（Round Robin）或粘性分区</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 粘性分区（Sticky Partitioner，2.4+）：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 为了批量发送优化，将一批消息发送到同一个分区</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 性能比轮询更高（减少了分区切换次数）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 自定义分区器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">PARTITIONER_CLASS_CONFIG</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="n">CustomPartitioner</span><span class="p">.</span><span class="na">class</span><span class="p">.</span><span class="na">getName</span><span class="p">());</span><span class="w">
+</span></span></span></code></pre></div><h3 id="22-自定义分区器">2.2 自定义分区器</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderPartitioner</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Partitioner</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">partition</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">topic</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">keyBytes</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                         </span><span class="n">Object</span><span class="w"> </span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">valueBytes</span><span class="p">,</span><span class="w"> </span><span class="n">Cluster</span><span class="w"> </span><span class="n">cluster</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 获取该 Topic 的分区数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">PartitionInfo</span><span class="o">&gt;</span><span class="w"> </span><span class="n">partitions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cluster</span><span class="p">.</span><span class="na">partitionsForTopic</span><span class="p">(</span><span class="n">topic</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">numPartitions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">partitions</span><span class="p">.</span><span class="na">size</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 按订单号末尾数字分区</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">orderId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="p">)</span><span class="w"> </span><span class="n">key</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">lastDigit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Integer</span><span class="p">.</span><span class="na">parseInt</span><span class="p">(</span><span class="n">orderId</span><span class="p">.</span><span class="na">substring</span><span class="p">(</span><span class="n">orderId</span><span class="p">.</span><span class="na">length</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">1</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">lastDigit</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">numPartitions</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">close</span><span class="p">()</span><span class="w"> </span><span class="p">{}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">configure</span><span class="p">(</span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="o">?&gt;</span><span class="w"> </span><span class="n">configs</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="三发送参数详解">三、发送参数详解</h2>
+<h3 id="31-关键配置">3.1 关键配置</h3>
+<table>
+	<thead>
+			<tr>
+					<th>参数</th>
+					<th>默认值</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>acks</code></td>
+					<td>1</td>
+					<td>确认级别：0/1/all</td>
+			</tr>
+			<tr>
+					<td><code>retries</code></td>
+					<td>Integer.MAX</td>
+					<td>重试次数</td>
+			</tr>
+			<tr>
+					<td><code>batch.size</code></td>
+					<td>16384(16KB)</td>
+					<td>批量发送大小</td>
+			</tr>
+			<tr>
+					<td><code>linger.ms</code></td>
+					<td>0</td>
+					<td>批量等待时间</td>
+			</tr>
+			<tr>
+					<td><code>buffer.memory</code></td>
+					<td>33554432(32MB)</td>
+					<td>缓冲区大小</td>
+			</tr>
+			<tr>
+					<td><code>max.request.size</code></td>
+					<td>1048576(1MB)</td>
+					<td>最大请求大小</td>
+			</tr>
+			<tr>
+					<td><code>compression.type</code></td>
+					<td>none</td>
+					<td>压缩类型（gzip/snappy/lz4/zstd）</td>
+			</tr>
+			<tr>
+					<td><code>enable.idempotence</code></td>
+					<td>false</td>
+					<td>是否开启幂等性</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="32-acks-详解">3.2 acks 详解</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// acks = 0：不等待 Broker 确认</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//   最快，可能丢失消息</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//   适用场景：日志、监控等可丢失数据</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// acks = 1：Leader 写入成功后确认</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//   保证 Leader 不丢，但 Leader 宕机时可能丢失</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//   默认配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// acks = all 或 -1：ISR 全部写入成功后确认</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//   最可靠，不丢数据</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//   推荐生产环境使用</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">ACKS_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;all&#34;</span><span class="p">);</span><span class="w">
+</span></span></span></code></pre></div><h3 id="33-重试与幂等性">3.3 重试与幂等性</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 开启幂等性（enable.idempotence=true 时，生产者自动设置）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 原理：每个生产者有唯一的 Producer ID（PID）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//       每条消息有序列号（Sequence Number）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//       Broker 根据 PID + 序列号去重</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 幂等性 + acks=all + retries 高 → 精确一次发送（Exactly Once）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">ENABLE_IDEMPOTENCE_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">ACKS_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;all&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">RETRIES_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="n">Integer</span><span class="p">.</span><span class="na">MAX_VALUE</span><span class="p">);</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="四消息序列化">四、消息序列化</h2>
+<h3 id="41-自定义序列化器">4.1 自定义序列化器</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserSerializer</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Serializer</span><span class="o">&lt;</span><span class="n">User</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ObjectMapper</span><span class="w"> </span><span class="n">mapper</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ObjectMapper</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="nf">serialize</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">topic</span><span class="p">,</span><span class="w"> </span><span class="n">User</span><span class="w"> </span><span class="n">data</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">mapper</span><span class="p">.</span><span class="na">writeValueAsBytes</span><span class="p">(</span><span class="n">data</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SerializationException</span><span class="p">(</span><span class="s">&#34;序列化 User 失败&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 使用 Avro（推荐，兼容性好）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 使用 Protobuf（高性能）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 生产环境建议使用 Avro / Protobuf / JSON</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="五消息发送原理">五、消息发送原理</h2>
+<h3 id="51-recordaccumulator">5.1 RecordAccumulator</h3>
+<pre tabindex="0"><code>RecordAccumulator 是生产者的核心缓冲结构：
+
+每个 TopicPartition 对应一个双端队列（Deque&lt;ProducerBatch&gt;）
+
+ProducerBatch（消息批次）：
+┌────────────────────────────────────────────┐
+│ magic  │ crc   │ attributes│ timestamp │    │
+├────────────────────────────────────────────┤
+│ msg1  │ msg2  │ msg3  │ ...（多个消息）    │
+├────────────────────────────────────────────┤
+│ 压缩后（如果开启压缩）                      │
+└────────────────────────────────────────────┘
+
+Sender 线程不断从 RecordAccumulator 拉取 ProducerBatch，
+组装为 ProduceRequest，发送到对应的 Broker。
+</code></pre><h3 id="52-批量发送条件">5.2 批量发送条件</h3>
+<pre tabindex="0"><code>Sender 线程发送一批消息的条件（满足任一即发送）：
+1. 消息大小达到 batch.size（默认 16KB）
+2. 时间达到 linger.ms（默认 0ms）
+3. 缓冲区满了
+4. 生产者关闭
+
+调参建议：
+- 提高 batch.size + 增大 linger.ms → 提高吞吐量，增加延迟
+- 降低 batch.size + 减小 linger.ms → 降低延迟，减少吞吐量
+</code></pre><hr>
+<h2 id="六生产者事务">六、生产者事务</h2>
+<h3 id="61-事务-api">6.1 事务 API</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 开启事务需要配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">TRANSACTIONAL_ID_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;tx-id-001&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">ENABLE_IDEMPOTENCE_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">KafkaProducer</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">producer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">KafkaProducer</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">props</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 初始化事务</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">producer</span><span class="p">.</span><span class="na">initTransactions</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 开始事务</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">producer</span><span class="p">.</span><span class="na">beginTransaction</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 发送多条消息（跨 Topic 跨分区）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">producer</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ProducerRecord</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="s">&#34;topic-a&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;key1&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;value1&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">producer</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ProducerRecord</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="s">&#34;topic-b&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;key2&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;value2&#34;</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 提交事务</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">producer</span><span class="p">.</span><span class="na">commitTransaction</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 回滚事务</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">producer</span><span class="p">.</span><span class="na">abortTransaction</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="62-事务原理">6.2 事务原理</h3>
+<pre tabindex="0"><code>事务通过 Transaction Coordinator 协调：
+1. Producer 向 Transaction Coordinator 注册事务
+2. 写入数据到目标分区
+3. 提交/回滚时，在 __transaction_state 中记录
+4. 消费者通过 isolation.level 控制是否读取事务消息
+
+isolation.level = read_committed  → 只读已提交的事务消息（推荐）
+isolation.level = read_uncommitted → 读所有消息（默认）
+</code></pre><hr>
+<h2 id="七总结">七、总结</h2>
+<h3 id="生产者配置推荐">生产者配置推荐</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 生产环境推荐配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">Properties</span><span class="w"> </span><span class="n">props</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Properties</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">BOOTSTRAP_SERVERS_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;broker1:9092,broker2:9092&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">KEY_SERIALIZER_CLASS_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="n">StringSerializer</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">VALUE_SERIALIZER_CLASS_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="n">StringSerializer</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 可靠性</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">ACKS_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;all&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">ENABLE_IDEMPOTENCE_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">RETRIES_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="n">3</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 性能</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">BATCH_SIZE_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="n">32768</span><span class="p">);</span><span class="w">    </span><span class="c1">// 32KB</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">LINGER_MS_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="n">10</span><span class="p">);</span><span class="w">          </span><span class="c1">// 10ms</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">COMPRESSION_TYPE_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;snappy&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">props</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">ProducerConfig</span><span class="p">.</span><span class="na">BUFFER_MEMORY_CONFIG</span><span class="p">,</span><span class="w"> </span><span class="n">67108864</span><span class="p">);</span><span class="w"> </span><span class="c1">// 64MB</span><span class="w">
+</span></span></span></code></pre></div><h3 id="发送路径速记">发送路径速记</h3>
+<pre tabindex="0"><code>ProducerRecord → Interceptor → Serializer → Partitioner
+→ RecordAccumulator → Sender → Network → Broker
+</code></pre><hr>
+<p><strong>上一篇：</strong> <a href="/posts/kafka%E4%B8%80%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%E4%B8%8E%E6%9E%B6%E6%9E%84/">Kafka（一）：核心概念与架构</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/kafka%E4%B8%89%E6%B6%88%E8%B4%B9%E8%80%85%E5%8E%9F%E7%90%86/">Kafka（三）：消费者原理</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

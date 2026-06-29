@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>分布式系统设计（六）：微服务架构设计 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一服务拆分原则">一、服务拆分原则</a>
+      <ul>
+        <li><a href="#11-拆分方法">1.1 拆分方法</a></li>
+        <li><a href="#12-拆分原则">1.2 拆分原则</a></li>
+        <li><a href="#13-避免过度拆分">1.3 避免过度拆分</a></li>
+      </ul>
+    </li>
+    <li><a href="#二服务间通信">二、服务间通信</a>
+      <ul>
+        <li><a href="#21-同步通信rpc">2.1 同步通信（RPC）</a></li>
+        <li><a href="#22-异步通信消息">2.2 异步通信（消息）</a></li>
+        <li><a href="#23-grpc-示例">2.3 gRPC 示例</a></li>
+      </ul>
+    </li>
+    <li><a href="#三服务发现与注册">三、服务发现与注册</a>
+      <ul>
+        <li><a href="#31-注册中心的核心功能">3.1 注册中心的核心功能</a></li>
+        <li><a href="#32-nacos-配置">3.2 Nacos 配置</a></li>
+      </ul>
+    </li>
+    <li><a href="#四配置管理">四、配置管理</a>
+      <ul>
+        <li><a href="#41-配置分类">4.1 配置分类</a></li>
+        <li><a href="#42-配置管理的演进">4.2 配置管理的演进</a></li>
+      </ul>
+    </li>
+    <li><a href="#五服务观测">五、服务观测</a>
+      <ul>
+        <li><a href="#51-可观测性三大支柱">5.1 可观测性三大支柱</a></li>
+        <li><a href="#52-分布式链路追踪">5.2 分布式链路追踪</a></li>
+      </ul>
+    </li>
+    <li><a href="#六服务网格service-mesh">六、服务网格（Service Mesh）</a>
+      <ul>
+        <li><a href="#61-什么是-service-mesh">6.1 什么是 Service Mesh</a></li>
+        <li><a href="#62-istio-架构">6.2 Istio 架构</a></li>
+      </ul>
+    </li>
+    <li><a href="#七总结">七、总结</a>
+      <ul>
+        <li><a href="#微服务决策清单">微服务决策清单</a></li>
+        <li><a href="#微服务关键组件">微服务关键组件</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">分布式系统设计（六）：微服务架构设计</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>微服务架构是一种将应用拆分为多个独立服务的架构风格。每个服务围绕业务能力构建，独立部署、独立扩展。</p>
+<h2 id="一服务拆分原则">一、服务拆分原则</h2>
+<h3 id="11-拆分方法">1.1 拆分方法</h3>
+<pre tabindex="0"><code>横向拆分（按业务领域）：
+  ├── 用户服务（User Service）
+  ├── 订单服务（Order Service）
+  ├── 支付服务（Payment Service）
+  └── 商品服务（Product Service）
+
+纵向拆分（按层次）：
+  ├── 业务服务：核心业务逻辑
+  ├── 基础服务：短信、邮件、推送
+  └── 网关服务：路由、鉴权、限流
+</code></pre><h3 id="12-拆分原则">1.2 拆分原则</h3>
+<pre tabindex="0"><code>1. 单一职责
+   每个服务只做一件事
+   如果很难描述某个服务的功能 → 拆
+
+2. 团队自治
+   每个服务由独立团队负责
+   团队可独立决策技术栈和发布节奏
+
+3. 限界上下文（DDD）
+   按业务领域确定服务边界
+   每个服务有自己的数据库
+
+4. 数据独占
+   服务间不共享数据库
+   只能通过 API 访问其他服务的数据
+</code></pre><h3 id="13-避免过度拆分">1.3 避免过度拆分</h3>
+<pre tabindex="0"><code>拆分的代价：
+├── 网络通信延迟
+├── 分布式事务问题
+├── 调试和排查困难
+└── 运维成本增加
+
+不要为了拆分而拆分
+当单体应用出现以下问题时再考虑拆分：
+- 代码臃肿，难以维护
+- 部署频率冲突
+- 团队协作困难
+- 部分功能需要独立扩展
+</code></pre><hr>
+<h2 id="二服务间通信">二、服务间通信</h2>
+<h3 id="21-同步通信rpc">2.1 同步通信（RPC）</h3>
+<pre tabindex="0"><code>HTTP REST：
+  优点：简单、通用、防火墙友好
+  缺点：性能不如二进制协议
+  适用：对外 API、OpenAPI
+
+gRPC：
+  优点：高性能（Protobuf + HTTP/2），强类型
+  缺点：需生成代码，浏览器支持差
+  适用：内部服务间通信
+
+Dubbo：
+  优点：Java 生态，自带服务发现
+  缺点：绑定 Java 语言
+  适用：Java 技术栈
+</code></pre><h3 id="22-异步通信消息">2.2 异步通信（消息）</h3>
+<pre tabindex="0"><code>Message Queue：
+  优点：解耦、削峰、异步
+  缺点：增加系统复杂度、消息可能丢失
+  适用：事件通知、异步任务
+
+事件驱动：
+  优点：松耦合、可追溯
+  缺点：一致性模型复杂
+  适用：跨服务事件通知
+</code></pre><h3 id="23-grpc-示例">2.3 gRPC 示例</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-protobuf" data-lang="protobuf"><span class="line"><span class="cl"><span class="c1">// user.proto
+</span></span></span><span class="line"><span class="cl"><span class="kd">service</span> <span class="n">UserService</span> <span class="p">{</span><span class="err">
+</span></span></span><span class="line"><span class="cl">    <span class="k">rpc</span> <span class="n">GetUser</span> <span class="p">(</span><span class="n">GetUserRequest</span><span class="p">)</span> <span class="k">returns</span> <span class="p">(</span><span class="n">User</span><span class="p">);</span><span class="err">
+</span></span></span><span class="line"><span class="cl">    <span class="k">rpc</span> <span class="n">ListUsers</span> <span class="p">(</span><span class="n">ListUsersRequest</span><span class="p">)</span> <span class="k">returns</span> <span class="p">(</span><span class="n">ListUsersResponse</span><span class="p">);</span><span class="err">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="err">
+</span></span></span><span class="line"><span class="cl"><span class="err">
+</span></span></span><span class="line"><span class="cl"><span class="kd">message</span> <span class="nc">GetUserRequest</span> <span class="p">{</span><span class="err">
+</span></span></span><span class="line"><span class="cl">    <span class="kt">int64</span> <span class="n">user_id</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span><span class="err">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="err">
+</span></span></span><span class="line"><span class="cl"><span class="err">
+</span></span></span><span class="line"><span class="cl"><span class="kd">message</span> <span class="nc">User</span> <span class="p">{</span><span class="err">
+</span></span></span><span class="line"><span class="cl">    <span class="kt">int64</span> <span class="n">id</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span><span class="err">
+</span></span></span><span class="line"><span class="cl">    <span class="kt">string</span> <span class="n">name</span> <span class="o">=</span> <span class="mi">2</span><span class="p">;</span><span class="err">
+</span></span></span><span class="line"><span class="cl">    <span class="kt">string</span> <span class="n">email</span> <span class="o">=</span> <span class="mi">3</span><span class="p">;</span><span class="err">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="err">
+</span></span></span></code></pre></div><hr>
+<h2 id="三服务发现与注册">三、服务发现与注册</h2>
+<h3 id="31-注册中心的核心功能">3.1 注册中心的核心功能</h3>
+<pre tabindex="0"><code>1. 服务注册
+   服务启动时将自己的地址注册到注册中心
+
+2. 健康检查
+   注册中心定期检测服务是否存活
+   不健康的实例自动摘除
+
+3. 服务订阅
+   消费者从注册中心获取服务列表
+   监听服务变更（上线/下线）
+</code></pre><h3 id="32-nacos-配置">3.2 Nacos 配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cloud</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">nacos</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">discovery</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">server-addr</span><span class="p">:</span><span class="w"> </span><span class="m">127.0.0.1</span><span class="p">:</span><span class="m">8848</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">dev</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="l">DEFAULT_GROUP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 服务调用</span><span class="w">
+</span></span></span><span class="line"><span class="cl">@<span class="l">Autowired</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="l">private RestTemplate restTemplate;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl">@<span class="l">LoadBalanced  // 集成负载均衡</span><span class="w">
+</span></span></span><span class="line"><span class="cl">@<span class="l">Bean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="l">public RestTemplate restTemplate() {</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="l">return new RestTemplate();</span><span class="w">
+</span></span></span><span class="line"><span class="cl">}<span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="四配置管理">四、配置管理</h2>
+<h3 id="41-配置分类">4.1 配置分类</h3>
+<pre tabindex="0"><code>按环境分：
+  dev / test / staging / prod
+
+按粒度分：
+  应用级：日志级别、线程池大小
+  组件级：数据源、缓存、MQ
+  业务级：开关配置、限流阈值
+</code></pre><h3 id="42-配置管理的演进">4.2 配置管理的演进</h3>
+<pre tabindex="0"><code>阶段一：配置文件
+  每个环境一套 application-{env}.yml
+  修改配置需要重启应用
+
+阶段二：配置中心
+  配置统一管理，支持动态刷新
+  Apollo / Nacos
+
+阶段三：不可变配置
+  Docker 镜像 + K8s ConfigMap
+  配置随应用发布，不热更新
+</code></pre><hr>
+<h2 id="五服务观测">五、服务观测</h2>
+<h3 id="51-可观测性三大支柱">5.1 可观测性三大支柱</h3>
+<pre tabindex="0"><code>日志（Logging）：
+  记录系统运行时的离散事件
+  工具：ELK / Loki
+
+指标（Metrics）：
+  可聚合的数值数据（QPS、延迟、错误率）
+  工具：Prometheus + Grafana
+
+链路追踪（Tracing）：
+  记录一次请求在多个服务间的完整调用链
+  工具：Jaeger / Zipkin
+</code></pre><h3 id="52-分布式链路追踪">5.2 分布式链路追踪</h3>
+<pre tabindex="0"><code>Trace（追踪）：表示一次完整的请求链路
+Span（跨度）：表示链路中的一个服务调用
+
+Trace = Span1 + Span2 + Span3 + ...
+
+服务A (Span1)
+  │ 调用
+  ▼
+服务B (Span2)
+  │ 调用
+  ▼
+服务C (Span3)
+
+每个 Span 携带：
+Trace ID：标识整个链路
+Span ID：当前服务调用
+Parent Span ID：父级调用
+</code></pre><p><strong>通过 Trace ID 可以查询到一次请求经过的所有服务的完整日志。</strong></p>
+<hr>
+<h2 id="六服务网格service-mesh">六、服务网格（Service Mesh）</h2>
+<h3 id="61-什么是-service-mesh">6.1 什么是 Service Mesh</h3>
+<pre tabindex="0"><code>Service Mesh 将服务间通信的逻辑从应用代码中分离出来，
+下沉到基础设施层（Sidecar Proxy）。
+
+传统微服务：
+  服务代码中包含：服务发现、负载均衡、熔断、重试等逻辑
+
+Service Mesh：
+  App → Sidecar Proxy（Envoy）→ Sidecar Proxy（Envoy）→ App
+  服务本身只关注业务逻辑
+  通信逻辑由 Sidecar 处理
+</code></pre><h3 id="62-istio-架构">6.2 Istio 架构</h3>
+<pre tabindex="0"><code>Istio 控制平面：
+├── Pilot：服务发现和流量管理
+├── Citadel：安全和证书管理
+└── Galley：配置管理
+
+数据平面：
+└── Envoy Proxy：Sidecar 代理
+     ├── 所有流量经过 Envoy
+     ├── 自动实现重试、熔断、限流
+     └── 收集遥测数据
+</code></pre><hr>
+<h2 id="七总结">七、总结</h2>
+<h3 id="微服务决策清单">微服务决策清单</h3>
+<pre tabindex="0"><code>什么时候用微服务：
+✅ 团队规模 &gt; 10 人
+✅ 代码库过于庞大
+✅ 需要独立扩展部分功能
+✅ 不同功能有不同发布频率
+
+什么时候不要用微服务：
+❌ 团队规模小
+❌ 业务逻辑简单
+❌ 没有明确的领域边界
+❌ 无法承担运维复杂度
+</code></pre><h3 id="微服务关键组件">微服务关键组件</h3>
+<table>
+	<thead>
+			<tr>
+					<th>组件</th>
+					<th>功能</th>
+					<th>推荐</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>注册中心</td>
+					<td>服务发现</td>
+					<td>Nacos / Consul</td>
+			</tr>
+			<tr>
+					<td>配置中心</td>
+					<td>配置管理</td>
+					<td>Apollo / Nacos</td>
+			</tr>
+			<tr>
+					<td>网关</td>
+					<td>统一入口</td>
+					<td>Spring Cloud Gateway</td>
+			</tr>
+			<tr>
+					<td>RPC 框架</td>
+					<td>服务调用</td>
+					<td>gRPC / Dubbo</td>
+			</tr>
+			<tr>
+					<td>链路追踪</td>
+					<td>全链路监控</td>
+					<td>Jaeger / Zipkin</td>
+			</tr>
+			<tr>
+					<td>监控</td>
+					<td>指标采集</td>
+					<td>Prometheus + Grafana</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>相关阅读：</strong></p>
+<ul>
+<li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E4%BA%94%E9%AB%98%E5%8F%AF%E7%94%A8%E4%B8%8E%E6%B5%81%E9%87%8F%E6%B2%BB%E7%90%86/">分布式系统设计（五）：高可用与流量治理</a></li>
+<li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E4%B8%83%E5%88%86%E5%B8%83%E5%BC%8F%E4%BA%8B%E5%8A%A1/">分布式系统设计（七）：分布式事务</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>
