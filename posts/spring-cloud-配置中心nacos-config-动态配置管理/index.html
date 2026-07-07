@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Spring Cloud 配置中心：Nacos Config 动态配置管理 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一配置中心解决的问题">一、配置中心解决的问题</a></li>
+    <li><a href="#二快速入门">二、快速入门</a>
+      <ul>
+        <li><a href="#21-依赖">2.1 依赖</a></li>
+        <li><a href="#22-bootstrapyml-配置">2.2 bootstrap.yml 配置</a></li>
+        <li><a href="#23-在-nacos-控制台创建配置">2.3 在 Nacos 控制台创建配置</a></li>
+      </ul>
+    </li>
+    <li><a href="#三配置模型">三、配置模型</a>
+      <ul>
+        <li><a href="#31-三要素">3.1 三要素</a></li>
+        <li><a href="#32-共享配置">3.2 共享配置</a></li>
+      </ul>
+    </li>
+    <li><a href="#四动态刷新">四、动态刷新</a>
+      <ul>
+        <li><a href="#41-refreshscope">4.1 @RefreshScope</a></li>
+        <li><a href="#42-监听配置变更">4.2 监听配置变更</a></li>
+        <li><a href="#43-动态刷新原理">4.3 动态刷新原理</a></li>
+      </ul>
+    </li>
+    <li><a href="#五多环境配置">五、多环境配置</a>
+      <ul>
+        <li><a href="#51-通过-profile-隔离">5.1 通过 Profile 隔离</a></li>
+        <li><a href="#52-通过-namespace-隔离">5.2 通过 Namespace 隔离</a></li>
+      </ul>
+    </li>
+    <li><a href="#六配置版本管理">六、配置版本管理</a></li>
+    <li><a href="#七spring-cloud-config-对比">七、Spring Cloud Config 对比</a></li>
+    <li><a href="#八总结">八、总结</a>
+      <ul>
+        <li><a href="#配置中心核心概念">配置中心核心概念</a></li>
+        <li><a href="#配置速查">配置速查</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Spring Cloud 配置中心：Nacos Config 动态配置管理</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>在微服务架构中，配置管理是一个痛点——每个服务都有自己的配置，修改配置往往需要重启服务。配置中心将配置从应用中剥离出来，集中管理并支持动态刷新。</p>
+<p>Nacos Config 是 Nacos 提供的配置管理功能，与服务发现共享同一个平台。</p>
+<h2 id="一配置中心解决的问题">一、配置中心解决的问题</h2>
+<pre tabindex="0"><code>传统配置的问题：
+
+1. 配置分散在各服务中
+   改一个数据库连接需要在所有服务中修改
+
+2. 修改配置需要重启
+   生产环境重启涉及灰度发布、审批流程
+
+3. 缺乏版本管理
+   配置变更不可追溯，回滚困难
+
+Nacos Config 的解决方案：
+├── 配置集中管理
+├── 动态刷新（无需重启）
+├── 版本管理和回滚
+├── 环境隔离（Namespace / Group）
+└── 权限控制
+</code></pre><hr>
+<h2 id="二快速入门">二、快速入门</h2>
+<h3 id="21-依赖">2.1 依赖</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;groupId&gt;</span>com.alibaba.cloud<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>spring-cloud-starter-alibaba-nacos-config<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/dependency&gt;</span>
+</span></span></code></pre></div><h3 id="22-bootstrapyml-配置">2.2 bootstrap.yml 配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># bootstrap.yml（引导配置文件，优先级最高）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">application</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">user-service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cloud</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">nacos</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">config</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">server-addr</span><span class="p">:</span><span class="w"> </span><span class="m">127.0.0.1</span><span class="p">:</span><span class="m">8848</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">public</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="l">DEFAULT_GROUP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">file-extension</span><span class="p">:</span><span class="w"> </span><span class="l">yaml         </span><span class="w"> </span><span class="c"># 配置文件格式</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">refresh-enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">          </span><span class="c"># 开启动态刷新</span><span class="w">
+</span></span></span></code></pre></div><h3 id="23-在-nacos-控制台创建配置">2.3 在 Nacos 控制台创建配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># Nacos 控制台 → 配置管理 → 创建配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># Data ID: user-service.yaml</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># Group: DEFAULT_GROUP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">app</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">user-service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="m">1.0.0</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">datasource</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">jdbc:mysql://localhost:3306/user_db</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l">root</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l">root</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">config</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">thread-pool-size</span><span class="p">:</span><span class="w"> </span><span class="m">10</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">max-retry</span><span class="p">:</span><span class="w"> </span><span class="m">3</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">features</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enable-notification</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="三配置模型">三、配置模型</h2>
+<h3 id="31-三要素">3.1 三要素</h3>
+<pre tabindex="0"><code>Nacos 配置的三要素：
+
+Data ID = {prefix}-{spring.profiles.active}.{file-extension}
+  ├── prefix：spring.application.name（默认）
+  ├── spring.profiles.active：激活的 Profile（可选）
+  └── file-extension：yaml / properties（由配置指定）
+
+Group = DEFAULT_GROUP（默认，用于逻辑分组）
+
+Namespace = public（默认，用于环境隔离）
+</code></pre><p><strong>加载顺序（优先级从高到低）：</strong></p>
+<pre tabindex="0"><code>1. ${spring.application.name}-{profile}.yaml（带 Profile）
+2. ${spring.application.name}.yaml（通用配置）
+3. application.yaml（本地配置）
+</code></pre><h3 id="32-共享配置">3.2 共享配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cloud</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">nacos</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">config</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c"># 多个服务共享的配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">shared-configs</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">data-id</span><span class="p">:</span><span class="w"> </span><span class="l">datasource.yaml</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="l">COMMON_GROUP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">refresh</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">data-id</span><span class="p">:</span><span class="w"> </span><span class="l">redis.yaml</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="l">COMMON_GROUP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">refresh</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c"># 扩展配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">extension-configs</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">data-id</span><span class="p">:</span><span class="w"> </span><span class="l">custom.yaml</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="l">DEFAULT_GROUP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">refresh</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="四动态刷新">四、动态刷新</h2>
+<h3 id="41-refreshscope">4.1 @RefreshScope</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@RestController</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@RequestMapping</span><span class="p">(</span><span class="s">&#34;/api/config&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@RefreshScope</span><span class="w">  </span><span class="c1">// 配置变更时刷新 Bean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ConfigController</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Value</span><span class="p">(</span><span class="s">&#34;${config.thread-pool-size:10}&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">threadPoolSize</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Value</span><span class="p">(</span><span class="s">&#34;${config.features.enable-notification:false}&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">notificationEnabled</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@GetMapping</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">getConfig</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">config</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">config</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;threadPoolSize&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">threadPoolSize</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">config</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;notificationEnabled&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">notificationEnabled</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">config</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 使用 @ConfigurationProperties 也可以动态刷新</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@ConfigurationProperties</span><span class="p">(</span><span class="n">prefix</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;config&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@RefreshScope</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AppConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">threadPoolSize</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// getter / setter</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="42-监听配置变更">4.2 监听配置变更</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">NacosConfigListener</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">AppConfig</span><span class="w"> </span><span class="n">appConfig</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@NacosConfigListener</span><span class="p">(</span><span class="n">dataId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;user-service.yaml&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">groupId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;DEFAULT_GROUP&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">onConfigChange</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">config</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;配置变更: &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">config</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 自定义处理逻辑</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="43-动态刷新原理">4.3 动态刷新原理</h3>
+<pre tabindex="0"><code>Nacos Config 动态刷新机制：
+
+1. 应用启动时从 Nacos 拉取配置
+2. 客户端建立长轮询（Long Polling）连接
+3. Nacos 端配置变更时，推送变更通知
+4. 客户端收到通知后拉取最新配置
+5. 更新 Environment 中的 PropertySource
+6. @RefreshScope 标注的 Bean 重新创建
+</code></pre><hr>
+<h2 id="五多环境配置">五、多环境配置</h2>
+<h3 id="51-通过-profile-隔离">5.1 通过 Profile 隔离</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># bootstrap.yml</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">application</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">user-service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">profiles</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">active</span><span class="p">:</span><span class="w"> </span><span class="l">dev   </span><span class="w"> </span><span class="c"># 启动参数控制</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cloud</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">nacos</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">config</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">server-addr</span><span class="p">:</span><span class="w"> </span><span class="m">127.0.0.1</span><span class="p">:</span><span class="m">8848</span><span class="w">
+</span></span></span></code></pre></div><pre tabindex="0"><code># Nacos 中的配置：
+
+Data ID: user-service-dev.yaml    → 开发环境
+Data ID: user-service-test.yaml   → 测试环境
+Data ID: user-service-prod.yaml   → 生产环境
+
+Group: DEFAULT_GROUP
+</code></pre><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 启动时指定环境</span>
+</span></span><span class="line"><span class="cl">java -jar user-service.jar --spring.profiles.active<span class="o">=</span>prod
+</span></span></code></pre></div><h3 id="52-通过-namespace-隔离">5.2 通过 Namespace 隔离</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cloud</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">nacos</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">config</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">dev-namespace   </span><span class="w"> </span><span class="c"># 开发环境 Namespace ID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c"># server-addr 和 Namespace 配合可实现多环境</span><span class="w">
+</span></span></span></code></pre></div><pre tabindex="0"><code>Nacos Namespace：
+
+dev（开发环境）
+  ├── DEFAULT_GROUP
+  │     ├── user-service.yaml
+  │     └── order-service.yaml
+
+prod（生产环境）
+  ├── DEFAULT_GROUP
+  │     ├── user-service.yaml
+  │     └── order-service.yaml
+
+不同 Namespace 的配置完全隔离，互不可见。
+</code></pre><hr>
+<h2 id="六配置版本管理">六、配置版本管理</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># Nacos 控制台支持配置的版本管理</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 每次修改配置都会生成一个新版本</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 可以查看配置的历史版本和变更差异</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 支持一键回滚到任意历史版本</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># CI/CD 中可以通过 Nacos OpenAPI 更新配置</span>
+</span></span><span class="line"><span class="cl">curl -X POST <span class="s2">&#34;http://127.0.0.1:8848/nacos/v1/cs/configs&#34;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  -d <span class="s2">&#34;dataId=user-service.yaml&amp;group=DEFAULT_GROUP&amp;content=</span><span class="k">$(</span>cat config.yaml<span class="k">)</span><span class="s2">&#34;</span>
+</span></span></code></pre></div><hr>
+<h2 id="七spring-cloud-config-对比">七、Spring Cloud Config 对比</h2>
+<table>
+	<thead>
+			<tr>
+					<th>对比</th>
+					<th>Nacos Config</th>
+					<th>Spring Cloud Config</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>存储后端</td>
+					<td>Nacos 自身</td>
+					<td>Git / SVN</td>
+			</tr>
+			<tr>
+					<td>动态刷新</td>
+					<td>内置支持</td>
+					<td>需集成 Spring Cloud Bus</td>
+			</tr>
+			<tr>
+					<td>控制台</td>
+					<td>✅ 自带</td>
+					<td>❌ 无</td>
+			</tr>
+			<tr>
+					<td>服务发现</td>
+					<td>✅ 一体化</td>
+					<td>❌ 需注册中心</td>
+			</tr>
+			<tr>
+					<td>推送机制</td>
+					<td>长轮询</td>
+					<td>Webhook + Bus</td>
+			</tr>
+			<tr>
+					<td>学习成本</td>
+					<td>低</td>
+					<td>中</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="八总结">八、总结</h2>
+<h3 id="配置中心核心概念">配置中心核心概念</h3>
+<table>
+	<thead>
+			<tr>
+					<th>概念</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Data ID</td>
+					<td>配置的唯一标识 = 服务名-环境.后缀</td>
+			</tr>
+			<tr>
+					<td>Group</td>
+					<td>逻辑分组</td>
+			</tr>
+			<tr>
+					<td>Namespace</td>
+					<td>环境隔离</td>
+			</tr>
+			<tr>
+					<td>@RefreshScope</td>
+					<td>动态刷新 Bean</td>
+			</tr>
+			<tr>
+					<td>Long Polling</td>
+					<td>客户端长轮询检测配置变更</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="配置速查">配置速查</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cloud</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">nacos</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">config</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">server-addr</span><span class="p">:</span><span class="w"> </span><span class="m">127.0.0.1</span><span class="p">:</span><span class="m">8848</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">public</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="l">DEFAULT_GROUP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">file-extension</span><span class="p">:</span><span class="w"> </span><span class="l">yaml</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">refresh-enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">shared-configs</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">data-id</span><span class="p">:</span><span class="w"> </span><span class="l">common.yaml</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">refresh</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span></code></pre></div><p><strong>上一篇：</strong> <a href="/posts/spring-cloud-gateway%E7%BD%91%E5%85%B3%E8%B7%AF%E7%94%B1%E4%B8%8E%E8%BF%87%E6%BB%A4%E5%99%A8/">Spring Cloud Gateway：网关路由与过滤器</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/spring-cloud-%E7%86%94%E6%96%AD%E9%99%90%E6%B5%81sentinel-%E6%B5%81%E9%87%8F%E6%B2%BB%E7%90%86/">Spring Cloud 熔断限流：Sentinel 流量治理</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

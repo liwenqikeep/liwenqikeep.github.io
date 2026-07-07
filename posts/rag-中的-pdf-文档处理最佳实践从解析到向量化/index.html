@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>RAG 中的 PDF 文档处理最佳实践：从解析到向量化 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一pdf-解析的挑战">一、PDF 解析的挑战</a></li>
+    <li><a href="#二pdf-解析方案对比">二、PDF 解析方案对比</a>
+      <ul>
+        <li><a href="#21-规则库方案">2.1 规则库方案</a></li>
+        <li><a href="#22-光学字符识别ocr方案">2.2 光学字符识别（OCR）方案</a></li>
+        <li><a href="#23-基于-llmvlm-的方案">2.3 基于 LLM/VLM 的方案</a></li>
+        <li><a href="#方案选型决策树">方案选型决策树</a></li>
+      </ul>
+    </li>
+    <li><a href="#三结构化切片与章节元数据写入">三、结构化切片与章节元数据写入</a>
+      <ul>
+        <li><a href="#31-为什么需要章节元数据">3.1 为什么需要章节元数据？</a></li>
+        <li><a href="#32-切片策略">3.2 切片策略</a></li>
+        <li><a href="#33-java-实现结构化切片">3.3 Java 实现：结构化切片</a></li>
+      </ul>
+    </li>
+    <li><a href="#四图片与表格的多模态处理">四、图片与表格的多模态处理</a>
+      <ul>
+        <li><a href="#41-图片提取与多模态描述">4.1 图片提取与多模态描述</a></li>
+        <li><a href="#42-java-实现多模态图片解析">4.2 Java 实现：多模态图片解析</a></li>
+        <li><a href="#43-表格的专项处理">4.3 表格的专项处理</a></li>
+      </ul>
+    </li>
+    <li><a href="#五向量化与索引构建">五、向量化与索引构建</a>
+      <ul>
+        <li><a href="#51-向量化-pipeline">5.1 向量化 Pipeline</a></li>
+        <li><a href="#52-元数据设计">5.2 元数据设计</a></li>
+        <li><a href="#53-embedding-选型">5.3 Embedding 选型</a></li>
+      </ul>
+    </li>
+    <li><a href="#六生产级-pipeline-架构">六、生产级 Pipeline 架构</a></li>
+    <li><a href="#七生产环境注意事项">七、生产环境注意事项</a>
+      <ul>
+        <li><a href="#71-性能优化">7.1 性能优化</a></li>
+        <li><a href="#72-容错设计">7.2 容错设计</a></li>
+        <li><a href="#73-成本控制">7.3 成本控制</a></li>
+      </ul>
+    </li>
+    <li><a href="#总结">总结</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">RAG 中的 PDF 文档处理最佳实践：从解析到向量化</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>在企业级 RAG 系统中，PDF 文档是最常见的数据来源——技术手册、产品文档、合同协议、研究报告，几乎都以 PDF 格式存在。然而，PDF 也是<strong>最难处理的文档格式之一</strong>：它的内部结构是页面渲染指令而不是语义化的文本，表格、图片、页眉页脚混杂其中，处理不好会严重影响 RAG 的检索质量。</p>
+<p>本文将从生产落地的角度，系统讲解 PDF 文档在 RAG 场景下的最佳实践，包括：文档解析方案对比、结构化切片策略、图片多模态处理、以及最终如何构建高质量向量索引。</p>
+<h2 id="一pdf-解析的挑战">一、PDF 解析的挑战</h2>
+<p>在开始选择技术方案之前，先明确 PDF 解析在 RAG 场景下要解决的核心问题：</p>
+<pre tabindex="0"><code>原始 PDF
+    │
+    ├── 文本提取 ──→ 乱码、排版丢失、段落断裂
+    ├── 结构保留 ──→ 章节层级、标题、列表关系丢失
+    ├── 图片/表格 ──→ 纯文本提取无法获取图片和表格内容
+    ├── 页眉页脚 ──→ 干扰正文语义
+    └── 多栏布局 ──→ 阅读顺序混乱
+</code></pre><p>一个工业级 PDF 解析 pipeline 必须解决以上所有问题。</p>
+<h2 id="二pdf-解析方案对比">二、PDF 解析方案对比</h2>
+<p>目前主流的 PDF 解析方案可以分为三大类：</p>
+<h3 id="21-规则库方案">2.1 规则库方案</h3>
+<p>基于 PDF 文档结构规则进行解析，适用于排版规范的 PDF。</p>
+<table>
+	<thead>
+			<tr>
+					<th>工具</th>
+					<th>语言</th>
+					<th>优点</th>
+					<th>缺点</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>Apache PDFBox</strong></td>
+					<td>Java</td>
+					<td>Apache 官方，社区成熟，支持填充表单</td>
+					<td>对复杂排版支持差，表格提取弱</td>
+			</tr>
+			<tr>
+					<td><strong>iText</strong></td>
+					<td>Java</td>
+					<td>商业级文本提取，精度高</td>
+					<td>商业许可昂贵，AGPL 限制多</td>
+			</tr>
+			<tr>
+					<td><strong>PDF.js</strong></td>
+					<td>JS</td>
+					<td>Mozilla 出品，渲染能力强</td>
+					<td>主要用于浏览器展示，文本提取需二次开发</td>
+			</tr>
+			<tr>
+					<td><strong>PyMuPDF (fitz)</strong></td>
+					<td>Python</td>
+					<td>速度快，支持丰富</td>
+					<td>Python 生态，Java 项目需桥接</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>适合场景</strong>：排版规范的简单文档（如文字为主的报告、论文）。</p>
+<h3 id="22-光学字符识别ocr方案">2.2 光学字符识别（OCR）方案</h3>
+<p>对于扫描件、图片型 PDF 或无文本层的文档，必须使用 OCR。</p>
+<table>
+	<thead>
+			<tr>
+					<th>工具</th>
+					<th>语言</th>
+					<th>优点</th>
+					<th>缺点</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>Tesseract OCR</strong></td>
+					<td>C++/多语言</td>
+					<td>开源免费，支持 100+ 语言</td>
+					<td>精度一般，对中文支持需额外训练</td>
+			</tr>
+			<tr>
+					<td><strong>PaddleOCR</strong></td>
+					<td>Python</td>
+					<td>中文识别业界领先</td>
+					<td>Python 生态，部署稍重</td>
+			</tr>
+			<tr>
+					<td><strong>Azure Document Intelligence</strong></td>
+					<td>REST API</td>
+					<td>云原生，精度极高</td>
+					<td>按量计费，有网络依赖</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>适合场景</strong>：扫描件、拍照文档、发票合同。</p>
+<h3 id="23-基于-llmvlm-的方案">2.3 基于 LLM/VLM 的方案</h3>
+<p>最新一代方案，利用多模态大模型直接理解 PDF 页面内容。</p>
+<table>
+	<thead>
+			<tr>
+					<th>工具</th>
+					<th>特点</th>
+					<th>成本</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>GPT-4o / GPT-4V</strong></td>
+					<td>直接理解 PDF 页面图片，输出结构化 Markdown</td>
+					<td>API 按 token 计费</td>
+			</tr>
+			<tr>
+					<td><strong>Qwen-VL / Qwen2-VL</strong></td>
+					<td>中文优秀，可本地部署</td>
+					<td>自建 GPU 成本</td>
+			</tr>
+			<tr>
+					<td><strong>Marker / Nougat</strong></td>
+					<td>开源 PDF 转 Markdown 工具，基于深度学习</td>
+					<td>需 GPU 推理</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>适合场景</strong>：复杂排版、图文混排、对解析质量要求极高的场景。</p>
+<h3 id="方案选型决策树">方案选型决策树</h3>
+<pre tabindex="0"><code>文档类型是什么？
+    │
+    ├── 文字型 PDF（有文本层）
+    │   ├── 排版简单 → PyMuPDF / PDFBox
+    │   └── 排版复杂 → Marker / VLM 方案
+    │
+    ├── 扫描型 PDF（图片型）
+    │   ├── 中文为主 → PaddleOCR
+    │   └── 多语言 → Azure Document Intelligence
+    │
+    └── 图文混排（含图表）
+        └── VLM 多模态方案（GPT-4o / Qwen-VL）
+</code></pre><h2 id="三结构化切片与章节元数据写入">三、结构化切片与章节元数据写入</h2>
+<p>PDF 解析后得到的是扁平化的文本流，不能直接送入向量数据库。我们需要<strong>将章节层级结构保留并写入元数据</strong>，这对后续检索的准确率至关重要。</p>
+<h3 id="31-为什么需要章节元数据">3.1 为什么需要章节元数据？</h3>
+<pre tabindex="0"><code>❌ 无元数据的切片：
+  chunk_001: &#34;...ConcurrentHashMap 采用分段锁机制...&#34;
+  chunk_002: &#34;...扩容操作涉及 rehash，性能开销较大...&#34;
+
+✅ 有元数据的切片：
+  chunk_001:
+    content:  &#34;ConcurrentHashMap 采用分段锁机制...&#34;
+    metadata:
+      document:  &#34;Java 并发编程实战&#34;
+      chapter:   &#34;第 5 章 - 并发容器&#34;
+      section:   &#34;5.2 ConcurrentHashMap 原理&#34;
+      page:      128
+      heading_chain: [&#34;Java 并发编程&#34;, &#34;并发容器&#34;, &#34;ConcurrentHashMap&#34;]
+</code></pre><p>有了章节元数据，检索系统可以：</p>
+<ul>
+<li><strong>精确引用来源</strong>：&ldquo;根据《Java 并发编程实战》第 5 章&hellip;&rdquo;</li>
+<li><strong>层级过滤</strong>：限定只在某个章节目录下搜索</li>
+<li><strong>上下文扩展</strong>：切分过细时，可向上获取父章节内容</li>
+</ul>
+<h3 id="32-切片策略">3.2 切片策略</h3>
+<p>根据文档特点和 RAG 场景，选择合适的切片策略：</p>
+<pre tabindex="0"><code>策略一：固定 Token 切片（最简单的基线方案）
+  按 512 / 1024 token 固定分割
+  优点：实现简单
+  缺点：会切断段落和章节边界
+
+策略二：语义切片（推荐方案）
+  按段落/标题自然边界分割
+  再对超过最大 token 的段落递归拆分
+  保留 heading_chain 元数据
+
+策略三：递归结构化切片（生产推荐）
+  1. 按章节层级提取结构树
+  2. 叶子节点作为基础切片
+  3. 父节点作为上下文聚合节点
+  4. 每个切片携带完整 heading_chain
+</code></pre><h3 id="33-java-实现结构化切片">3.3 Java 实现：结构化切片</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.util.*</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.util.regex.*</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm"> * PDF 文档结构化切片器
+</span></span></span><span class="line"><span class="cl"><span class="cm"> * 保留章节层级关系，生成带元数据的文档片段
+</span></span></span><span class="line"><span class="cl"><span class="cm"> */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PdfChunker</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/** 文档分片 */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Chunk</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">content</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">metadata</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">public</span><span class="w"> </span><span class="nf">Chunk</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">content</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">metadata</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">content</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">content</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">metadata</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">metadata</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">getContent</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">content</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">public</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">getMetadata</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">metadata</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/** 章节节点 */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SectionNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">level</span><span class="p">;</span><span class="w">            </span><span class="c1">// 章节层级（h1=1, h2=2...）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">title</span><span class="p">;</span><span class="w">         </span><span class="c1">// 章节标题</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">paragraphs</span><span class="p">;</span><span class="w">  </span><span class="c1">// 段落内容</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">SectionNode</span><span class="o">&gt;</span><span class="w"> </span><span class="n">children</span><span class="p">;</span><span class="w"> </span><span class="c1">// 子章节</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SectionNode</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">level</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">title</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">level</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">level</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">title</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">title</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">paragraphs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">children</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">maxChunkTokens</span><span class="p">;</span><span class="w">  </span><span class="c1">// 最大 token 数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">overlapChars</span><span class="p">;</span><span class="w">    </span><span class="c1">// 切片重叠字符数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">PdfChunker</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">maxChunkTokens</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">overlapChars</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">maxChunkTokens</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">maxChunkTokens</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">overlapChars</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">overlapChars</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * 将解析后的 Markdown 文本切分为结构化切片
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * @param markdown  PDF 解析后的 Markdown 文本
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * @param docName   文档名称
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * @return 带章节元数据的切片列表
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Chunk</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">chunk</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">markdown</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">docName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 解析 Markdown 标题结构</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SectionNode</span><span class="w"> </span><span class="n">root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parseMarkdownStructure</span><span class="p">(</span><span class="n">markdown</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 递归构建切片</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Chunk</span><span class="o">&gt;</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">buildChunks</span><span class="p">(</span><span class="n">root</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">(),</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">docName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/** 解析 Markdown 标题结构 */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">SectionNode</span><span class="w"> </span><span class="nf">parseMarkdownStructure</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">markdown</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SectionNode</span><span class="w"> </span><span class="n">root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SectionNode</span><span class="p">(</span><span class="n">0</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;__root__&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Deque</span><span class="o">&lt;</span><span class="n">SectionNode</span><span class="o">&gt;</span><span class="w"> </span><span class="n">stack</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayDeque</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">stack</span><span class="p">.</span><span class="na">push</span><span class="p">(</span><span class="n">root</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">lines</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">markdown</span><span class="p">.</span><span class="na">split</span><span class="p">(</span><span class="s">&#34;\n&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">StringBuilder</span><span class="w"> </span><span class="n">currentParagraph</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">StringBuilder</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">line</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">lines</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Matcher</span><span class="w"> </span><span class="n">matcher</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Pattern</span><span class="p">.</span><span class="na">compile</span><span class="p">(</span><span class="s">&#34;^(#{1,6})\\s+(.+)$&#34;</span><span class="p">).</span><span class="na">matcher</span><span class="p">(</span><span class="n">line</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">matcher</span><span class="p">.</span><span class="na">matches</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 遇到标题，先把当前段落写入</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">currentParagraph</span><span class="p">.</span><span class="na">toString</span><span class="p">().</span><span class="na">isBlank</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">stack</span><span class="p">.</span><span class="na">peek</span><span class="p">().</span><span class="na">paragraphs</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">currentParagraph</span><span class="p">.</span><span class="na">toString</span><span class="p">().</span><span class="na">trim</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">currentParagraph</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">StringBuilder</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="kt">int</span><span class="w"> </span><span class="n">level</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">matcher</span><span class="p">.</span><span class="na">group</span><span class="p">(</span><span class="n">1</span><span class="p">).</span><span class="na">length</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">String</span><span class="w"> </span><span class="n">title</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">matcher</span><span class="p">.</span><span class="na">group</span><span class="p">(</span><span class="n">2</span><span class="p">).</span><span class="na">trim</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">SectionNode</span><span class="w"> </span><span class="n">newNode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SectionNode</span><span class="p">(</span><span class="n">level</span><span class="p">,</span><span class="w"> </span><span class="n">title</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 找到正确的父节点</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">stack</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">()</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">stack</span><span class="p">.</span><span class="na">peek</span><span class="p">().</span><span class="na">level</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">level</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">stack</span><span class="p">.</span><span class="na">pop</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">stack</span><span class="p">.</span><span class="na">peek</span><span class="p">().</span><span class="na">children</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">newNode</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">stack</span><span class="p">.</span><span class="na">push</span><span class="p">(</span><span class="n">newNode</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">currentParagraph</span><span class="p">.</span><span class="na">append</span><span class="p">(</span><span class="n">line</span><span class="p">).</span><span class="na">append</span><span class="p">(</span><span class="s">&#34;\n&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 最后一段</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">currentParagraph</span><span class="p">.</span><span class="na">toString</span><span class="p">().</span><span class="na">isBlank</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">stack</span><span class="p">.</span><span class="na">peek</span><span class="p">().</span><span class="na">paragraphs</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">currentParagraph</span><span class="p">.</span><span class="na">toString</span><span class="p">().</span><span class="na">trim</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">root</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/** 递归构建结构化切片 */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">buildChunks</span><span class="p">(</span><span class="n">SectionNode</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">headingChain</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                             </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Chunk</span><span class="o">&gt;</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">docName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">currentChain</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">headingChain</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">node</span><span class="p">.</span><span class="na">title</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="s">&#34;__root__&#34;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">currentChain</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">node</span><span class="p">.</span><span class="na">title</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 叶子节点：生成切片</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="p">.</span><span class="na">children</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">StringBuilder</span><span class="w"> </span><span class="n">combined</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">StringBuilder</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">para</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">node</span><span class="p">.</span><span class="na">paragraphs</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">combined</span><span class="p">.</span><span class="na">append</span><span class="p">(</span><span class="n">para</span><span class="p">).</span><span class="na">append</span><span class="p">(</span><span class="s">&#34;\n\n&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">combined</span><span class="p">.</span><span class="na">toString</span><span class="p">().</span><span class="na">trim</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">content</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 按最大 token 切分长内容</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">splitAndAdd</span><span class="p">(</span><span class="n">content</span><span class="p">,</span><span class="w"> </span><span class="n">currentChain</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">docName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 非叶子节点：先处理自身段落，再递归子节点</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">StringBuilder</span><span class="w"> </span><span class="n">preamble</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">StringBuilder</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">para</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">node</span><span class="p">.</span><span class="na">paragraphs</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">preamble</span><span class="p">.</span><span class="na">append</span><span class="p">(</span><span class="n">para</span><span class="p">).</span><span class="na">append</span><span class="p">(</span><span class="s">&#34;\n\n&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">preamble</span><span class="p">.</span><span class="na">toString</span><span class="p">().</span><span class="na">isBlank</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">splitAndAdd</span><span class="p">(</span><span class="n">preamble</span><span class="p">.</span><span class="na">toString</span><span class="p">().</span><span class="na">trim</span><span class="p">(),</span><span class="w"> </span><span class="n">currentChain</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">docName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">SectionNode</span><span class="w"> </span><span class="n">child</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">node</span><span class="p">.</span><span class="na">children</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">buildChunks</span><span class="p">(</span><span class="n">child</span><span class="p">,</span><span class="w"> </span><span class="n">currentChain</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">docName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/** 按 token 限制切分并添加元数据 */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">splitAndAdd</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">content</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">headingChain</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                             </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Chunk</span><span class="o">&gt;</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">docName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 简化实现：按字符粗略估算 token（正式场景应使用真正的 tokenizer）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">estimatedTokens</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">content</span><span class="p">.</span><span class="na">length</span><span class="p">()</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">2</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">estimatedTokens</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">maxChunkTokens</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">addChunk</span><span class="p">(</span><span class="n">content</span><span class="p">,</span><span class="w"> </span><span class="n">headingChain</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">docName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 超出限制，按段落分割</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">paragraphs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">content</span><span class="p">.</span><span class="na">split</span><span class="p">(</span><span class="s">&#34;\n\n&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">StringBuilder</span><span class="w"> </span><span class="n">current</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">StringBuilder</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">para</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">paragraphs</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">current</span><span class="p">.</span><span class="na">length</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">para</span><span class="p">.</span><span class="na">length</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">maxChunkTokens</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">2</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">current</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">addChunk</span><span class="p">(</span><span class="n">current</span><span class="p">.</span><span class="na">toString</span><span class="p">().</span><span class="na">trim</span><span class="p">(),</span><span class="w"> </span><span class="n">headingChain</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">docName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">current</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">StringBuilder</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 添加重叠</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">current</span><span class="p">.</span><span class="na">append</span><span class="p">(</span><span class="n">para</span><span class="p">,</span><span class="w"> </span><span class="n">0</span><span class="p">,</span><span class="w"> </span><span class="n">Math</span><span class="p">.</span><span class="na">min</span><span class="p">(</span><span class="n">para</span><span class="p">.</span><span class="na">length</span><span class="p">(),</span><span class="w"> </span><span class="n">overlapChars</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">current</span><span class="p">.</span><span class="na">append</span><span class="p">(</span><span class="n">para</span><span class="p">).</span><span class="na">append</span><span class="p">(</span><span class="s">&#34;\n\n&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">current</span><span class="p">.</span><span class="na">toString</span><span class="p">().</span><span class="na">isBlank</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">addChunk</span><span class="p">(</span><span class="n">current</span><span class="p">.</span><span class="na">toString</span><span class="p">().</span><span class="na">trim</span><span class="p">(),</span><span class="w"> </span><span class="n">headingChain</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">docName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">addChunk</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">content</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">headingChain</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                          </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Chunk</span><span class="o">&gt;</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">docName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">metadata</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">LinkedHashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">metadata</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;document&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">docName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">metadata</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;heading_chain&#34;</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">headingChain</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">headingChain</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">metadata</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;chapter&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">headingChain</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">headingChain</span><span class="p">.</span><span class="na">size</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">1</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">result</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">Chunk</span><span class="p">(</span><span class="n">content</span><span class="p">,</span><span class="w"> </span><span class="n">metadata</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="四图片与表格的多模态处理">四、图片与表格的多模态处理</h2>
+<p>PDF 中的图片和表格是纯文本提取的盲区。一个工业级方案必须对它们进行专项处理。</p>
+<h3 id="41-图片提取与多模态描述">4.1 图片提取与多模态描述</h3>
+<pre tabindex="0"><code>PDF 页面 → 渲染为图片
+    │
+    ├── 纯文本区域 → 文本提取（上一步已完成）
+    │
+    └── 图片/图表区域 → 裁剪 → 多模态模型描述 → 描述文本索引
+                                             │
+                                             ▼
+                                        &#34;这张图展示了 2024 年 Q1 营收趋势，
+                                         柱状图显示 Q1 营收 12.5 亿元，
+                                         同比增长 15%...&#34;
+</code></pre><h3 id="42-java-实现多模态图片解析">4.2 Java 实现：多模态图片解析</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.pdfbox.pdmodel.PDDocument</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.pdfbox.rendering.PDFRenderer</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.pdfbox.text.PDFTextStripper</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">javax.imageio.ImageIO</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.awt.image.BufferedImage</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.io.ByteArrayOutputStream</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.net.URI</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.net.http.HttpClient</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.net.http.HttpRequest</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.net.http.HttpResponse</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.util.Base64</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm"> * PDF 多模态解析器
+</span></span></span><span class="line"><span class="cl"><span class="cm"> * 提取 PDF 页面中的图片并使用 VLM 生成描述
+</span></span></span><span class="line"><span class="cl"><span class="cm"> */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">MultimodalPdfParser</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">HttpClient</span><span class="w"> </span><span class="n">httpClient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">HttpClient</span><span class="p">.</span><span class="na">newHttpClient</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">vlmApiUrl</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">apiKey</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">MultimodalPdfParser</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">vlmApiUrl</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">apiKey</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">vlmApiUrl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vlmApiUrl</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">apiKey</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">apiKey</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * 从 PDF 文件中提取文本 + 图片描述
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">ParseResult</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">pdfBytes</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">docName</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">PDDocument</span><span class="w"> </span><span class="n">document</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">PDDocument</span><span class="p">.</span><span class="na">load</span><span class="p">(</span><span class="n">pdfBytes</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">PDFTextStripper</span><span class="w"> </span><span class="n">stripper</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">PDFTextStripper</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="w"> </span><span class="n">text</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">stripper</span><span class="p">.</span><span class="na">getText</span><span class="p">(</span><span class="n">document</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">PDFRenderer</span><span class="w"> </span><span class="n">renderer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">PDFRenderer</span><span class="p">(</span><span class="n">document</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">imageDescriptions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">page</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="n">page</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">document</span><span class="p">.</span><span class="na">getNumberOfPages</span><span class="p">();</span><span class="w"> </span><span class="n">page</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 渲染页面为图片</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">BufferedImage</span><span class="w"> </span><span class="n">pageImage</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">renderer</span><span class="p">.</span><span class="na">renderImageWithDPI</span><span class="p">(</span><span class="n">page</span><span class="p">,</span><span class="w"> </span><span class="n">150</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 用 VLM 描述页面中的图表</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">String</span><span class="w"> </span><span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">describeImageWithVLM</span><span class="p">(</span><span class="n">pageImage</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="s">&#34;请描述这张 PDF 页面中的所有图表、图片和表格的核心内容，&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;重点关注数据关系和业务含义。&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">description</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">description</span><span class="p">.</span><span class="na">isBlank</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">imageDescriptions</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">String</span><span class="p">.</span><span class="na">format</span><span class="p">(</span><span class="s">&#34;【第 %d 页图表】%s&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">page</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">1</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 合并文本和图片描述</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">StringBuilder</span><span class="w"> </span><span class="n">fullContent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">StringBuilder</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">fullContent</span><span class="p">.</span><span class="na">append</span><span class="p">(</span><span class="n">text</span><span class="p">).</span><span class="na">append</span><span class="p">(</span><span class="s">&#34;\n\n&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">desc</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">imageDescriptions</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">fullContent</span><span class="p">.</span><span class="na">append</span><span class="p">(</span><span class="n">desc</span><span class="p">).</span><span class="na">append</span><span class="p">(</span><span class="s">&#34;\n\n&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ParseResult</span><span class="p">(</span><span class="n">fullContent</span><span class="p">.</span><span class="na">toString</span><span class="p">(),</span><span class="w"> </span><span class="n">imageDescriptions</span><span class="p">.</span><span class="na">size</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/** 使用 VLM 多模态模型描述图片内容 */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">describeImageWithVLM</span><span class="p">(</span><span class="n">BufferedImage</span><span class="w"> </span><span class="n">image</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">prompt</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 将图片编码为 Base64</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ByteArrayOutputStream</span><span class="w"> </span><span class="n">baos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ByteArrayOutputStream</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ImageIO</span><span class="p">.</span><span class="na">write</span><span class="p">(</span><span class="n">image</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;png&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">baos</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">base64Image</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Base64</span><span class="p">.</span><span class="na">getEncoder</span><span class="p">().</span><span class="na">encodeToString</span><span class="p">(</span><span class="n">baos</span><span class="p">.</span><span class="na">toByteArray</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 构造 OpenAI Vision API 请求</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">requestBody</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">String</span><span class="p">.</span><span class="na">format</span><span class="p">(</span><span class="s">&#34;&#34;&#34;
+</span></span></span><span class="line"><span class="cl"><span class="s">            {
+</span></span></span><span class="line"><span class="cl"><span class="s">                &#34;model&#34;: &#34;gpt-4o&#34;,
+</span></span></span><span class="line"><span class="cl"><span class="s">                &#34;messages&#34;: [
+</span></span></span><span class="line"><span class="cl"><span class="s">                    {
+</span></span></span><span class="line"><span class="cl"><span class="s">                        &#34;role&#34;: &#34;user&#34;,
+</span></span></span><span class="line"><span class="cl"><span class="s">                        &#34;content&#34;: [
+</span></span></span><span class="line"><span class="cl"><span class="s">                            {&#34;type&#34;: &#34;text&#34;, &#34;text&#34;: &#34;%s&#34;},
+</span></span></span><span class="line"><span class="cl"><span class="s">                            {&#34;type&#34;: &#34;image_url&#34;, &#34;image_url&#34;: {&#34;url&#34;: &#34;data:image/png;base64,%s&#34;}}
+</span></span></span><span class="line"><span class="cl"><span class="s">                        ]
+</span></span></span><span class="line"><span class="cl"><span class="s">                    }
+</span></span></span><span class="line"><span class="cl"><span class="s">                ],
+</span></span></span><span class="line"><span class="cl"><span class="s">                &#34;max_tokens&#34;: 500
+</span></span></span><span class="line"><span class="cl"><span class="s">            }
+</span></span></span><span class="line"><span class="cl"><span class="s">            &#34;&#34;&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">escapeJson</span><span class="p">(</span><span class="n">prompt</span><span class="p">),</span><span class="w"> </span><span class="n">base64Image</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">HttpRequest</span><span class="w"> </span><span class="n">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">HttpRequest</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">uri</span><span class="p">(</span><span class="n">URI</span><span class="p">.</span><span class="na">create</span><span class="p">(</span><span class="n">vlmApiUrl</span><span class="p">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">header</span><span class="p">(</span><span class="s">&#34;Content-Type&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;application/json&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">header</span><span class="p">(</span><span class="s">&#34;Authorization&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;Bearer &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">apiKey</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">POST</span><span class="p">(</span><span class="n">HttpRequest</span><span class="p">.</span><span class="na">BodyPublishers</span><span class="p">.</span><span class="na">ofString</span><span class="p">(</span><span class="n">requestBody</span><span class="p">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">HttpResponse</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">httpClient</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">HttpResponse</span><span class="p">.</span><span class="na">BodyHandlers</span><span class="p">.</span><span class="na">ofString</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 简化的响应解析（生产环境应使用 JSON 库）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">response</span><span class="p">.</span><span class="na">statusCode</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">200</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">extractContentFromResponse</span><span class="p">(</span><span class="n">response</span><span class="p">.</span><span class="na">body</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/** 解析结果 */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ParseResult</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">content</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">imageCount</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">public</span><span class="w"> </span><span class="nf">ParseResult</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">content</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">imageCount</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">content</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">content</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">imageCount</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">imageCount</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">getContent</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">content</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">getImageCount</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">imageCount</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">escapeJson</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">s</span><span class="p">.</span><span class="na">replace</span><span class="p">(</span><span class="s">&#34;\\&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;\\\\&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">replace</span><span class="p">(</span><span class="s">&#34;\&#34;&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;\\\&#34;&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">replace</span><span class="p">(</span><span class="s">&#34;\n&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;\\n&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">extractContentFromResponse</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">json</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 生产环境应使用 Jackson 或 Gson 解析</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 简化的提取逻辑</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">contentStart</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">json</span><span class="p">.</span><span class="na">indexOf</span><span class="p">(</span><span class="s">&#34;\&#34;content\&#34;:\&#34;&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">contentStart</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">contentStart</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">11</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">contentEnd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">json</span><span class="p">.</span><span class="na">indexOf</span><span class="p">(</span><span class="s">&#34;\&#34;&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">contentStart</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">contentStart</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">contentEnd</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">json</span><span class="p">.</span><span class="na">substring</span><span class="p">(</span><span class="n">contentStart</span><span class="p">,</span><span class="w"> </span><span class="n">contentEnd</span><span class="p">)</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="43-表格的专项处理">4.3 表格的专项处理</h3>
+<p>表格是 PDF 中最复杂的元素之一，推荐的处理策略：</p>
+<pre tabindex="0"><code>策略比较：
+
+├── PDFBox 表格提取
+│   └── 精度一般，适合简单表格
+│
+├── Camelot / Tabula (Python)
+│   └── Excellet 表格提取效果，但需要 Python 桥接
+│
+├── VLM 描述
+│   └── 将表格截图后用多模态模型描述，通用性强
+│
+└── 转成 Markdown 表格
+    └── 用 OCR + 后处理还原表格结构，效果最好
+</code></pre><p><strong>生产推荐方案</strong>：对关键表格使用 VLM 描述 + Markdown 格式输出，保证结构可检索。</p>
+<h2 id="五向量化与索引构建">五、向量化与索引构建</h2>
+<h3 id="51-向量化-pipeline">5.1 向量化 Pipeline</h3>
+<pre tabindex="0"><code>解析后的结构化文本
+    │
+    ▼
+┌─────────────────────┐
+│  Embedding 模型      │  ← 选择适合中文的模型
+│  (bge-large-zh /     │
+│   text-embedding-3)  │
+└─────────┬───────────┘
+          │ 向量 + 元数据
+          ▼
+┌─────────────────────┐
+│  向量数据库入库       │  ← 建立索引 + 写入元数据
+│  (Milvus / Qdrant)  │
+└─────────┬───────────┘
+          │
+          ▼
+    可检索的 RAG 知识库
+</code></pre><h3 id="52-元数据设计">5.2 元数据设计</h3>
+<p>向量数据库中每条记录应包含完整的元数据字段：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-json" data-lang="json"><span class="line"><span class="cl"><span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;id&#34;</span><span class="p">:</span> <span class="s2">&#34;doc-001-chunk-005&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;vector&#34;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.12</span><span class="p">,</span> <span class="mf">-0.34</span><span class="p">,</span> <span class="err">...</span><span class="p">],</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;text&#34;</span><span class="p">:</span> <span class="s2">&#34;ConcurrentHashMap 采用分段锁机制...&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;metadata&#34;</span><span class="p">:</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;document&#34;</span><span class="p">:</span> <span class="s2">&#34;Java 并发编程实战&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;document_type&#34;</span><span class="p">:</span> <span class="s2">&#34;技术手册&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;chapter&#34;</span><span class="p">:</span> <span class="s2">&#34;第 5 章 - 并发容器&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;heading_chain&#34;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&#34;Java 并发编程&#34;</span><span class="p">,</span> <span class="s2">&#34;并发容器&#34;</span><span class="p">,</span> <span class="s2">&#34;ConcurrentHashMap&#34;</span><span class="p">],</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;page&#34;</span><span class="p">:</span> <span class="mi">128</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;page_range&#34;</span><span class="p">:</span> <span class="s2">&#34;128-130&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;has_image&#34;</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;image_description&#34;</span><span class="p">:</span> <span class="s2">&#34;该页面包含 ConcurrentHashMap 结构图...&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;parsed_at&#34;</span><span class="p">:</span> <span class="s2">&#34;2024-04-17T10:30:00Z&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;chunk_strategy&#34;</span><span class="p">:</span> <span class="s2">&#34;semantic&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;token_count&#34;</span><span class="p">:</span> <span class="mi">512</span>
+</span></span><span class="line"><span class="cl">  <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><h3 id="53-embedding-选型">5.3 Embedding 选型</h3>
+<table>
+	<thead>
+			<tr>
+					<th>模型</th>
+					<th>维度</th>
+					<th>最大输入</th>
+					<th>中文效果</th>
+					<th>部署方式</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>BAAI/bge-large-zh-v1.5</strong></td>
+					<td>1024</td>
+					<td>512 token</td>
+					<td>⭐⭐⭐⭐⭐</td>
+					<td>本地/API</td>
+			</tr>
+			<tr>
+					<td><strong>BAAI/bge-m3</strong></td>
+					<td>1024</td>
+					<td>8192 token</td>
+					<td>⭐⭐⭐⭐⭐</td>
+					<td>本地/API</td>
+			</tr>
+			<tr>
+					<td><strong>text-embedding-3-large</strong></td>
+					<td>3072</td>
+					<td>8191 token</td>
+					<td>⭐⭐⭐⭐</td>
+					<td>API 调用</td>
+			</tr>
+			<tr>
+					<td><strong>moka-ai/m3e-base</strong></td>
+					<td>768</td>
+					<td>512 token</td>
+					<td>⭐⭐⭐⭐</td>
+					<td>本地部署</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>生产建议</strong>：中文文档场景首选 <code>bge-m3</code>，兼顾长文档和中文语义质量。</p>
+<h2 id="六生产级-pipeline-架构">六、生产级 Pipeline 架构</h2>
+<p>将以上所有环节串联，形成一个工业级的 PDF → 向量 pipeline：</p>
+<pre tabindex="0"><code>┌─────────────┐   ┌──────────────┐   ┌──────────────┐
+│  PDF 文件     │   │  文档分类器    │   │  解析器路由    │
+│  (S3/MinIO)  │──→│ (规则/VLM)   │──→│              │
+└─────────────┘   └──────────────┘   └──────┬───────┘
+                                            │
+                    ┌───────────────────────┼───────────────────────┐
+                    │                       │                       │
+                    ▼                       ▼                       ▼
+            ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+            │ 文字 PDF      │     │ 扫描 PDF      │     │ 图文混排 PDF  │
+            │ PDFBox/       │     │ PaddleOCR    │     │ GPT-4V /     │
+            │ Marker        │     │              │     │ Qwen-VL      │
+            └──────┬───────┘     └──────┬───────┘     └──────┬───────┘
+                   │                    │                    │
+                   └────────────────────┼────────────────────┘
+                                        │
+                                        ▼
+                               ┌────────────────┐
+                               │ 结构化切片器     │
+                               │ (含章节元数据)   │
+                               └───────┬────────┘
+                                       │
+                                       ▼
+                               ┌────────────────┐
+                               │ VLM 图片描述     │
+                               │ (多模态补充)     │
+                               └───────┬────────┘
+                                       │
+                                       ▼
+                               ┌────────────────┐
+                               │ Embedding 模型  │
+                               │ (bge-m3)       │
+                               └───────┬────────┘
+                                       │
+                                       ▼
+                               ┌────────────────┐
+                               │ 向量数据库入库   │
+                               │ (Milvus/Qdrant)│
+                               └────────────────┘
+</code></pre><h2 id="七生产环境注意事项">七、生产环境注意事项</h2>
+<h3 id="71-性能优化">7.1 性能优化</h3>
+<ul>
+<li><strong>批量处理</strong>：PDF 解析和 Embedding 都支持批处理，建议攒够一批再处理</li>
+<li><strong>缓存机制</strong>：对已解析的文档缓存解析结果，避免重复解析</li>
+<li><strong>异步管道</strong>：使用消息队列（如 Kafka/RabbitMQ）串联各个阶段，支持水平扩展</li>
+</ul>
+<h3 id="72-容错设计">7.2 容错设计</h3>
+<ul>
+<li><strong>重试机制</strong>：API 调用（VLM、Embedding）设置指数退避重试</li>
+<li><strong>降级策略</strong>：VLM 调用失败时，回退到纯文本索引</li>
+<li><strong>质量监控</strong>：记录每个阶段的成功/失败指标，设置告警</li>
+</ul>
+<h3 id="73-成本控制">7.3 成本控制</h3>
+<pre tabindex="0"><code>千万级文档处理成本估算（以 GPT-4o + text-embedding-3 为例）：
+
+├── PDF 解析：免费（PyMuPDF）
+├── VLM 图片描述：$0.01~0.03/页（GPT-4o）
+├── Embedding：$0.13/百万 token（text-embedding-3-small）
+└── 向量存储：$0.10/GB/月（Qdrant Cloud）
+</code></pre><p><strong>省钱建议</strong>：</p>
+<ul>
+<li>图片较少的文档可跳过 VLM 描述</li>
+<li>使用开源 Embedding 模型（bge-m3）替代 API</li>
+<li>对相似文档做去重后再入库</li>
+</ul>
+<h2 id="总结">总结</h2>
+<p>一个工业级的 PDF → RAG 知识库 pipeline，需要解决好三个关键环节：</p>
+<ol>
+<li><strong>解析</strong>：根据文档类型选择合适的解析方案（规则库/OCR/VLM），确保文本和结构完整</li>
+<li><strong>切片</strong>：保留章节层级元数据，基于语义边界切片，而非粗暴地按 token 切分</li>
+<li><strong>多模态</strong>：对图片和表格使用 VLM 模型生成描述文本，弥补纯文本提取的盲区</li>
+</ol>
+<p>三个环节环环相扣，任何一个环节的短板都会直接影响最终的检索质量。前面的 RAG 原理和 PDF 处理方案是从 0 到 1 理解 RAG，而本文介绍的最佳实践则是从 1 到 100 的落地方案。后续可以进一步探讨向量数据库的索引优化和检索重排序策略。</p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

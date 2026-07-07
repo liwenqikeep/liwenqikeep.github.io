@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Spring Cloud 熔断限流：Sentinel 流量治理 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一sentinel-核心概念">一、Sentinel 核心概念</a>
+      <ul>
+        <li><a href="#11-三大核心功能">1.1 三大核心功能</a></li>
+        <li><a href="#12-资源概念">1.2 资源概念</a></li>
+      </ul>
+    </li>
+    <li><a href="#二快速入门">二、快速入门</a>
+      <ul>
+        <li><a href="#21-依赖">2.1 依赖</a></li>
+        <li><a href="#22-配置">2.2 配置</a></li>
+        <li><a href="#23-启动控制台">2.3 启动控制台</a></li>
+      </ul>
+    </li>
+    <li><a href="#三流量控制">三、流量控制</a>
+      <ul>
+        <li><a href="#31-控制台配置限流规则">3.1 控制台配置限流规则</a></li>
+        <li><a href="#32-代码配置限流规则">3.2 代码配置限流规则</a></li>
+        <li><a href="#33-sentinelresource-注解">3.3 @SentinelResource 注解</a></li>
+      </ul>
+    </li>
+    <li><a href="#四熔断降级">四、熔断降级</a>
+      <ul>
+        <li><a href="#41-熔断规则">4.1 熔断规则</a></li>
+        <li><a href="#42-熔断状态机">4.2 熔断状态机</a></li>
+      </ul>
+    </li>
+    <li><a href="#五热点参数限流">五、热点参数限流</a></li>
+    <li><a href="#六系统保护">六、系统保护</a></li>
+    <li><a href="#七整合-feign">七、整合 Feign</a></li>
+    <li><a href="#八sentinel-vs-hystrix">八、Sentinel vs Hystrix</a></li>
+    <li><a href="#九总结">九、总结</a>
+      <ul>
+        <li><a href="#核心规则速查">核心规则速查</a></li>
+        <li><a href="#注解速查">注解速查</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Spring Cloud 熔断限流：Sentinel 流量治理</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>Sentinel 是阿里巴巴开源的流量治理组件，以&quot;流量&quot;为切入点，提供<strong>流量控制</strong>、<strong>熔断降级</strong>、<strong>系统保护</strong>等功能。相比 Hystrix，Sentinel 有更丰富的流量治理能力和更好的性能。</p>
+<h2 id="一sentinel-核心概念">一、Sentinel 核心概念</h2>
+<h3 id="11-三大核心功能">1.1 三大核心功能</h3>
+<pre tabindex="0"><code>1. 流量控制（Flow Control）
+   控制进入系统的请求速率
+   支持：QPS 限流、线程数限流、Warm Up、排队等待
+
+2. 熔断降级（Circuit Breaking）
+   当资源不稳定时（慢调用、异常比例高），熔断对该资源的调用
+   支持：慢调用比例、异常比例、异常数
+
+3. 系统保护（System Protection）
+   当系统负载过高时，自动限制入口流量
+   支持：Load、CPU、RT、线程数、入口 QPS
+</code></pre><h3 id="12-资源概念">1.2 资源概念</h3>
+<pre tabindex="0"><code>在 Sentinel 中，一切皆资源（Resource）。
+
+资源可以是：
+├── HTTP 接口（/api/users）
+├── 方法调用（Service.method()）
+├── SQL 查询
+└── 自定义代码块
+</code></pre><hr>
+<h2 id="二快速入门">二、快速入门</h2>
+<h3 id="21-依赖">2.1 依赖</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;groupId&gt;</span>com.alibaba.cloud<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>spring-cloud-starter-alibaba-sentinel<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/dependency&gt;</span>
+</span></span></code></pre></div><h3 id="22-配置">2.2 配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cloud</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">sentinel</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">transport</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">dashboard</span><span class="p">:</span><span class="w"> </span><span class="l">localhost:8080    </span><span class="w"> </span><span class="c"># Sentinel 控制台地址</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="m">8719</span><span class="w">                     </span><span class="c"># 客户端端口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">eager</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">                      </span><span class="c"># 立即连接控制台</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">datasource</span><span class="p">:</span><span class="w">                      </span><span class="c"># 动态规则源（Nacos）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">flow</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">nacos</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">server-addr</span><span class="p">:</span><span class="w"> </span><span class="m">127.0.0.1</span><span class="p">:</span><span class="m">8848</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">data-id</span><span class="p">:</span><span class="w"> </span><span class="l">${spring.application.name}-sentinel-flow</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">group-id</span><span class="p">:</span><span class="w"> </span><span class="l">SENTINEL_GROUP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">data-type</span><span class="p">:</span><span class="w"> </span><span class="l">json</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">rule-type</span><span class="p">:</span><span class="w"> </span><span class="l">flow</span><span class="w">
+</span></span></span></code></pre></div><h3 id="23-启动控制台">2.3 启动控制台</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 下载 Sentinel Dashboard</span>
+</span></span><span class="line"><span class="cl">wget https://github.com/alibaba/Sentinel/releases/download/1.8.4/sentinel-dashboard-1.8.4.jar
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 启动控制台</span>
+</span></span><span class="line"><span class="cl">java -Dserver.port<span class="o">=</span><span class="m">8080</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">     -jar sentinel-dashboard-1.8.4.jar
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 访问 http://localhost:8080</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 默认账号：sentinel / sentinel</span>
+</span></span></code></pre></div><hr>
+<h2 id="三流量控制">三、流量控制</h2>
+<h3 id="31-控制台配置限流规则">3.1 控制台配置限流规则</h3>
+<pre tabindex="0"><code>在 Sentinel Dashboard 中配置：
+
+资源名：/api/users/list
+阈值类型：QPS
+单机阈值：100
+流控模式：直接
+流控效果：快速失败
+</code></pre><h3 id="32-代码配置限流规则">3.2 代码配置限流规则</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SentinelConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@PostConstruct</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">initFlowRules</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">FlowRule</span><span class="o">&gt;</span><span class="w"> </span><span class="n">rules</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">FlowRule</span><span class="w"> </span><span class="n">rule</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FlowRule</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rule</span><span class="p">.</span><span class="na">setResource</span><span class="p">(</span><span class="s">&#34;/api/users/list&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rule</span><span class="p">.</span><span class="na">setGrade</span><span class="p">(</span><span class="n">RuleConstant</span><span class="p">.</span><span class="na">FLOW_GRADE_QPS</span><span class="p">);</span><span class="w">  </span><span class="c1">// QPS 限流</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rule</span><span class="p">.</span><span class="na">setCount</span><span class="p">(</span><span class="n">100</span><span class="p">);</span><span class="w">                          </span><span class="c1">// 阈值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rule</span><span class="p">.</span><span class="na">setControlBehavior</span><span class="p">(</span><span class="n">RuleConstant</span><span class="p">.</span><span class="na">CONTROL_BEHAVIOR_DEFAULT</span><span class="p">);</span><span class="w">  </span><span class="c1">// 快速失败</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rules</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">rule</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">FlowRuleManager</span><span class="p">.</span><span class="na">loadRules</span><span class="p">(</span><span class="n">rules</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 启动后，在 Sentinel Dashboard 可以看到资源实时监控</span><span class="w">
+</span></span></span></code></pre></div><h3 id="33-sentinelresource-注解">3.3 @SentinelResource 注解</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@RestController</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@RequestMapping</span><span class="p">(</span><span class="s">&#34;/api/users&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserController</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@GetMapping</span><span class="p">(</span><span class="s">&#34;/list&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@SentinelResource</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;/api/users/list&#34;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">blockHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;listBlockHandler&#34;</span><span class="p">,</span><span class="w">       </span><span class="c1">// 限流后的处理方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">fallback</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;listFallback&#34;</span><span class="w">                 </span><span class="c1">// 异常后的处理方法</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">User</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">list</span><span class="p">(</span><span class="nd">@RequestParam</span><span class="p">(</span><span class="n">defaultValue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;1&#34;</span><span class="p">)</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">page</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 正常业务逻辑</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">userService</span><span class="p">.</span><span class="na">findPage</span><span class="p">(</span><span class="n">page</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// blockHandler：限流/熔断时调用（需在同一类中，参数多一个 BlockException）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">User</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">listBlockHandler</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">page</span><span class="p">,</span><span class="w"> </span><span class="n">BlockException</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;被限流了: {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">ex</span><span class="p">.</span><span class="na">getMessage</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">Collections</span><span class="p">.</span><span class="na">emptyList</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// fallback：业务异常时调用</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">User</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">listFallback</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">page</span><span class="p">,</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">error</span><span class="p">(</span><span class="s">&#34;查询失败: {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">ex</span><span class="p">.</span><span class="na">getMessage</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">Collections</span><span class="p">.</span><span class="na">emptyList</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="四熔断降级">四、熔断降级</h2>
+<h3 id="41-熔断规则">4.1 熔断规则</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 慢调用比例熔断</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">DegradeRule</span><span class="w"> </span><span class="n">slowRule</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DegradeRule</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">slowRule</span><span class="p">.</span><span class="na">setResource</span><span class="p">(</span><span class="s">&#34;/api/orders/create&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">slowRule</span><span class="p">.</span><span class="na">setGrade</span><span class="p">(</span><span class="n">RuleConstant</span><span class="p">.</span><span class="na">DEGRADE_GRADE_RT</span><span class="p">);</span><span class="w">    </span><span class="c1">// 响应时间</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">slowRule</span><span class="p">.</span><span class="na">setCount</span><span class="p">(</span><span class="n">200</span><span class="p">);</span><span class="w">                               </span><span class="c1">// 超过 200ms 算慢</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">slowRule</span><span class="p">.</span><span class="na">setSlowRatioThreshold</span><span class="p">(</span><span class="n">0</span><span class="p">.</span><span class="na">5</span><span class="p">);</span><span class="w">                  </span><span class="c1">// 慢调用比例阈值 50%</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">slowRule</span><span class="p">.</span><span class="na">setMinRequestAmount</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">                     </span><span class="c1">// 最小请求数</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">slowRule</span><span class="p">.</span><span class="na">setStatIntervalMs</span><span class="p">(</span><span class="n">1000</span><span class="p">);</span><span class="w">                     </span><span class="c1">// 统计时长</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">slowRule</span><span class="p">.</span><span class="na">setTimeWindow</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">                           </span><span class="c1">// 熔断时长（秒）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 异常比例熔断</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">DegradeRule</span><span class="w"> </span><span class="n">exceptionRule</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DegradeRule</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">exceptionRule</span><span class="p">.</span><span class="na">setResource</span><span class="p">(</span><span class="s">&#34;/api/orders/create&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">exceptionRule</span><span class="p">.</span><span class="na">setGrade</span><span class="p">(</span><span class="n">RuleConstant</span><span class="p">.</span><span class="na">DEGRADE_GRADE_EXCEPTION_RATIO</span><span class="p">);</span><span class="w">  </span><span class="c1">// 异常比例</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">exceptionRule</span><span class="p">.</span><span class="na">setCount</span><span class="p">(</span><span class="n">0</span><span class="p">.</span><span class="na">2</span><span class="p">);</span><span class="w">                        </span><span class="c1">// 异常比例阈值 20%</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">exceptionRule</span><span class="p">.</span><span class="na">setMinRequestAmount</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">exceptionRule</span><span class="p">.</span><span class="na">setTimeWindow</span><span class="p">(</span><span class="n">30</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">List</span><span class="o">&lt;</span><span class="n">DegradeRule</span><span class="o">&gt;</span><span class="w"> </span><span class="n">rules</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">rules</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">slowRule</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">rules</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">exceptionRule</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">DegradeRuleManager</span><span class="p">.</span><span class="na">loadRules</span><span class="p">(</span><span class="n">rules</span><span class="p">);</span><span class="w">
+</span></span></span></code></pre></div><h3 id="42-熔断状态机">4.2 熔断状态机</h3>
+<pre tabindex="0"><code>Sentinel 熔断器的三种状态：
+
+CLOSED（关闭）：
+  ├── 正常请求通过
+  └── 异常比例/慢调用 &gt; 阈值 → OPEN
+
+OPEN（打开）：
+  ├── 请求快速失败
+  └── 时间窗口后 → HALF_OPEN
+
+HALF_OPEN（半开）：
+  ├── 放行少量请求探测
+  ├── 成功 → CLOSED
+  └── 失败 → OPEN
+</code></pre><hr>
+<h2 id="五热点参数限流">五、热点参数限流</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@GetMapping</span><span class="p">(</span><span class="s">&#34;/search&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@SentinelResource</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;/api/users/search&#34;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">blockHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;searchBlockHandler&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">User</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">search</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@RequestParam</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">keyword</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@RequestParam</span><span class="p">(</span><span class="n">defaultValue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;1&#34;</span><span class="p">)</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">page</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">userService</span><span class="p">.</span><span class="na">search</span><span class="p">(</span><span class="n">keyword</span><span class="p">,</span><span class="w"> </span><span class="n">page</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 热点规则配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ParamFlowRule</span><span class="w"> </span><span class="n">rule</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ParamFlowRule</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">rule</span><span class="p">.</span><span class="na">setResource</span><span class="p">(</span><span class="s">&#34;/api/users/search&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">rule</span><span class="p">.</span><span class="na">setParamIdx</span><span class="p">(</span><span class="n">0</span><span class="p">);</span><span class="w">                    </span><span class="c1">// 对第一个参数限流</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">rule</span><span class="p">.</span><span class="na">setCount</span><span class="p">(</span><span class="n">5</span><span class="p">);</span><span class="w">                       </span><span class="c1">// 每秒 5 次</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">rule</span><span class="p">.</span><span class="na">setDurationInSec</span><span class="p">(</span><span class="n">1</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 参数例外项</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ParamFlowItem</span><span class="w"> </span><span class="n">item</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ParamFlowItem</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">item</span><span class="p">.</span><span class="na">setObject</span><span class="p">(</span><span class="s">&#34;hot-keyword&#34;</span><span class="p">);</span><span class="w">          </span><span class="c1">// 这个参数单独限流</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">item</span><span class="p">.</span><span class="na">setClassType</span><span class="p">(</span><span class="n">String</span><span class="p">.</span><span class="na">class</span><span class="p">.</span><span class="na">getName</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">item</span><span class="p">.</span><span class="na">setCount</span><span class="p">(</span><span class="n">2</span><span class="p">);</span><span class="w">                       </span><span class="c1">// 每秒只能 2 次</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">rule</span><span class="p">.</span><span class="na">setParamFlowItemList</span><span class="p">(</span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="n">item</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">ParamFlowRuleManager</span><span class="p">.</span><span class="na">loadRules</span><span class="p">(</span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="n">rule</span><span class="p">));</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="六系统保护">六、系统保护</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 系统规则：当系统 Load 过高时自动拒绝请求</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">SystemRule</span><span class="w"> </span><span class="n">rule</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SystemRule</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">rule</span><span class="p">.</span><span class="na">setHighestSystemLoad</span><span class="p">(</span><span class="n">10</span><span class="p">.</span><span class="na">0</span><span class="p">);</span><span class="w">         </span><span class="c1">// Load 阈值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">rule</span><span class="p">.</span><span class="na">setAvgRt</span><span class="p">(</span><span class="n">1000</span><span class="p">);</span><span class="w">                     </span><span class="c1">// 平均 RT</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">rule</span><span class="p">.</span><span class="na">setMaxQps</span><span class="p">(</span><span class="n">10000</span><span class="p">);</span><span class="w">                   </span><span class="c1">// 入口 QPS</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">rule</span><span class="p">.</span><span class="na">setHighestCpuUsage</span><span class="p">(</span><span class="n">0</span><span class="p">.</span><span class="na">8</span><span class="p">);</span><span class="w">           </span><span class="c1">// CPU 使用率</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">SystemRuleManager</span><span class="p">.</span><span class="na">loadRules</span><span class="p">(</span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="n">rule</span><span class="p">));</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="七整合-feign">七、整合 Feign</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># application.yml</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">feign</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sentinel</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">     </span><span class="c"># 开启 Feign 的 Sentinel 支持</span><span class="w">
+</span></span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@FeignClient</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;user-service&#34;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">fallbackFactory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">UserFallbackFactory</span><span class="p">.</span><span class="na">class</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">UserFeignClient</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@GetMapping</span><span class="p">(</span><span class="s">&#34;/api/users/{id}&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">User</span><span class="w"> </span><span class="nf">getUser</span><span class="p">(</span><span class="nd">@PathVariable</span><span class="p">(</span><span class="s">&#34;id&#34;</span><span class="p">)</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">id</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserFallbackFactory</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">FallbackFactory</span><span class="o">&lt;</span><span class="n">UserFeignClient</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">UserFeignClient</span><span class="w"> </span><span class="nf">create</span><span class="p">(</span><span class="n">Throwable</span><span class="w"> </span><span class="n">cause</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 熔断降级后的返回</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">User</span><span class="w"> </span><span class="n">empty</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">User</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">empty</span><span class="p">.</span><span class="na">setId</span><span class="p">(</span><span class="n">id</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">empty</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">};</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="八sentinel-vs-hystrix">八、Sentinel vs Hystrix</h2>
+<table>
+	<thead>
+			<tr>
+					<th>对比</th>
+					<th>Sentinel</th>
+					<th style="text-align: center">Hystrix（维护模式）</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>限流</td>
+					<td>✅ QPS/线程数/Warm Up</td>
+					<td style="text-align: center">❌ 不支持</td>
+			</tr>
+			<tr>
+					<td>熔断</td>
+					<td>✅ 慢调用/异常比例/异常数</td>
+					<td style="text-align: center">✅ 仅异常比例</td>
+			</tr>
+			<tr>
+					<td>控制台</td>
+					<td>✅ 实时监控 + 规则配置</td>
+					<td style="text-align: center">❌</td>
+			</tr>
+			<tr>
+					<td>动态规则</td>
+					<td>✅ Nacos/APOLLO/ZK</td>
+					<td style="text-align: center">❌</td>
+			</tr>
+			<tr>
+					<td>系统保护</td>
+					<td>✅ Load/CPU</td>
+					<td style="text-align: center">❌</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="九总结">九、总结</h2>
+<h3 id="核心规则速查">核心规则速查</h3>
+<table>
+	<thead>
+			<tr>
+					<th>规则类型</th>
+					<th>作用</th>
+					<th>关键参数</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>FlowRule</td>
+					<td>流量控制</td>
+					<td>grade(QPS/线程数)、count</td>
+			</tr>
+			<tr>
+					<td>DegradeRule</td>
+					<td>熔断降级</td>
+					<td>grade(RT/异常比例)、timeWindow</td>
+			</tr>
+			<tr>
+					<td>SystemRule</td>
+					<td>系统保护</td>
+					<td>highestSystemLoad、avgRt</td>
+			</tr>
+			<tr>
+					<td>ParamFlowRule</td>
+					<td>热点限流</td>
+					<td>paramIdx、count</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="注解速查">注解速查</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@SentinelResource</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;resource-name&#34;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">blockHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;限流处理方法&#34;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">fallback</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;异常处理方法&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">)</span><span class="w">
+</span></span></span></code></pre></div><p><strong>上一篇：</strong> <a href="/posts/spring-cloud-%E9%85%8D%E7%BD%AE%E4%B8%AD%E5%BF%83nacos-config-%E5%8A%A8%E6%80%81%E9%85%8D%E7%BD%AE%E7%AE%A1%E7%90%86/">Spring Cloud 配置中心：Nacos Config 动态配置管理</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/spring-cloud-%E9%93%BE%E8%B7%AF%E8%BF%BD%E8%B8%AAsleuth--zipkin-%E5%85%A8%E9%93%BE%E8%B7%AF%E7%9B%91%E6%8E%A7/">Spring Cloud 链路追踪：Sleuth + Zipkin 全链路监控</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

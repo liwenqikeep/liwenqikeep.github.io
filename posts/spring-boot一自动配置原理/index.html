@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Spring Boot（一）：自动配置原理 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一springbootapplication-复合注解">一、@SpringBootApplication 复合注解</a></li>
+    <li><a href="#二enableautoconfiguration">二、@EnableAutoConfiguration</a>
+      <ul>
+        <li><a href="#21-核心导入">2.1 核心导入</a></li>
+        <li><a href="#22-autoconfigurationimportselector">2.2 AutoConfigurationImportSelector</a></li>
+      </ul>
+    </li>
+    <li><a href="#三springfactories-文件">三、spring.factories 文件</a>
+      <ul>
+        <li><a href="#31-文件位置">3.1 文件位置</a></li>
+        <li><a href="#32-springfactories-内容">3.2 spring.factories 内容</a></li>
+        <li><a href="#33-加载流程">3.3 加载流程</a></li>
+      </ul>
+    </li>
+    <li><a href="#四条件注解-conditional">四、条件注解 @Conditional</a>
+      <ul>
+        <li><a href="#41-常用条件注解">4.1 常用条件注解</a></li>
+        <li><a href="#42-示例redisautoconfiguration">4.2 示例：RedisAutoConfiguration</a></li>
+        <li><a href="#43-示例datasourceautoconfiguration">4.3 示例：DataSourceAutoConfiguration</a></li>
+      </ul>
+    </li>
+    <li><a href="#五条件注解的源码实现">五、条件注解的源码实现</a>
+      <ul>
+        <li><a href="#51-condition-接口">5.1 Condition 接口</a></li>
+        <li><a href="#52-onclasscondition-的实现">5.2 OnClassCondition 的实现</a></li>
+        <li><a href="#53-onbeancondition-的实现">5.3 OnBeanCondition 的实现</a></li>
+      </ul>
+    </li>
+    <li><a href="#六配置类过滤机制">六、配置类过滤机制</a>
+      <ul>
+        <li><a href="#61-autoconfigurationimportfilter">6.1 AutoConfigurationImportFilter</a></li>
+        <li><a href="#62-配置类的排序">6.2 配置类的排序</a></li>
+      </ul>
+    </li>
+    <li><a href="#七自定义自动配置">七、自定义自动配置</a>
+      <ul>
+        <li><a href="#71-创建自动配置类">7.1 创建自动配置类</a></li>
+        <li><a href="#72-注册自动配置">7.2 注册自动配置</a></li>
+      </ul>
+    </li>
+    <li><a href="#八总结">八、总结</a>
+      <ul>
+        <li><a href="#自动配置的核心流程">自动配置的核心流程</a></li>
+        <li><a href="#条件注解速记">条件注解速记</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Spring Boot（一）：自动配置原理</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>Spring Boot 最核心的特性就是<strong>自动配置（Auto Configuration）</strong>——它根据 classpath 中的依赖、定义的 Bean 和配置文件中的属性，自动推断并创建应用程序需要的 Bean。</p>
+<p>理解自动配置的原理，才能真正掌握 Spring Boot 的精髓。</p>
+<blockquote>
+<p><strong>源码版本：</strong> Spring Boot 2.3.x</p>
+</blockquote>
+<h2 id="一springbootapplication-复合注解">一、@SpringBootApplication 复合注解</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Target</span><span class="p">(</span><span class="n">ElementType</span><span class="p">.</span><span class="na">TYPE</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Retention</span><span class="p">(</span><span class="n">RetentionPolicy</span><span class="p">.</span><span class="na">RUNTIME</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Documented</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Inherited</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@SpringBootConfiguration</span><span class="w">        </span><span class="c1">// 本质是 @Configuration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableAutoConfiguration</span><span class="w">        </span><span class="c1">// ★ 自动配置的核心入口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@ComponentScan</span><span class="p">(</span><span class="n">excludeFilters</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">  </span><span class="c1">// 组件扫描</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Filter</span><span class="p">(</span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">FilterType</span><span class="p">.</span><span class="na">CUSTOM</span><span class="p">,</span><span class="w"> </span><span class="n">classes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TypeExcludeFilter</span><span class="p">.</span><span class="na">class</span><span class="p">),</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Filter</span><span class="p">(</span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">FilterType</span><span class="p">.</span><span class="na">CUSTOM</span><span class="p">,</span><span class="w"> </span><span class="n">classes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AutoConfigurationExcludeFilter</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w"> </span><span class="p">})</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="nd">@interface</span><span class="w"> </span><span class="n">SpringBootApplication</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p>所以 <code>@SpringBootApplication</code> 等价于：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableAutoConfiguration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@ComponentScan</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Application</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SpringApplication</span><span class="p">.</span><span class="na">run</span><span class="p">(</span><span class="n">Application</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="二enableautoconfiguration">二、@EnableAutoConfiguration</h2>
+<h3 id="21-核心导入">2.1 核心导入</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Target</span><span class="p">(</span><span class="n">ElementType</span><span class="p">.</span><span class="na">TYPE</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Retention</span><span class="p">(</span><span class="n">RetentionPolicy</span><span class="p">.</span><span class="na">RUNTIME</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Documented</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Inherited</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@AutoConfigurationPackage</span><span class="w">        </span><span class="c1">// 记录扫描的包路径</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Import</span><span class="p">(</span><span class="n">AutoConfigurationImportSelector</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">  </span><span class="c1">// ★ 核心：导入自动配置类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="nd">@interface</span><span class="w"> </span><span class="n">EnableAutoConfiguration</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 排除指定的自动配置类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Class</span><span class="o">&lt;?&gt;[]</span><span class="w"> </span><span class="nf">exclude</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="p">{};</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 排除指定的自动配置类名</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="nf">excludeName</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="p">{};</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="22-autoconfigurationimportselector">2.2 AutoConfigurationImportSelector</h3>
+<p><code>AutoConfigurationImportSelector</code> 实现了 <code>DeferredImportSelector</code> 接口，在 Spring 容器的 <code>refresh()</code> 过程中被调用。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AutoConfigurationImportSelector</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">implements</span><span class="w"> </span><span class="n">DeferredImportSelector</span><span class="p">,</span><span class="w"> </span><span class="n">BeanClassLoaderAware</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                   </span><span class="n">ResourceLoaderAware</span><span class="p">,</span><span class="w"> </span><span class="n">BeanFactoryAware</span><span class="p">,</span><span class="w"> </span><span class="n">EnvironmentAware</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                   </span><span class="n">Ordered</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="nf">selectImports</span><span class="p">(</span><span class="n">AnnotationMetadata</span><span class="w"> </span><span class="n">annotationMetadata</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">isEnabled</span><span class="p">(</span><span class="n">annotationMetadata</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">NO_IMPORTS</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 1. 获取所有自动配置类的名称</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">AutoConfigurationEntry</span><span class="w"> </span><span class="n">autoConfigurationEntry</span><span class="w"> </span><span class="o">=</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">getAutoConfigurationEntry</span><span class="p">(</span><span class="n">annotationMetadata</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 返回自动配置类名数组（Spring 会逐个加载这些类）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">StringUtils</span><span class="p">.</span><span class="na">toStringArray</span><span class="p">(</span><span class="n">autoConfigurationEntry</span><span class="p">.</span><span class="na">getConfigurations</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">AutoConfigurationEntry</span><span class="w"> </span><span class="nf">getAutoConfigurationEntry</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">AnnotationMetadata</span><span class="w"> </span><span class="n">annotationMetadata</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">isEnabled</span><span class="p">(</span><span class="n">annotationMetadata</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">EMPTY_ENTRY</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 获取注解属性（exclude 等）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">AnnotationAttributes</span><span class="w"> </span><span class="n">attributes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getAttributes</span><span class="p">(</span><span class="n">annotationMetadata</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 2. 从 META-INF/spring.factories 加载配置类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">configurations</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getCandidateConfigurations</span><span class="p">(</span><span class="n">annotationMetadata</span><span class="p">,</span><span class="w"> </span><span class="n">attributes</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 去重</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">configurations</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">removeDuplicates</span><span class="p">(</span><span class="n">configurations</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 处理 exclude 排除</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">exclusions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getExclusions</span><span class="p">(</span><span class="n">annotationMetadata</span><span class="p">,</span><span class="w"> </span><span class="n">attributes</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">checkExcludedClasses</span><span class="p">(</span><span class="n">configurations</span><span class="p">,</span><span class="w"> </span><span class="n">exclusions</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">configurations</span><span class="p">.</span><span class="na">removeAll</span><span class="p">(</span><span class="n">exclusions</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 5. 按条件过滤（应用 @Conditional）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">configurations</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">filter</span><span class="p">(</span><span class="n">configurations</span><span class="p">,</span><span class="w"> </span><span class="n">autoConfigurationMetadata</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">AutoConfigurationEntry</span><span class="p">(</span><span class="n">configurations</span><span class="p">,</span><span class="w"> </span><span class="n">exclusions</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="三springfactories-文件">三、spring.factories 文件</h2>
+<h3 id="31-文件位置">3.1 文件位置</h3>
+<pre tabindex="0"><code>自动配置类的配置在 JAR 包中的：
+META-INF/spring.factories  （Spring Boot 2.7 之前）
+META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports  （Spring Boot 2.7+）
+</code></pre><h3 id="32-springfactories-内容">3.2 spring.factories 内容</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-properties" data-lang="properties"><span class="line"><span class="cl"><span class="c1"># 来自 spring-boot-autoconfigure 包</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># META-INF/spring.factories</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 自动配置类</span>
+</span></span><span class="line"><span class="cl"><span class="na">org.springframework.boot.autoconfigure.EnableAutoConfiguration</span><span class="o">=</span><span class="s">\
+</span></span></span><span class="line"><span class="cl"><span class="s">org.springframework.boot.autoconfigure.admin.SpringApplicationAdminJmxAutoConfiguration,\
+</span></span></span><span class="line"><span class="cl"><span class="s">org.springframework.boot.autoconfigure.aop.AopAutoConfiguration,\
+</span></span></span><span class="line"><span class="cl"><span class="s">org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration,\
+</span></span></span><span class="line"><span class="cl"><span class="s">org.springframework.boot.autoconfigure.batch.BatchAutoConfiguration,\
+</span></span></span><span class="line"><span class="cl"><span class="s">org.springframework.boot.autoconfigure.cache.CacheAutoConfiguration,\
+</span></span></span><span class="line"><span class="cl"><span class="s">org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,\
+</span></span></span><span class="line"><span class="cl"><span class="s">org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,\
+</span></span></span><span class="line"><span class="cl"><span class="s">org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration,\
+</span></span></span><span class="line"><span class="cl"><span class="s">...</span>
+</span></span></code></pre></div><h3 id="33-加载流程">3.3 加载流程</h3>
+<pre tabindex="0"><code>Spring Boot 启动
+    │
+    ▼
+AutoConfigurationImportSelector.selectImports()
+    │
+    ├── 1. 从 spring.factories 获取 EnableAutoConfiguration 的所有配置类
+    │      ↓
+    │      130+ 个自动配置类候选
+    │
+    ├── 2. 根据 @Conditional 条件过滤
+    │      ↓
+    │      只保留条件满足的配置类
+    │
+    └── 3. 注册为 Spring Bean
+           ↓
+           自动配置的 Bean 生效
+</code></pre><hr>
+<h2 id="四条件注解-conditional">四、条件注解 @Conditional</h2>
+<p>自动配置的精髓在于<strong>条件判断</strong>——每个自动配置类上都标注了 <code>@Conditional</code> 系列注解，只有在满足条件时才生效。</p>
+<h3 id="41-常用条件注解">4.1 常用条件注解</h3>
+<table>
+	<thead>
+			<tr>
+					<th>注解</th>
+					<th>生效条件</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>@ConditionalOnClass</code></td>
+					<td>classpath 中存在指定的类</td>
+			</tr>
+			<tr>
+					<td><code>@ConditionalOnMissingClass</code></td>
+					<td>classpath 中不存在指定的类</td>
+			</tr>
+			<tr>
+					<td><code>@ConditionalOnBean</code></td>
+					<td>容器中已有指定的 Bean</td>
+			</tr>
+			<tr>
+					<td><code>@ConditionalOnMissingBean</code></td>
+					<td>容器中还没有指定的 Bean</td>
+			</tr>
+			<tr>
+					<td><code>@ConditionalOnProperty</code></td>
+					<td>配置文件中存在指定的属性</td>
+			</tr>
+			<tr>
+					<td><code>@ConditionalOnResource</code></td>
+					<td>存在指定的资源文件</td>
+			</tr>
+			<tr>
+					<td><code>@ConditionalOnWebApplication</code></td>
+					<td>当前是 Web 应用</td>
+			</tr>
+			<tr>
+					<td><code>@ConditionalOnNotWebApplication</code></td>
+					<td>当前不是 Web 应用</td>
+			</tr>
+			<tr>
+					<td><code>@ConditionalOnExpression</code></td>
+					<td>SpEL 表达式为 true</td>
+			</tr>
+			<tr>
+					<td><code>@ConditionalOnJava</code></td>
+					<td>Java 版本匹配</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="42-示例redisautoconfiguration">4.2 示例：RedisAutoConfiguration</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="p">(</span><span class="n">proxyBeanMethods</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@ConditionalOnClass</span><span class="p">(</span><span class="n">RedisOperations</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">  </span><span class="c1">// classpath 中有 Redis 依赖</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableConfigurationProperties</span><span class="p">(</span><span class="n">RedisProperties</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Import</span><span class="p">({</span><span class="w"> </span><span class="n">LettuceConnectionConfiguration</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="n">JedisConnectionConfiguration</span><span class="p">.</span><span class="na">class</span><span class="w"> </span><span class="p">})</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">RedisAutoConfiguration</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@ConditionalOnMissingBean</span><span class="p">(</span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;redisTemplate&#34;</span><span class="p">)</span><span class="w">  </span><span class="c1">// 用户没有自定义 RedisTemplate</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">RedisTemplate</span><span class="o">&lt;</span><span class="n">Object</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">redisTemplate</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">RedisConnectionFactory</span><span class="w"> </span><span class="n">redisConnectionFactory</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">RedisTemplate</span><span class="o">&lt;</span><span class="n">Object</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">template</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RedisTemplate</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">template</span><span class="p">.</span><span class="na">setConnectionFactory</span><span class="p">(</span><span class="n">redisConnectionFactory</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">template</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@ConditionalOnMissingBean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">StringRedisTemplate</span><span class="w"> </span><span class="nf">stringRedisTemplate</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">RedisConnectionFactory</span><span class="w"> </span><span class="n">redisConnectionFactory</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">StringRedisTemplate</span><span class="w"> </span><span class="n">template</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">StringRedisTemplate</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">template</span><span class="p">.</span><span class="na">setConnectionFactory</span><span class="p">(</span><span class="n">redisConnectionFactory</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">template</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>推理过程：</strong></p>
+<pre tabindex="0"><code>1. pom.xml 中引入 spring-boot-starter-data-redis
+   → classpath 中出现 RedisOperations.class
+   → @ConditionalOnClass 满足
+
+2. application.yml 中配置 spring.redis.*
+   → RedisProperties 被正确填充
+
+3. 用户没有自定义 RedisTemplate Bean
+   → @ConditionalOnMissingBean 满足
+
+4. → RedisAutoConfiguration 生效
+   → RedisTemplate 和 StringRedisTemplate 自动创建
+</code></pre><h3 id="43-示例datasourceautoconfiguration">4.3 示例：DataSourceAutoConfiguration</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="p">(</span><span class="n">proxyBeanMethods</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@ConditionalOnClass</span><span class="p">({</span><span class="w"> </span><span class="n">DataSource</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">EmbeddedDatabaseType</span><span class="p">.</span><span class="na">class</span><span class="w"> </span><span class="p">})</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableConfigurationProperties</span><span class="p">(</span><span class="n">DataSourceProperties</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Import</span><span class="p">({</span><span class="w"> </span><span class="n">DataSourcePoolMetadataProvidersConfiguration</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="n">DataSourceInitializationConfiguration</span><span class="p">.</span><span class="na">class</span><span class="w"> </span><span class="p">})</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DataSourceAutoConfiguration</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 内嵌数据源（如 H2）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Configuration</span><span class="p">(</span><span class="n">proxyBeanMethods</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@ConditionalOnMissingBean</span><span class="p">(</span><span class="n">DataSource</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@ConditionalOnProperty</span><span class="p">(</span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;spring.datasource.embedded-database-connection&#34;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                            </span><span class="n">havingValue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;h2&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">static</span><span class="w"> </span><span class="kd">class</span> <span class="nc">EmbeddedDatabaseConfiguration</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nd">@Bean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">DataSource</span><span class="w"> </span><span class="nf">dataSource</span><span class="p">(</span><span class="n">DataSourceProperties</span><span class="w"> </span><span class="n">properties</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">EmbeddedDatabaseBuilder</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">.</span><span class="na">setType</span><span class="p">(</span><span class="n">EmbeddedDatabaseType</span><span class="p">.</span><span class="na">H2</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 连接池数据源（HikariCP 等）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Configuration</span><span class="p">(</span><span class="n">proxyBeanMethods</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@ConditionalOnMissingBean</span><span class="p">(</span><span class="n">DataSource</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@ConditionalOnClass</span><span class="p">(</span><span class="n">HikariDataSource</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">static</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Hikari</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nd">@Bean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">DataSource</span><span class="w"> </span><span class="nf">dataSource</span><span class="p">(</span><span class="n">DataSourceProperties</span><span class="w"> </span><span class="n">properties</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">properties</span><span class="p">.</span><span class="na">initializeDataSourceBuilder</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">.</span><span class="na">type</span><span class="p">(</span><span class="n">HikariDataSource</span><span class="p">.</span><span class="na">class</span><span class="p">).</span><span class="na">build</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="五条件注解的源码实现">五、条件注解的源码实现</h2>
+<h3 id="51-condition-接口">5.1 Condition 接口</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 所有条件注解都基于这两个接口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@FunctionalInterface</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">Condition</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">matches</span><span class="p">(</span><span class="n">ConditionContext</span><span class="w"> </span><span class="n">context</span><span class="p">,</span><span class="w"> </span><span class="n">AnnotatedTypeMetadata</span><span class="w"> </span><span class="n">metadata</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">ConfigurationCondition</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">Condition</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ConfigurationPhase</span><span class="w"> </span><span class="nf">getConfigurationPhase</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="52-onclasscondition-的实现">5.2 OnClassCondition 的实现</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// @ConditionalOnClass 的后处理器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">class</span> <span class="nc">OnClassCondition</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">FilteringSpringBootCondition</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">ConditionOutcome</span><span class="o">[]</span><span class="w"> </span><span class="nf">getOutcomes</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">autoConfigurationClasses</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                              </span><span class="n">AutoConfigurationMetadata</span><span class="w"> </span><span class="n">autoConfigurationMetadata</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 检查 classpath 中是否有指定的类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 使用 ClassUtils.isPresent() 或 ASM 读取字节码元信息</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 核心方法：ClassUtils.isPresent</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">isPresent</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">className</span><span class="p">,</span><span class="w"> </span><span class="n">ClassLoader</span><span class="w"> </span><span class="n">classLoader</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Class</span><span class="p">.</span><span class="na">forName</span><span class="p">(</span><span class="n">className</span><span class="p">,</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="n">classLoader</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">ClassNotFoundException</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="53-onbeancondition-的实现">5.3 OnBeanCondition 的实现</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">class</span> <span class="nc">OnBeanCondition</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">FilteringSpringBootCondition</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">ConditionOutcome</span><span class="w"> </span><span class="nf">getMatchOutcome</span><span class="p">(</span><span class="n">ConditionContext</span><span class="w"> </span><span class="n">context</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                                </span><span class="n">AnnotatedTypeMetadata</span><span class="w"> </span><span class="n">metadata</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 检查容器中是否已存在指定的 Bean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 通过 BeanFactory.getBeanNamesForType() 判断</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 确保用户自定义的 Bean 优先级高于自动配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="六配置类过滤机制">六、配置类过滤机制</h2>
+<h3 id="61-autoconfigurationimportfilter">6.1 AutoConfigurationImportFilter</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 在配置类被注册前进行过滤</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 避免加载不需要的配置类，提高启动速度</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">AutoConfigurationImportFilter</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="o">[]</span><span class="w"> </span><span class="nf">match</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">autoConfigurationClasses</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">AutoConfigurationMetadata</span><span class="w"> </span><span class="n">autoConfigurationMetadata</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 实现类：OnClassCondition</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 在加载配置类之前，先检查其 @ConditionalOnClass 是否满足</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 如果不满足，直接跳过，不再加载该类</span><span class="w">
+</span></span></span></code></pre></div><h3 id="62-配置类的排序">6.2 配置类的排序</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 自动配置类之间有依赖关系，需要按顺序加载</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// @AutoConfigureBefore：在指定配置类之前加载</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// @AutoConfigureAfter：在指定配置类之后加载</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// @AutoConfigureOrder：指定加载顺序</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@AutoConfigureAfter</span><span class="p">(</span><span class="n">DataSourceAutoConfiguration</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">  </span><span class="c1">// 在数据源之后加载</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@AutoConfigureBefore</span><span class="p">(</span><span class="n">MybatisAutoConfiguration</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">     </span><span class="c1">// 在 MyBatis 之前加载</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">CustomDatabaseConfiguration</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ...</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="七自定义自动配置">七、自定义自动配置</h2>
+<h3 id="71-创建自动配置类">7.1 创建自动配置类</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. 创建自动配置类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="p">(</span><span class="n">proxyBeanMethods</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@ConditionalOnClass</span><span class="p">(</span><span class="n">SomeService</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableConfigurationProperties</span><span class="p">(</span><span class="n">SomeProperties</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SomeAutoConfiguration</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@ConditionalOnMissingBean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">SomeService</span><span class="w"> </span><span class="nf">someService</span><span class="p">(</span><span class="n">SomeProperties</span><span class="w"> </span><span class="n">properties</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SomeService</span><span class="p">(</span><span class="n">properties</span><span class="p">.</span><span class="na">getName</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 创建属性绑定类</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@ConfigurationProperties</span><span class="p">(</span><span class="n">prefix</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;some&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SomeProperties</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;default&#34;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// getter / setter</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="72-注册自动配置">7.2 注册自动配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-properties" data-lang="properties"><span class="line"><span class="cl"><span class="c1"># 方式一：Spring Boot 2.7 之前</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># META-INF/spring.factories</span>
+</span></span><span class="line"><span class="cl"><span class="na">org.springframework.boot.autoconfigure.EnableAutoConfiguration</span><span class="o">=</span><span class="s">\
+</span></span></span><span class="line"><span class="cl"><span class="s">com.example.autoconfigure.SomeAutoConfiguration</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 方式二：Spring Boot 2.7+ 推荐</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports</span>
+</span></span><span class="line"><span class="cl"><span class="err">com.example.autoconfigure.SomeAutoConfiguration</span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 创建自动配置的 Starter --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- 只需要一个 pom 文件 + 自动配置代码即可 --&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;project&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>some-spring-boot-starter<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;dependencies&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;groupId&gt;</span>com.example<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;artifactId&gt;</span>some-library<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/dependency&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;groupId&gt;</span>org.springframework.boot<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;artifactId&gt;</span>spring-boot-autoconfigure<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/dependency&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/dependencies&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/project&gt;</span>
+</span></span></code></pre></div><hr>
+<h2 id="八总结">八、总结</h2>
+<h3 id="自动配置的核心流程">自动配置的核心流程</h3>
+<pre tabindex="0"><code>1. @SpringBootApplication → @EnableAutoConfiguration
+2. AutoConfigurationImportSelector 加载 spring.factories 中的配置类
+3. AutoConfigurationImportFilter 按 @ConditionalOnClass 预过滤
+4. 注册剩余的自动配置类
+5. 条件注解 @ConditionalOnBean/MissingBean 最终生效
+6. 满足条件的 Bean 被创建
+</code></pre><h3 id="条件注解速记">条件注解速记</h3>
+<table>
+	<thead>
+			<tr>
+					<th>注解</th>
+					<th>判断依据</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>@ConditionalOnClass</td>
+					<td>classpath 中是否有某个类</td>
+			</tr>
+			<tr>
+					<td>@ConditionalOnMissingClass</td>
+					<td>classpath 中是否没有某个类</td>
+			</tr>
+			<tr>
+					<td>@ConditionalOnBean</td>
+					<td>容器中是否已有某个 Bean</td>
+			</tr>
+			<tr>
+					<td>@ConditionalOnMissingBean</td>
+					<td>容器中是否还没有某个 Bean</td>
+			</tr>
+			<tr>
+					<td>@ConditionalOnProperty</td>
+					<td>配置属性是否存在/等于某值</td>
+			</tr>
+			<tr>
+					<td>@ConditionalOnExpression</td>
+					<td>SpEL 表达式求值</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>下一篇：</strong> <a href="/posts/spring-boot%E4%BA%8C%E5%90%AF%E5%8A%A8%E6%B5%81%E7%A8%8B/">Spring Boot（二）：启动流程</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>提示词工程入门：如何让 LLM 输出你想要的结果 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#提示词的核心原则">提示词的核心原则</a>
+      <ul>
+        <li><a href="#1-清晰具体--模糊宽泛">1. 清晰具体 &gt; 模糊宽泛</a></li>
+        <li><a href="#2-提供上下文--零背景提问">2. 提供上下文 &gt; 零背景提问</a></li>
+        <li><a href="#3-指定格式--自由发挥">3. 指定格式 &gt; 自由发挥</a></li>
+      </ul>
+    </li>
+    <li><a href="#五大核心技巧">五大核心技巧</a>
+      <ul>
+        <li><a href="#技巧-1角色设定">技巧 1：角色设定</a></li>
+        <li><a href="#技巧-2思维链">技巧 2：思维链</a></li>
+        <li><a href="#技巧-3few-shot-示例">技巧 3：Few-Shot 示例</a></li>
+        <li><a href="#技巧-4分步构建与迭代">技巧 4：分步构建与迭代</a></li>
+        <li><a href="#技巧-5负面提示">技巧 5：负面提示</a></li>
+      </ul>
+    </li>
+    <li><a href="#prompt-设计的通用框架">Prompt 设计的通用框架</a></li>
+    <li><a href="#常见误区">常见误区</a></li>
+    <li><a href="#java-集成示例">Java 集成示例</a></li>
+    <li><a href="#总结">总结</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">提示词工程入门：如何让 LLM 输出你想要的结果</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>在理解了 LLM 的基本原理之后，你可能会遇到一个很现实的问题：<strong>同样一个模型，别人用起来得心应手，自己用却常常答非所问。</strong> 这背后往往不是模型本身的问题，而是输入——即提示词（Prompt）——的质量差距。</p>
+<p>提示词工程（Prompt Engineering）就是研究 <strong>如何设计输入文本，引导 LLM 生成高质量、符合预期的输出</strong> 的一门方法论。它不需要修改模型，不需要训练数据，只需要你掌握一套系统化的沟通技巧。</p>
+<p>本文将带你建立一套完整的提示词工程方法论，并用一个 Java 示例演示落地方式。</p>
+<h2 id="提示词的核心原则">提示词的核心原则</h2>
+<p>在进入具体技巧之前，先建立三个最根本的原则：</p>
+<h3 id="1-清晰具体--模糊宽泛">1. 清晰具体 &gt; 模糊宽泛</h3>
+<p>LLM 本质上是一个&quot;概率补全器&quot;。你给它模糊的指令，它就会给出模糊的、平均化的回应。</p>
+<pre tabindex="0"><code>❌ 差： &#34;给我写点代码&#34;
+✅ 好： &#34;用 Java 写一个基于 ConcurrentHashMap 的简单本地缓存实现&#34;
+</code></pre><p>模糊的 prompt 会让模型去&quot;猜&quot;你的意图，而清晰的 prompt 直接锁定输出空间。</p>
+<h3 id="2-提供上下文--零背景提问">2. 提供上下文 &gt; 零背景提问</h3>
+<p>模型没有你对业务场景的理解，你需要告诉它<strong>你是谁、要做什么、给谁用</strong>。</p>
+<pre tabindex="0"><code>❌ 差： &#34;这个 SQL 怎么优化？&#34;
+✅ 好： &#34;我有一个 MySQL 8.0 的表，数据量 500 万行，以下是慢查询 SQL……请分析并给出优化建议&#34;
+</code></pre><h3 id="3-指定格式--自由发挥">3. 指定格式 &gt; 自由发挥</h3>
+<p>如果你有特定的输出格式要求，一定要在 prompt 中明确指定。</p>
+<pre tabindex="0"><code>❌ 差： &#34;列出 Java 中的并发工具&#34;
+✅ 好： &#34;以 Markdown 表格的形式列出 Java 5 个核心并发工具类，格式为：| 类名 | 用途 | 适用场景 |&#34;
+</code></pre><h2 id="五大核心技巧">五大核心技巧</h2>
+<h3 id="技巧-1角色设定">技巧 1：角色设定</h3>
+<p>让 LLM 扮演一个特定的角色，可以显著提升输出质量。角色设定本质上是在为模型<strong>缩小输出空间</strong>，让它在某个专业领域内生成更精准的回答。</p>
+<pre tabindex="0"><code>你是一名资深的 Java 后端工程师和技术面试官，有 10 年分布式系统开发经验。
+请以面试官的身份，给出一份 Java 并发编程的中级面试题，包含 3 道题目和参考答案。
+</code></pre><p>角色越具体，效果越好。可以指定：专业领域、经验年限、交付风格、受众群体。</p>
+<h3 id="技巧-2思维链">技巧 2：思维链</h3>
+<p>对于需要多步推理的复杂问题，直接让 LLM 输出答案往往容易出错。<strong>思维链（Chain-of-Thought, CoT）</strong> 引导模型一步步推理，显著提升准确率。</p>
+<pre tabindex="0"><code>❌ 直接提问：
+&#34;商品原价 200 元，打 8 折后再满 100 减 20，最终价格是多少？&#34;
+
+✅ 思维链：
+&#34;商品原价 200 元，打 8 折后再满 100 减 20，请一步步计算：
+1. 先计算打 8 折后的价格：200 × 0.8 = 160
+2. 判断是否满足满减条件：160 ≥ 100，满足
+3. 计算最终价格：160 - 20 = 140&#34;
+
+✅ 加入&#34;让我们一步步思考&#34;（Let&#39;s think step by step）也可触发推理链
+</code></pre><h3 id="技巧-3few-shot-示例">技巧 3：Few-Shot 示例</h3>
+<p>在 prompt 中给出几个输入-输出示例，模型就能&quot;照葫芦画瓢&quot;。</p>
+<pre tabindex="0"><code>请将以下中文短语翻译成地道的英文技术用语，格式为：
+中文 -&gt; 英文
+
+示例：
+&#34;数据库连接池&#34; -&gt; &#34;Database Connection Pool&#34;
+&#34;分布式事务&#34; -&gt; &#34;Distributed Transaction&#34;
+&#34;消息队列&#34; -&gt; &#34;Message Queue&#34;
+
+请翻译：
+&#34;服务降级&#34; -&gt;
+&#34;限流熔断&#34; -&gt;
+</code></pre><p>3~5 个示例通常效果最佳。示例太少模型抓不住规律，太多则浪费 token。</p>
+<h3 id="技巧-4分步构建与迭代">技巧 4：分步构建与迭代</h3>
+<p>不要期望一个 prompt 就能得到完美结果。正确的做法是<strong>由简单到复杂，逐步迭代</strong>：</p>
+<pre tabindex="0"><code>第一轮： &#34;请帮我写一个 Java 工具类，功能是从 URL 下载文件&#34;
+第二轮： &#34;增加超时控制和断点续传功能&#34;
+第三轮： &#34;把日志改为 SLF4J 格式，并增加异常处理&#34;
+</code></pre><p>与在同一个 prompt 中塞入所有需求相比，分步构建能让模型在每一步都聚焦，输出质量更高。</p>
+<h3 id="技巧-5负面提示">技巧 5：负面提示</h3>
+<p>告诉模型<strong>不要做什么</strong>，和告诉它要做什么同样重要。</p>
+<pre tabindex="0"><code>请用 Java 写一个订单服务接口。
+要求：
+- 包含创建订单、取消订单、查询订单功能
+- 使用 Spring Boot + MyBatis
+- 接口命名遵循 RESTful 规范
+
+不要做：
+- 不要使用 Lombok（请手写 getter/setter）
+- 不要写单元测试（只写业务逻辑）
+- 不要用 WebFlux 或响应式编程
+</code></pre><h2 id="prompt-设计的通用框架">Prompt 设计的通用框架</h2>
+<p>结合以上技巧，一个高质量的 prompt 通常包含以下要素：</p>
+<pre tabindex="0"><code>┌─────────────────────────────────────────────────────┐
+│             高质量 Prompt 结构                        │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  [角色]     你是一名……资深工程师                      │
+│  [上下文]   我在做一个……项目，遇到了……问题            │
+│  [任务]     请帮我……（具体描述要做什么）               │
+│  [约束]     要求……限定……                              │
+│  [格式]     请用 Markdown 表格 / JSON / 代码块输出    │
+│  [示例]     比如：                                     │
+│             输入 -&gt; 输出                              │
+│  [负面]     不要做……请不要……                          │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+</code></pre><p>并不是每个 prompt 都需要包含所有要素，但<strong>角色、上下文、任务</strong>三要素是基础配置。</p>
+<h2 id="常见误区">常见误区</h2>
+<table>
+	<thead>
+			<tr>
+					<th>误区</th>
+					<th>说明</th>
+					<th>改进</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>过度复杂</strong></td>
+					<td>一个 prompt 塞入太多需求</td>
+					<td>拆分为多轮对话</td>
+			</tr>
+			<tr>
+					<td><strong>假设模型有常识</strong></td>
+					<td>认为模型了解你的业务上下文</td>
+					<td>主动提供上下文</td>
+			</tr>
+			<tr>
+					<td><strong>忽视格式约束</strong></td>
+					<td>不给输出格式，得到非结构化结果</td>
+					<td>明确格式要求</td>
+			</tr>
+			<tr>
+					<td><strong>信任盲从</strong></td>
+					<td>不加验证直接使用模型输出</td>
+					<td>关键输出需要人工审查</td>
+			</tr>
+			<tr>
+					<td><strong>一次定稿</strong></td>
+					<td>期望一次写出完美 prompt</td>
+					<td>多次迭代优化</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="java-集成示例">Java 集成示例</h2>
+<p>最后，通过一个简单的 Java 程序演示如何通过 OpenAI API 调用带有结构化 prompt 的 LLM。这里以 Spring Boot 的 <code>RestTemplate</code> 为例：</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">org.springframework.http.*</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">org.springframework.web.client.RestTemplate</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">com.fasterxml.jackson.databind.JsonNode</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">com.fasterxml.jackson.databind.ObjectMapper</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.util.List</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.util.Map</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm"> * 简单的 LLM Prompt 调用示例
+</span></span></span><span class="line"><span class="cl"><span class="cm"> */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PromptDemo</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">API_URL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;https://api.openai.com/v1/chat/completions&#34;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">getenv</span><span class="p">(</span><span class="s">&#34;OPENAI_API_KEY&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 构建 prompt</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">userPrompt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">buildPrompt</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">callLLM</span><span class="p">(</span><span class="n">userPrompt</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;LLM 回复：\n&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">response</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">static</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">buildPrompt</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="s">&#34;&#34;&#34;
+</span></span></span><span class="line"><span class="cl"><span class="s">                你是一名资深的 Java 后端工程师。
+</span></span></span><span class="line"><span class="cl"><span class="s">                请用简洁的方式解释 ConcurrentHashMap 和 Hashtable 的区别。
+</span></span></span><span class="line"><span class="cl"><span class="s">                请使用表格对比，包含：线程安全机制、性能、null 值支持三个维度。
+</span></span></span><span class="line"><span class="cl"><span class="s">                &#34;&#34;&#34;</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">static</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">callLLM</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">userPrompt</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">RestTemplate</span><span class="w"> </span><span class="n">restTemplate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RestTemplate</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ObjectMapper</span><span class="w"> </span><span class="n">mapper</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ObjectMapper</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 构造请求体</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">requestBody</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Map</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="s">&#34;model&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;gpt-3.5-turbo&#34;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="s">&#34;messages&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">Map</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="s">&#34;role&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;user&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;content&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">userPrompt</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">),</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="s">&#34;temperature&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">0</span><span class="p">.</span><span class="na">7</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="s">&#34;max_tokens&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">500</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 设置请求头</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">HttpHeaders</span><span class="w"> </span><span class="n">headers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HttpHeaders</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">headers</span><span class="p">.</span><span class="na">setContentType</span><span class="p">(</span><span class="n">MediaType</span><span class="p">.</span><span class="na">APPLICATION_JSON</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">headers</span><span class="p">.</span><span class="na">setBearerAuth</span><span class="p">(</span><span class="n">API_KEY</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">HttpEntity</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HttpEntity</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">mapper</span><span class="p">.</span><span class="na">writeValueAsString</span><span class="p">(</span><span class="n">requestBody</span><span class="p">),</span><span class="w"> </span><span class="n">headers</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 发送请求</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ResponseEntity</span><span class="o">&lt;</span><span class="n">JsonNode</span><span class="o">&gt;</span><span class="w"> </span><span class="n">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">restTemplate</span><span class="p">.</span><span class="na">exchange</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">API_URL</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">HttpMethod</span><span class="p">.</span><span class="na">POST</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">request</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">JsonNode</span><span class="p">.</span><span class="na">class</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 提取回复内容</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">response</span><span class="p">.</span><span class="na">getBody</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">path</span><span class="p">(</span><span class="s">&#34;choices&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">0</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">path</span><span class="p">(</span><span class="s">&#34;message&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">path</span><span class="p">(</span><span class="s">&#34;content&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">asText</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p>这个示例展示了：</p>
+<ul>
+<li><strong>角色设定</strong>：你是一名资深的 Java 后端工程师</li>
+<li><strong>任务明确</strong>：解释 ConcurrentHashMap 和 Hashtable 的区别</li>
+<li><strong>格式约束</strong>：使用表格对比，指定三个维度</li>
+<li><strong>参数控制</strong>：temperature=0.7 控制创造性，max_tokens=500 控制输出长度</li>
+</ul>
+<h2 id="总结">总结</h2>
+<p>提示词工程不是玄学，而是一套<strong>系统化的沟通方法论</strong>。它的核心理念是：<strong>你需要主动帮助模型理解你的意图</strong>，而不是期望模型自动猜中你的心思。</p>
+<p>记住三个关键原则：</p>
+<ol>
+<li><strong>清晰具体</strong> — 模糊的输入必然得到模糊的输出</li>
+<li><strong>提供上下文</strong> — 不给上下文就是让模型自由发挥</li>
+<li><strong>迭代优化</strong> — 好 prompt 是改出来的，不是写出来的</li>
+</ol>
+<p>掌握了这些技巧，你会发现同一个模型，在你手里能发挥出完全不同的水平。下一次，我们可以聊聊 RAG（检索增强生成）——当 LLM 的知识不够用时，如何让它可以&quot;查资料&quot;。</p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

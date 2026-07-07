@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>RAG 入门：如何让 LLM 拥有实时知识库 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#为什么需要-rag">为什么需要 RAG</a></li>
+    <li><a href="#rag-核心流程">RAG 核心流程</a>
+      <ul>
+        <li><a href="#环节一检索retrieval">环节一：检索（Retrieval）</a></li>
+        <li><a href="#环节二增强augment">环节二：增强（Augment）</a></li>
+        <li><a href="#环节三生成generation">环节三：生成（Generation）</a></li>
+      </ul>
+    </li>
+    <li><a href="#embedding-模型">Embedding 模型</a></li>
+    <li><a href="#向量数据库">向量数据库</a>
+      <ul>
+        <li><a href="#主流向量数据库对比">主流向量数据库对比</a></li>
+      </ul>
+    </li>
+    <li><a href="#rag-的进阶策略">RAG 的进阶策略</a>
+      <ul>
+        <li><a href="#query-重写">Query 重写</a></li>
+        <li><a href="#hyde假设性文档检索">HyDE（假设性文档检索）</a></li>
+        <li><a href="#多轮对话中的检索">多轮对话中的检索</a></li>
+      </ul>
+    </li>
+    <li><a href="#rag-vs-微调">RAG vs 微调</a></li>
+    <li><a href="#总结">总结</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">RAG 入门：如何让 LLM 拥有实时知识库</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>如果你已经熟悉了 LLM 的基本原理和提示词工程，一定会遇到 LLM 最让人头疼的问题之一：<strong>幻觉</strong>。模型可能言之凿凿地说出错误的事实，因为它只知道训练数据截止日期前的内容。</p>
+<p>RAG（Retrieval-Augmented Generation，检索增强生成）就是解决这个问题最主流的方案。它让 LLM 在回答问题时，<strong>先去外部知识库中检索相关信息，再基于检索到的内容生成回答</strong>——通俗地说，就是给 LLM 配了一个搜索引擎，让它能&quot;查资料&quot;再回答。</p>
+<p>本文将从原理层面深入 RAG 的核心流程和关键概念，让你全面理解这项技术。</p>
+<h2 id="为什么需要-rag">为什么需要 RAG</h2>
+<p>在聊 RAG 的原理之前，先看一个场景：</p>
+<pre tabindex="0"><code>用户提问：&#34;我们公司 2024 年第一季度的营收是多少？&#34;
+
+LLM 直接回答（无 RAG）：
+❌ &#34;抱歉，我的知识截止于 2023 年，无法回答这个问题。&#34;
+   或者编造一个数字 → 幻觉
+
+LLM+RAG：
+✅ 1. 先去公司内部知识库检索&#34;2024 Q1 营收报告&#34;
+   2. 找到相关文档片段
+   3. 基于检索结果生成回答：&#34;根据公司 2024 年 Q1 财报，营收为 12.5 亿元&#34;
+</code></pre><p>RAG 的出现解决了 LLM 三个核心痛点：</p>
+<table>
+	<thead>
+			<tr>
+					<th>问题</th>
+					<th>传统 LLM</th>
+					<th>RAG 方案</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>知识截止日期</strong></td>
+					<td>训练数据有时间限制</td>
+					<td>实时检索外部知识</td>
+			</tr>
+			<tr>
+					<td><strong>幻觉</strong></td>
+					<td>可能编造事实</td>
+					<td>基于检索事实生成，大幅降低幻觉</td>
+			</tr>
+			<tr>
+					<td><strong>私有知识</strong></td>
+					<td>无法获取企业内网数据</td>
+					<td>接入企业内部知识库</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="rag-核心流程">RAG 核心流程</h2>
+<p>一个标准的 RAG 系统由三个核心环节组成：</p>
+<pre tabindex="0"><code>                    RAG 完整流程
+                          
+ ┌─────────────────────────────────────────────────────┐
+ │                     用户提问                          │
+ └────────────────────┬────────────────────────────────┘
+                      │
+                      ▼
+              ┌───────────────┐
+         ┌───→│  检索 (Retrieval)│←──────────────┐
+         │    └───────┬───────┘                │
+         │            │                        │
+         │            ▼                        │
+         │    ┌───────────────┐     ┌──────────────────┐
+         │    │  增强 (Augment)│     │   文档库/知识库     │
+         │    └───────┬───────┘     └──────────────────┘
+         │            │                        ▲
+         │            ▼                        │
+         │    ┌───────────────┐     ┌──────────────────┐
+         │    │  生成 (Generation) │     │   向量数据库      │
+         │    └───────┬───────┘     └──────────────────┘
+         │            │
+         │            ▼
+         │    ┌───────────────┐
+         └────│  用户得到回答   │
+              └───────────────┘
+</code></pre><p>下面逐一拆解这三个环节。</p>
+<h3 id="环节一检索retrieval">环节一：检索（Retrieval）</h3>
+<p>检索阶段的目标是从知识库中找到与用户问题最相关的文档片段。这又分为两个子步骤：</p>
+<p><strong>1.1 文档预处理（离线阶段）</strong></p>
+<pre tabindex="0"><code>原始文档 → 切分（Chunking）→ 向量化（Embedding）→ 存入向量数据库
+</code></pre><ul>
+<li><strong>切分（Chunking）</strong>：将长文档切成合适大小的片段。切得太碎会丢失上下文，太大会降低检索精度。常见的策略有按段落切分、按固定 token 数切分、或使用语义切分。</li>
+<li><strong>向量化（Embedding）</strong>：每个文本片段通过 Embedding 模型转换成一个<strong>高维向量</strong>（通常几百到几千维）。这个向量捕获了文本的语义信息——语义相近的文本，其向量在空间中也彼此靠近。</li>
+<li><strong>存入向量数据库</strong>：将向量和对应的原始文本存入专门的向量数据库（如 Milvus、Pinecone、Qdrant）。</li>
+</ul>
+<p><strong>1.2 在线检索</strong></p>
+<pre tabindex="0"><code>用户问题 → Embedding 向量化 → 向量数据库相似度搜索 → 返回 Top-K 相关片段
+</code></pre><p>当用户提问时：</p>
+<ol>
+<li>将用户问题也用同样的 Embedding 模型转为向量</li>
+<li>在向量数据库中执行<strong>相似度搜索</strong>（如余弦相似度、欧氏距离）</li>
+<li>返回最相关的 K 个文档片段（如 Top-5）</li>
+</ol>
+<p><strong>为什么叫&quot;语义搜索&quot;？</strong></p>
+<p>传统的关键词搜索（如 SQL <code>LIKE</code>）只能匹配字面相同的内容。而向量搜索能匹配<strong>语义相近</strong>的内容：</p>
+<pre tabindex="0"><code>用户搜索：&#34;怎么提高系统并发能力？&#34;
+传统关键词：找不到包含&#34;并发&#34;的文章
+语义搜索：能找到&#34;高并发优化&#34;、&#34;性能调优&#34;、&#34;吞吐量提升&#34;等语义相关的文章
+</code></pre><h3 id="环节二增强augment">环节二：增强（Augment）</h3>
+<p>检索到相关文档后，不能直接把一堆原文丢给用户。<strong>增强环节</strong>将它们组装成一个结构化的上下文，与原始问题拼接，形成最终的 prompt。</p>
+<p>典型的增强策略：</p>
+<pre tabindex="0"><code>系统：你是一个智能客服助手。请基于以下参考资料回答问题。
+如果参考资料不足以回答，请明确说明你不知道。
+
+参考资料：
+[1] 公司 2024 年 Q1 财报摘要：营收 12.5 亿元，同比增长 15%...
+[2] 2024 年 Q1 产品线增长数据：核心产品线 A 增长 20%...
+
+用户问题：我们公司一季度营收情况如何？
+</code></pre><p>增强阶段的设计对回答质量影响很大。常见技术包括：</p>
+<ul>
+<li><strong>压缩</strong>：对检索到的多个文档去重、排序，只保留最相关部分</li>
+<li><strong>重排序（Re-ranking）</strong>：用一个更精细的模型对检索结果重新排序</li>
+<li><strong>窗口扩展</strong>：如果匹配到的片段太短，扩展其上下文窗口</li>
+</ul>
+<h3 id="环节三生成generation">环节三：生成（Generation）</h3>
+<p>最后一步，将增强后的 prompt 喂给 LLM，由它基于检索到的上下文生成回答。</p>
+<p>这个过程与普通的 LLM 调用没有本质区别，但因为有检索到的真实信息作为依据，生成的答案<strong>准确性显著提升、幻觉大幅降低</strong>。</p>
+<h2 id="embedding-模型">Embedding 模型</h2>
+<p>Embedding 是整个 RAG 系统的基石。它的作用是将文本转化为语义向量。</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-python" data-lang="python"><span class="line"><span class="cl"><span class="c1"># 概念示意（非真实 API）</span>
+</span></span><span class="line"><span class="cl"><span class="s2">&#34;今天天气真好&#34;</span> <span class="err">→</span> <span class="p">[</span><span class="mf">0.12</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.34</span><span class="p">,</span> <span class="mf">0.56</span><span class="p">,</span> <span class="o">...</span><span class="p">,</span> <span class="mf">0.89</span><span class="p">]</span>  <span class="c1"># 768 维向量</span>
+</span></span><span class="line"><span class="cl"><span class="s2">&#34;今天阳光明媚&#34;</span> <span class="err">→</span> <span class="p">[</span><span class="mf">0.14</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.31</span><span class="p">,</span> <span class="mf">0.55</span><span class="p">,</span> <span class="o">...</span><span class="p">,</span> <span class="mf">0.87</span><span class="p">]</span>  <span class="c1"># 语义相近 → 向量距离近</span>
+</span></span><span class="line"><span class="cl"><span class="s2">&#34;蒙娜丽莎&#34;</span>     <span class="err">→</span> <span class="p">[</span><span class="mf">0.87</span><span class="p">,</span> <span class="mf">0.23</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.12</span><span class="p">,</span> <span class="o">...</span><span class="p">,</span> <span class="mf">0.05</span><span class="p">]</span>  <span class="c1"># 语义无关 → 向量距离远</span>
+</span></span></code></pre></div><p>衡量向量相似度最常用的指标是<strong>余弦相似度</strong>（Cosine Similarity），取值范围 [-1, 1]：</p>
+<ul>
+<li>接近 1：方向相同，语义相似</li>
+<li>接近 0：正交，语义无关</li>
+<li>接近 -1：方向相反，语义相反</li>
+</ul>
+<p>常用的 Embedding 模型：</p>
+<table>
+	<thead>
+			<tr>
+					<th>模型</th>
+					<th>维度</th>
+					<th>适用场景</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>OpenAI text-embedding-3-small</td>
+					<td>1536</td>
+					<td>通用英文</td>
+			</tr>
+			<tr>
+					<td>OpenAI text-embedding-3-large</td>
+					<td>3072</td>
+					<td>高精度需求</td>
+			</tr>
+			<tr>
+					<td>BAAI/bge-large-zh-v1.5</td>
+					<td>1024</td>
+					<td>中文场景</td>
+			</tr>
+			<tr>
+					<td>文心一言 Embedding</td>
+					<td>384</td>
+					<td>中文场景</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="向量数据库">向量数据库</h2>
+<p>传统数据库不适合做高维向量相似度搜索（&ldquo;维度灾难&quot;问题），于是出现了专门为向量检索优化的<strong>向量数据库</strong>。</p>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>传统数据库</th>
+					<th>向量数据库</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>查询方式</td>
+					<td>精确匹配 / 范围查询</td>
+					<td>相似度搜索</td>
+			</tr>
+			<tr>
+					<td>索引结构</td>
+					<td>B+ 树</td>
+					<td>IVF、HNSW、Product Quantization</td>
+			</tr>
+			<tr>
+					<td>适用场景</td>
+					<td>结构化数据 CRUD</td>
+					<td>非结构化数据语义搜索</td>
+			</tr>
+			<tr>
+					<td>代表产品</td>
+					<td>MySQL、PostgreSQL</td>
+					<td>Milvus、Pinecone、Qdrant</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="主流向量数据库对比">主流向量数据库对比</h3>
+<table>
+	<thead>
+			<tr>
+					<th>产品</th>
+					<th>部署方式</th>
+					<th>特点</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>Milvus</strong></td>
+					<td>自部署（K8s/Docker）</td>
+					<td>开源自建，功能最全，适合生产</td>
+			</tr>
+			<tr>
+					<td><strong>Pinecone</strong></td>
+					<td>云托管 SaaS</td>
+					<td>免运维，上手快，成本较高</td>
+			</tr>
+			<tr>
+					<td><strong>Qdrant</strong></td>
+					<td>自部署 / 云托管</td>
+					<td>Rust 实现，性能优异</td>
+			</tr>
+			<tr>
+					<td><strong>Chroma</strong></td>
+					<td>嵌入式</td>
+					<td>轻量级，适合开发和原型</td>
+			</tr>
+			<tr>
+					<td><strong>PGVector</strong></td>
+					<td>PostgreSQL 插件</td>
+					<td>无需额外组件，已有 PG 可用</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="rag-的进阶策略">RAG 的进阶策略</h2>
+<p>基础的 RAG（Naive RAG）——检索 → 增强 → 生成——已经能解决很多问题。但实践中还有更多优化方向：</p>
+<h3 id="query-重写">Query 重写</h3>
+<p>用户的问题可能不够清晰，直接检索效果不佳。可以先用 LLM 把问题改写得更适合检索：</p>
+<pre tabindex="0"><code>用户原始问题：&#34;那个新功能什么时候上？&#34;
+→ 重写为：&#34;公司新功能&#39;智能客服系统&#39;的预计上线时间&#34;
+</code></pre><h3 id="hyde假设性文档检索">HyDE（假设性文档检索）</h3>
+<p>先用 LLM 根据用户问题<strong>生成一个假设性的理想答案</strong>，再用这个答案去检索。因为假设答案的语义往往比原始问题更接近目标文档。</p>
+<h3 id="多轮对话中的检索">多轮对话中的检索</h3>
+<p>在连续对话中，需要结合历史对话上下文进行检索，而不是孤立地处理每条消息。</p>
+<h2 id="rag-vs-微调">RAG vs 微调</h2>
+<p>一个常见的问题是：既然想让 LLM 知道更多知识，为什么不直接微调模型？</p>
+<table>
+	<thead>
+			<tr>
+					<th>维度</th>
+					<th>RAG</th>
+					<th>微调</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>知识更新</td>
+					<td>实时更新知识库即可</td>
+					<td>需要重新训练</td>
+			</tr>
+			<tr>
+					<td>幻觉控制</td>
+					<td>基于检索事实，幻觉少</td>
+					<td>仍可能产生幻觉</td>
+			</tr>
+			<tr>
+					<td>成本</td>
+					<td>无 GPU 训练成本</td>
+					<td>需要 GPU 训练</td>
+			</tr>
+			<tr>
+					<td>知识深度</td>
+					<td>依赖检索质量</td>
+					<td>参数化记忆，推理更自然</td>
+			</tr>
+			<tr>
+					<td>适用场景</td>
+					<td>需要实时/私有知识</td>
+					<td>需要改变模型行为/风格</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>两者并非对立，而是互补</strong>。一个常见的策略是：用微调让模型学会特定领域的对话风格，用 RAG 提供实时准确的知识。</p>
+<h2 id="总结">总结</h2>
+<p>RAG 是解决 LLM 知识瓶颈最有效的方案之一。它的核心思想简单而强大：</p>
+<blockquote>
+<p><strong>让 LLM 先&quot;查资料&quot;再回答，而不是凭空生成。</strong></p>
+</blockquote>
+<p>理解 RAG 的三个核心环节——检索、增强、生成——是掌握这项技术的基础。其中 Embedding 模型和向量数据库是基础设施级别的关键组件。</p>
+<p>RAG 也并非银弹，检索质量直接决定了回答质量。如何设计合理的切分策略、选择合适的 Embedding 模型和向量数据库、优化检索结果的重排序，都是值得深入的方向。</p>
+<p>接下来可以聊聊：如何用 Java 搭建一个完整的 RAG 系统，或者深入探讨 Advanced RAG 的各种优化策略。</p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Spring Cloud 服务发现：Nacos 注册中心原理与实战 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一服务发现架构">一、服务发现架构</a>
+      <ul>
+        <li><a href="#11-核心角色">1.1 核心角色</a></li>
+        <li><a href="#12-客户端发现-vs-服务端发现">1.2 客户端发现 vs 服务端发现</a></li>
+      </ul>
+    </li>
+    <li><a href="#二nacos-架构">二、Nacos 架构</a>
+      <ul>
+        <li><a href="#21-核心组件">2.1 核心组件</a></li>
+        <li><a href="#22-nacos-与-eureka-对比">2.2 Nacos 与 Eureka 对比</a></li>
+      </ul>
+    </li>
+    <li><a href="#三nacos-快速入门">三、Nacos 快速入门</a>
+      <ul>
+        <li><a href="#31-安装-nacos-server">3.1 安装 Nacos Server</a></li>
+        <li><a href="#32-spring-boot-集成">3.2 Spring Boot 集成</a></li>
+        <li><a href="#33-配置">3.3 配置</a></li>
+      </ul>
+    </li>
+    <li><a href="#四服务调用">四、服务调用</a>
+      <ul>
+        <li><a href="#41-使用-discoveryclient">4.1 使用 DiscoveryClient</a></li>
+        <li><a href="#42-使用-loadbalancerclient">4.2 使用 LoadBalancerClient</a></li>
+        <li><a href="#43-loadbalanced-resttemplate">4.3 @LoadBalanced RestTemplate</a></li>
+      </ul>
+    </li>
+    <li><a href="#五nacos-核心概念">五、Nacos 核心概念</a>
+      <ul>
+        <li><a href="#51-命名空间namespace">5.1 命名空间（Namespace）</a></li>
+        <li><a href="#52-集群cluster">5.2 集群（Cluster）</a></li>
+        <li><a href="#53-保护阈值protect-threshold">5.3 保护阈值（Protect Threshold）</a></li>
+      </ul>
+    </li>
+    <li><a href="#六eureka-快速集成">六、Eureka 快速集成</a></li>
+    <li><a href="#七总结">七、总结</a>
+      <ul>
+        <li><a href="#服务发现核心概念">服务发现核心概念</a></li>
+        <li><a href="#nacos-配置速查">Nacos 配置速查</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Spring Cloud 服务发现：Nacos 注册中心原理与实战</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>服务发现是微服务架构的核心组件。在分布式系统中，服务的实例地址是动态变化的——扩缩容、故障转移、滚动升级都会导致实例上下线。服务发现机制让服务消费者能够动态获取服务提供者的地址列表。</p>
+<p>Nacos 是阿里巴巴开源的服务发现和配置管理平台，支持 AP 和 CP 两种模式，是国内 Spring Cloud 微服务的首选注册中心。</p>
+<h2 id="一服务发现架构">一、服务发现架构</h2>
+<h3 id="11-核心角色">1.1 核心角色</h3>
+<pre tabindex="0"><code>服务提供者（Provider）：启动时注册自己的地址
+服务消费者（Consumer）：从注册中心获取服务列表
+注册中心（Registry）：管理服务的注册和发现
+
+服务启动时：
+Provider ──register──▶ Registry
+                       │
+Consumer ──subscribe──▶ Registry ──notify──▶ Consumer
+
+健康检查：
+Registry ◀──heartbeat── Provider（周期性发送心跳）
+</code></pre><h3 id="12-客户端发现-vs-服务端发现">1.2 客户端发现 vs 服务端发现</h3>
+<pre tabindex="0"><code>客户端发现（Nacos/Eureka/Consul）：
+  Consumer 从 Registry 获取 Provider 列表
+  Consumer 自己选择调用哪个 Provider（负载均衡）
+  优点：架构简单，无需额外代理
+  缺点：客户端集成发现逻辑
+
+服务端发现（Kubernetes + kube-proxy）：
+  Consumer 请求 Service 的 Cluster IP
+  kube-proxy 将请求转发到后端 Pod
+  优点：客户端无需感知服务地址
+  缺点：需要额外代理组件
+</code></pre><hr>
+<h2 id="二nacos-架构">二、Nacos 架构</h2>
+<h3 id="21-核心组件">2.1 核心组件</h3>
+<pre tabindex="0"><code>Nacos Server
+    │
+    ├── AP 模式（Distro 协议）—— 最终一致性，可用性优先
+    │     ├── 临时实例（默认）
+    │     └── 健康检查：客户端心跳上报（每 5 秒）
+    │
+    └── CP 模式（Raft 协议）—— 强一致性，一致性优先
+          ├── 永久实例（ephemeral=false）
+          └── 健康检查：服务端主动探测
+
+Nacos Client
+    ├── 服务注册
+    ├── 服务发现
+    └── 心跳上报
+</code></pre><h3 id="22-nacos-与-eureka-对比">2.2 Nacos 与 Eureka 对比</h3>
+<table>
+	<thead>
+			<tr>
+					<th>对比</th>
+					<th>Nacos</th>
+					<th>Eureka</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>CAP 模型</td>
+					<td>AP/CP 可切换</td>
+					<td>AP 仅可用性</td>
+			</tr>
+			<tr>
+					<td>控制台</td>
+					<td>✅ 自带管理界面</td>
+					<td>❌ 需要自行搭建</td>
+			</tr>
+			<tr>
+					<td>配置中心</td>
+					<td>✅ 一体化</td>
+					<td>❌ 需要搭配 Spring Cloud Config</td>
+			</tr>
+			<tr>
+					<td>健康检查</td>
+					<td>心跳 + 主动探测</td>
+					<td>心跳（默认 30s）</td>
+			</tr>
+			<tr>
+					<td>保护机制</td>
+					<td>多种保护策略</td>
+					<td>自我保护模式</td>
+			</tr>
+			<tr>
+					<td>协议</td>
+					<td>Distro / Raft</td>
+					<td>自我复制（Peer-to-Peer）</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="三nacos-快速入门">三、Nacos 快速入门</h2>
+<h3 id="31-安装-nacos-server">3.1 安装 Nacos Server</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 下载 Nacos</span>
+</span></span><span class="line"><span class="cl">wget https://github.com/alibaba/nacos/releases/download/2.2.0/nacos-server-2.2.0.zip
+</span></span><span class="line"><span class="cl">unzip nacos-server-2.2.0.zip
+</span></span><span class="line"><span class="cl"><span class="nb">cd</span> nacos/bin
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 单机模式启动</span>
+</span></span><span class="line"><span class="cl">sh startup.sh -m standalone
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 访问控制台</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># http://localhost:8848/nacos</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 默认账号：nacos / nacos</span>
+</span></span></code></pre></div><h3 id="32-spring-boot-集成">3.2 Spring Boot 集成</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 父 POM 管理版本 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;dependencyManagement&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;dependencies&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;groupId&gt;</span>com.alibaba.cloud<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;artifactId&gt;</span>spring-cloud-alibaba-dependencies<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;version&gt;</span>2021.1<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;type&gt;</span>pom<span class="nt">&lt;/type&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;scope&gt;</span>import<span class="nt">&lt;/scope&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/dependency&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/dependencies&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/dependencyManagement&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- Nacos 服务发现 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;groupId&gt;</span>com.alibaba.cloud<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>spring-cloud-starter-alibaba-nacos-discovery<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/dependency&gt;</span>
+</span></span></code></pre></div><h3 id="33-配置">3.3 配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">application</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">user-service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cloud</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">nacos</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">discovery</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">server-addr</span><span class="p">:</span><span class="w"> </span><span class="m">127.0.0.1</span><span class="p">:</span><span class="m">8848</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">public      </span><span class="w"> </span><span class="c"># 命名空间</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="l">DEFAULT_GROUP    </span><span class="w"> </span><span class="c"># 分组</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">cluster-name</span><span class="p">:</span><span class="w"> </span><span class="l">BJ        </span><span class="w"> </span><span class="c"># 集群名称（北京机房）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l">v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">region</span><span class="p">:</span><span class="w"> </span><span class="l">beijing</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">ephemeral</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">          </span><span class="c"># 临时实例（默认）</span><span class="w">
+</span></span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@SpringBootApplication</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableDiscoveryClient</span><span class="w">  </span><span class="c1">// 开启服务发现（Spring Cloud 通用注解）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserServiceApplication</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SpringApplication</span><span class="p">.</span><span class="na">run</span><span class="p">(</span><span class="n">UserServiceApplication</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="四服务调用">四、服务调用</h2>
+<h3 id="41-使用-discoveryclient">4.1 使用 DiscoveryClient</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@RestController</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@RequestMapping</span><span class="p">(</span><span class="s">&#34;/api&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserController</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">DiscoveryClient</span><span class="w"> </span><span class="n">discoveryClient</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@GetMapping</span><span class="p">(</span><span class="s">&#34;/discover&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ServiceInstance</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">discover</span><span class="p">(</span><span class="nd">@RequestParam</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">serviceName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 手动获取服务的所有实例</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ServiceInstance</span><span class="o">&gt;</span><span class="w"> </span><span class="n">instances</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">discoveryClient</span><span class="p">.</span><span class="na">getInstances</span><span class="p">(</span><span class="n">serviceName</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">ServiceInstance</span><span class="w"> </span><span class="n">instance</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">instances</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="n">instance</span><span class="p">.</span><span class="na">getHost</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">instance</span><span class="p">.</span><span class="na">getPort</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">instances</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 输出：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 192.168.1.10:8081</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 192.168.1.11:8081</span><span class="w">
+</span></span></span></code></pre></div><h3 id="42-使用-loadbalancerclient">4.2 使用 LoadBalancerClient</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@RestController</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@RequestMapping</span><span class="p">(</span><span class="s">&#34;/api&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">CallController</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">LoadBalancerClient</span><span class="w"> </span><span class="n">loadBalancerClient</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@GetMapping</span><span class="p">(</span><span class="s">&#34;/call&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">callService</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 负载均衡选择一个实例</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ServiceInstance</span><span class="w"> </span><span class="n">instance</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">loadBalancerClient</span><span class="p">.</span><span class="na">choose</span><span class="p">(</span><span class="s">&#34;order-service&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">String</span><span class="p">.</span><span class="na">format</span><span class="p">(</span><span class="s">&#34;http://%s:%s/api/orders&#34;</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                   </span><span class="n">instance</span><span class="p">.</span><span class="na">getHost</span><span class="p">(),</span><span class="w"> </span><span class="n">instance</span><span class="p">.</span><span class="na">getPort</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 调用服务</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">RestTemplate</span><span class="w"> </span><span class="n">restTemplate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RestTemplate</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">restTemplate</span><span class="p">.</span><span class="na">getForObject</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="43-loadbalanced-resttemplate">4.3 @LoadBalanced RestTemplate</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">BeanConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@LoadBalanced</span><span class="w">  </span><span class="c1">// 自动集成负载均衡</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">RestTemplate</span><span class="w"> </span><span class="nf">restTemplate</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RestTemplate</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderServiceClient</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">RestTemplate</span><span class="w"> </span><span class="n">restTemplate</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">getOrder</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 直接使用服务名调用，Ribbon/Nacos 自动解析为具体 IP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">restTemplate</span><span class="p">.</span><span class="na">getForObject</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="s">&#34;http://order-service/api/orders/&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">orderId</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">String</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="五nacos-核心概念">五、Nacos 核心概念</h2>
+<h3 id="51-命名空间namespace">5.1 命名空间（Namespace）</h3>
+<pre tabindex="0"><code>用于环境隔离：
+
+Namespace = dev
+  ├── Group = DEFAULT_GROUP
+  │     ├── user-service
+  │     └── order-service
+  │
+Namespace = prod
+  ├── Group = DEFAULT_GROUP
+  │     ├── user-service
+  │     └── order-service
+
+不同 Namespace 之间的服务不可见。
+</code></pre><h3 id="52-集群cluster">5.2 集群（Cluster）</h3>
+<pre tabindex="0"><code>用于同城多机房部署：
+
+user-service:
+  ├── Cluster = BJ（北京机房）
+  │     ├── 192.168.1.10:8081
+  │     └── 192.168.1.11:8081
+  │
+  └── Cluster = SH（上海机房）
+        ├── 192.168.2.10:8081
+        └── 192.168.2.11:8081
+
+优先调用同集群的服务，减少跨机房延迟。
+</code></pre><h3 id="53-保护阈值protect-threshold">5.3 保护阈值（Protect Threshold）</h3>
+<pre tabindex="0"><code>触发条件：健康实例数 / 总实例数 &lt; 保护阈值
+触发后行为：Nacos 将不健康的实例也返回给消费者
+目的：防止所有实例都被摘除导致服务完全不可用
+
+配置：
+spring.cloud.nacos.discovery.protect-threshold=0.8
+</code></pre><hr>
+<h2 id="六eureka-快速集成">六、Eureka 快速集成</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;groupId&gt;</span>org.springframework.cloud<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>spring-cloud-starter-netflix-eureka-client<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/dependency&gt;</span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">eureka</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">client</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">service-url</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">defaultZone</span><span class="p">:</span><span class="w"> </span><span class="l">http://localhost:8761/eureka/</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">instance</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">prefer-ip-address</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">lease-renewal-interval-in-seconds</span><span class="p">:</span><span class="w"> </span><span class="m">10</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">lease-expiration-duration-in-seconds</span><span class="p">:</span><span class="w"> </span><span class="m">30</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="七总结">七、总结</h2>
+<h3 id="服务发现核心概念">服务发现核心概念</h3>
+<table>
+	<thead>
+			<tr>
+					<th>概念</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>服务注册</td>
+					<td>服务启动时将自己的 IP 和端口注册到注册中心</td>
+			</tr>
+			<tr>
+					<td>服务发现</td>
+					<td>消费者从注册中心获取服务提供者的地址列表</td>
+			</tr>
+			<tr>
+					<td>健康检查</td>
+					<td>注册中心定期检测服务是否存活</td>
+			</tr>
+			<tr>
+					<td>负载均衡</td>
+					<td>从多个实例中选择一个进行调用</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="nacos-配置速查">Nacos 配置速查</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cloud</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">nacos</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">discovery</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">server-addr</span><span class="p">:</span><span class="w"> </span><span class="m">127.0.0.1</span><span class="p">:</span><span class="m">8848</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">public</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="l">DEFAULT_GROUP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">cluster-name</span><span class="p">:</span><span class="w"> </span><span class="l">BJ</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">ephemeral</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">protect-threshold</span><span class="p">:</span><span class="w"> </span><span class="m">0.8</span><span class="w">
+</span></span></span></code></pre></div><p><strong>下一篇：</strong> <a href="/posts/spring-cloud-%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1loadbalancer-%E5%8E%9F%E7%90%86%E4%B8%8E%E5%AE%9E%E6%88%98/">Spring Cloud 负载均衡：LoadBalancer 原理与实战</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

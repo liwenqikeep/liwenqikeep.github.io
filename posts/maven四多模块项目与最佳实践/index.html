@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Maven（四）：多模块项目与最佳实践 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一多模块项目结构">一、多模块项目结构</a>
+      <ul>
+        <li><a href="#11-典型结构">1.1 典型结构</a></li>
+        <li><a href="#12-父-pom">1.2 父 POM</a></li>
+        <li><a href="#13-子模块-pom">1.3 子模块 POM</a></li>
+      </ul>
+    </li>
+    <li><a href="#二聚合与继承">二、聚合与继承</a>
+      <ul>
+        <li><a href="#21-聚合-vs-继承">2.1 聚合 vs 继承</a></li>
+      </ul>
+    </li>
+    <li><a href="#三依赖-scope-import">三、依赖 scope import</a>
+      <ul>
+        <li><a href="#31-bom-导入">3.1 BOM 导入</a></li>
+        <li><a href="#32-常用-bom">3.2 常用 BOM</a></li>
+      </ul>
+    </li>
+    <li><a href="#四工程化实践">四、工程化实践</a>
+      <ul>
+        <li><a href="#41-统一版本管理">4.1 统一版本管理</a></li>
+        <li><a href="#42-模块划分原则">4.2 模块划分原则</a></li>
+        <li><a href="#43-spring-boot-多模块">4.3 Spring Boot 多模块</a></li>
+      </ul>
+    </li>
+    <li><a href="#五最佳实践">五、最佳实践</a>
+      <ul>
+        <li><a href="#51-排除非必需依赖">5.1 排除非必需依赖</a></li>
+        <li><a href="#52-锁定-jar-版本">5.2 锁定 jar 版本</a></li>
+        <li><a href="#53-发布-snapshot-的注意事项">5.3 发布 SNAPSHOT 的注意事项</a></li>
+        <li><a href="#54-生成效率">5.4 生成效率</a></li>
+      </ul>
+    </li>
+    <li><a href="#六常见问题">六、常见问题</a>
+      <ul>
+        <li><a href="#61-子模块版本不一致">6.1 子模块版本不一致</a></li>
+        <li><a href="#62-循环依赖">6.2 循环依赖</a></li>
+        <li><a href="#63-parent-版本与子模块版本">6.3 parent 版本与子模块版本</a></li>
+      </ul>
+    </li>
+    <li><a href="#七总结">七、总结</a>
+      <ul>
+        <li><a href="#多模块项目结构速查">多模块项目结构速查</a></li>
+        <li><a href="#配置要点">配置要点</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Maven（四）：多模块项目与最佳实践</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>中大型项目通常采用多模块结构，通过<strong>聚合</strong>和<strong>继承</strong>来管理多个子模块。本文覆盖多模块项目的结构设计、最佳实践和常见问题。</p>
+<h2 id="一多模块项目结构">一、多模块项目结构</h2>
+<h3 id="11-典型结构">1.1 典型结构</h3>
+<pre tabindex="0"><code>my-project/
+├── pom.xml                     ← 父 POM（聚合 + 继承）
+├── my-project-common/          ← 公共模块
+│   └── pom.xml
+├── my-project-service/         ← 业务模块
+│   └── pom.xml
+├── my-project-web/             ← Web 模块
+│   └── pom.xml
+└── my-project-api/             ← API 接口模块
+    └── pom.xml
+</code></pre><h3 id="12-父-pom">1.2 父 POM</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- parent-pom.xml — 聚合 + 继承 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;project&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;modelVersion&gt;</span>4.0.0<span class="nt">&lt;/modelVersion&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- 父 POM 的坐标 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;groupId&gt;</span>com.example<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>my-project<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;version&gt;</span>1.0.0<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;packaging&gt;</span>pom<span class="nt">&lt;/packaging&gt;</span>          <span class="c">&lt;!-- 父模块打包类型必须是 pom --&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- ★ 聚合子模块 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;modules&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;module&gt;</span>my-project-common<span class="nt">&lt;/module&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;module&gt;</span>my-project-service<span class="nt">&lt;/module&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;module&gt;</span>my-project-web<span class="nt">&lt;/module&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;module&gt;</span>my-project-api<span class="nt">&lt;/module&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/modules&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- ★ 统一版本管理 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;properties&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;java.version&gt;</span>11<span class="nt">&lt;/java.version&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;spring-boot.version&gt;</span>2.3.4.RELEASE<span class="nt">&lt;/spring-boot.version&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;mybatis.version&gt;</span>3.5.7<span class="nt">&lt;/mybatis.version&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;jackson.version&gt;</span>2.12.3<span class="nt">&lt;/jackson.version&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/properties&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- ★ 继承的子模块共享依赖版本 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;dependencyManagement&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;dependencies&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;groupId&gt;</span>org.springframework.boot<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;artifactId&gt;</span>spring-boot-dependencies<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;version&gt;</span>${spring-boot.version}<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;type&gt;</span>pom<span class="nt">&lt;/type&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;scope&gt;</span>import<span class="nt">&lt;/scope&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;/dependency&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;groupId&gt;</span>com.fasterxml.jackson.core<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;artifactId&gt;</span>jackson-databind<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;version&gt;</span>${jackson.version}<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;/dependency&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/dependencies&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/dependencyManagement&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- ★ 所有子模块共享的依赖 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;dependencies&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;groupId&gt;</span>org.projectlombok<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;artifactId&gt;</span>lombok<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;optional&gt;</span>true<span class="nt">&lt;/optional&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/dependency&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/dependencies&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- ★ 公共构建配置 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;build&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;pluginManagement&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;plugins&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;plugin&gt;</span>
+</span></span><span class="line"><span class="cl">                    <span class="nt">&lt;groupId&gt;</span>org.springframework.boot<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">                    <span class="nt">&lt;artifactId&gt;</span>spring-boot-maven-plugin<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">                    <span class="nt">&lt;version&gt;</span>${spring-boot.version}<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;/plugin&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;/plugins&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/pluginManagement&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/build&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/project&gt;</span>
+</span></span></code></pre></div><h3 id="13-子模块-pom">1.3 子模块 POM</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- my-project-service/pom.xml --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;project&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;parent&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;groupId&gt;</span>com.example<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;artifactId&gt;</span>my-project<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;version&gt;</span>1.0.0<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;relativePath&gt;</span>../pom.xml<span class="nt">&lt;/relativePath&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/parent&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>my-project-service<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;dependencies&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="c">&lt;!-- 引用兄弟模块 --&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;groupId&gt;</span>com.example<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;artifactId&gt;</span>my-project-common<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;version&gt;</span>${project.version}<span class="nt">&lt;/version&gt;</span>  <span class="c">&lt;!-- 使用同一版本 --&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/dependency&gt;</span>
+</span></span><span class="line"><span class="cl">        
+</span></span><span class="line"><span class="cl">        <span class="c">&lt;!-- 依赖版本已由父 POM 管理，无需写 version --&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;groupId&gt;</span>org.springframework.boot<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;artifactId&gt;</span>spring-boot-starter-web<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/dependency&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/dependencies&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/project&gt;</span>
+</span></span></code></pre></div><hr>
+<h2 id="二聚合与继承">二、聚合与继承</h2>
+<h3 id="21-聚合-vs-继承">2.1 聚合 vs 继承</h3>
+<pre tabindex="0"><code>聚合（Aggregation）：
+  父 POM 通过 &lt;modules&gt; 列出子模块
+  作用是：一条命令构建所有子模块（mvn clean install）
+
+继承（Inheritance）：
+  子 POM 通过 &lt;parent&gt; 指向父 POM
+  作用是：子模块共享父 POM 中的配置
+</code></pre><table>
+	<thead>
+			<tr>
+					<th>对比</th>
+					<th>聚合</th>
+					<th>继承</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>配置方式</td>
+					<td><code>&lt;modules&gt;</code></td>
+					<td><code>&lt;parent&gt;</code></td>
+			</tr>
+			<tr>
+					<td>作用</td>
+					<td>一起构建</td>
+					<td>共享配置</td>
+			</tr>
+			<tr>
+					<td>依赖</td>
+					<td>子模块自动加入构建</td>
+					<td>子模块继承配置</td>
+			</tr>
+			<tr>
+					<td>关系</td>
+					<td>容器 → 容器内模块</td>
+					<td>父 → 子</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>通常将聚合和继承放在同一个 POM 中（即一个父 POM 同时扮演两个角色）。</strong></p>
+<hr>
+<h2 id="三依赖-scope-import">三、依赖 scope import</h2>
+<h3 id="31-bom-导入">3.1 BOM 导入</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 当父 POM 已经有一个 parent 时（如 Spring Boot），无法再继承 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- 使用 dependencyManagement import 解决 --&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;project&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- 父 POM 已被占用 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;parent&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;groupId&gt;</span>org.springframework.boot<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;artifactId&gt;</span>spring-boot-starter-parent<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;version&gt;</span>2.3.4.RELEASE<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/parent&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>my-project<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;packaging&gt;</span>pom<span class="nt">&lt;/packaging&gt;</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;dependencyManagement&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;dependencies&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="c">&lt;!-- 导入另一个 BOM --&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;groupId&gt;</span>org.springframework.cloud<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;artifactId&gt;</span>spring-cloud-dependencies<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;version&gt;</span>Hoxton.SR8<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;type&gt;</span>pom<span class="nt">&lt;/type&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;scope&gt;</span>import<span class="nt">&lt;/scope&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;/dependency&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/dependencies&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/dependencyManagement&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/project&gt;</span>
+</span></span></code></pre></div><h3 id="32-常用-bom">3.2 常用 BOM</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;dependencyManagement&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;dependencies&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="c">&lt;!-- Spring Cloud --&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;groupId&gt;</span>org.springframework.cloud<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;artifactId&gt;</span>spring-cloud-dependencies<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;version&gt;</span>Hoxton.SR8<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;type&gt;</span>pom<span class="nt">&lt;/type&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;scope&gt;</span>import<span class="nt">&lt;/scope&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/dependency&gt;</span>
+</span></span><span class="line"><span class="cl">        
+</span></span><span class="line"><span class="cl">        <span class="c">&lt;!-- Spring Cloud Alibaba --&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;groupId&gt;</span>com.alibaba.cloud<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;artifactId&gt;</span>spring-cloud-alibaba-dependencies<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;version&gt;</span>2.2.5.RELEASE<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;type&gt;</span>pom<span class="nt">&lt;/type&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;scope&gt;</span>import<span class="nt">&lt;/scope&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/dependency&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/dependencies&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/dependencyManagement&gt;</span>
+</span></span></code></pre></div><hr>
+<h2 id="四工程化实践">四、工程化实践</h2>
+<h3 id="41-统一版本管理">4.1 统一版本管理</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 推荐使用 properties + dependencyManagement 统一管理版本 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- 所有依赖的版本都在父 POM 中声明 --&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- 不要在各子模块中分散写版本号 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- 改版本时只改父 POM 一处 --&gt;</span>
+</span></span></code></pre></div><h3 id="42-模块划分原则">4.2 模块划分原则</h3>
+<pre tabindex="0"><code>1. 按业务领域划分
+   order-service、user-service、payment-service
+
+2. 按技术层次划分
+   common（公共工具）
+   dal（数据访问）
+   service（业务逻辑）
+   web（接口层）
+
+3. 按功能维度划分
+   api（接口定义）
+   core（核心实现）
+   client（客户端 SDK）
+
+推荐：先按技术层次分，再按业务领域拆
+</code></pre><h3 id="43-spring-boot-多模块">4.3 Spring Boot 多模块</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- Spring Boot 多模块父 POM --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;parent&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;groupId&gt;</span>org.springframework.boot<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>spring-boot-starter-parent<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;version&gt;</span>2.3.4.RELEASE<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/parent&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;groupId&gt;</span>com.example<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;artifactId&gt;</span>my-project<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;version&gt;</span>1.0.0<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;packaging&gt;</span>pom<span class="nt">&lt;/packaging&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;modules&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;module&gt;</span>my-project-common<span class="nt">&lt;/module&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;module&gt;</span>my-project-dal<span class="nt">&lt;/module&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;module&gt;</span>my-project-service<span class="nt">&lt;/module&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;module&gt;</span>my-project-web<span class="nt">&lt;/module&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/modules&gt;</span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 构建整个项目</span>
+</span></span><span class="line"><span class="cl">mvn clean install
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 只构建某个模块及其依赖</span>
+</span></span><span class="line"><span class="cl">mvn install -pl my-project-web -am
+</span></span><span class="line"><span class="cl"><span class="c1"># -pl：指定模块</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># -am：同时构建依赖的模块</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 构建并跳过指定模块的测试</span>
+</span></span><span class="line"><span class="cl">mvn install -pl my-project-web -am -DskipTests
+</span></span></code></pre></div><hr>
+<h2 id="五最佳实践">五、最佳实践</h2>
+<h3 id="51-排除非必需依赖">5.1 排除非必需依赖</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 定期检查未使用的依赖 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;plugin&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;groupId&gt;</span>org.apache.maven.plugins<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>maven-dependency-plugin<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;executions&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;execution&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;goals&gt;&lt;goal&gt;</span>analyze<span class="nt">&lt;/goal&gt;&lt;/goals&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/execution&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/executions&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/plugin&gt;</span>
+</span></span></code></pre></div><h3 id="52-锁定-jar-版本">5.2 锁定 jar 版本</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 通过 properties 集中管理版本，而不是分散在子模块 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- ❌ 不推荐 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;groupId&gt;</span>com.google.guava<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>guava<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;version&gt;</span>30.1-jre<span class="nt">&lt;/version&gt;</span>  <span class="c">&lt;!-- 版本写在这里，难维护 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/dependency&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- ✅ 推荐：统一在父 POM 的 properties 中管理 --&gt;</span>
+</span></span></code></pre></div><h3 id="53-发布-snapshot-的注意事项">5.3 发布 SNAPSHOT 的注意事项</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 开发阶段使用 SNAPSHOT 版本 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;version&gt;</span>1.0.0-SNAPSHOT<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- 正式发布时改为 RELEASE 版本 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;version&gt;</span>1.0.0<span class="nt">&lt;/version&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- 注意：SNAPSHOT 可以重复发布，RELEASE 不能 --&gt;</span>
+</span></span></code></pre></div><h3 id="54-生成效率">5.4 生成效率</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 多线程构建</span>
+</span></span><span class="line"><span class="cl">mvn clean install -T <span class="m">4</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 跳过不需要的阶段</span>
+</span></span><span class="line"><span class="cl">mvn install -DskipTests
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 离线构建（不需要网络下载）</span>
+</span></span><span class="line"><span class="cl">mvn install -o
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 跳过某些模块</span>
+</span></span><span class="line"><span class="cl">mvn install -pl !my-project-api
+</span></span></code></pre></div><hr>
+<h2 id="六常见问题">六、常见问题</h2>
+<h3 id="61-子模块版本不一致">6.1 子模块版本不一致</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 问题：子模块 version 与父 POM 不一致 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- 解决：子模块不写 version，继承父 POM 的版本 --&gt;</span>
+</span></span></code></pre></div><h3 id="62-循环依赖">6.2 循环依赖</h3>
+<pre tabindex="0"><code>问题：模块 A 依赖模块 B，模块 B 也依赖模块 A
+解决：拆分为三个模块（common + A + B）
+      A 和 B 都依赖 common，但 A 和 B 互不依赖
+</code></pre><h3 id="63-parent-版本与子模块版本">6.3 parent 版本与子模块版本</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 父 POM version 变更时，所有子模块都自动继承 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- 避免手动修改每个子模块 --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- 使用 ${revision} 实现统一版本（Maven 3.5.2+） --&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;properties&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;revision&gt;</span>1.0.0<span class="nt">&lt;/revision&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/properties&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;version&gt;</span>${revision}<span class="nt">&lt;/version&gt;</span>
+</span></span></code></pre></div><hr>
+<h2 id="七总结">七、总结</h2>
+<h3 id="多模块项目结构速查">多模块项目结构速查</h3>
+<pre tabindex="0"><code>父 POM（packaging=pom）
+├── common（工具类、通用代码）
+├── dal（数据访问层）
+├── service（业务逻辑层）
+├── api（接口定义、DTO）
+└── web（Controller 层）
+</code></pre><h3 id="配置要点">配置要点</h3>
+<table>
+	<thead>
+			<tr>
+					<th>配置</th>
+					<th>位置</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>&lt;parent&gt;</code></td>
+					<td>子 POM</td>
+					<td>继承父 POM</td>
+			</tr>
+			<tr>
+					<td><code>&lt;modules&gt;</code></td>
+					<td>父 POM</td>
+					<td>聚合子模块</td>
+			</tr>
+			<tr>
+					<td><code>&lt;dependencyManagement&gt;</code></td>
+					<td>父 POM</td>
+					<td>统一依赖版本</td>
+			</tr>
+			<tr>
+					<td><code>&lt;pluginManagement&gt;</code></td>
+					<td>父 POM</td>
+					<td>统一插件配置</td>
+			</tr>
+			<tr>
+					<td><code>&lt;properties&gt;</code></td>
+					<td>父 POM</td>
+					<td>统一管理版本号</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>上一篇：</strong> <a href="/posts/maven%E4%B8%89%E4%BB%93%E5%BA%93%E4%B8%8E%E9%85%8D%E7%BD%AE/">Maven（三）：仓库与配置</a></p>
+<p><strong>系列索引：</strong></p>
+<ul>
+<li><a href="/posts/maven%E4%B8%80pom-%E6%A8%A1%E5%9E%8B%E4%B8%8E%E4%BE%9D%E8%B5%96%E7%AE%A1%E7%90%86/">Maven（一）：POM 模型与依赖管理</a></li>
+<li><a href="/posts/maven%E4%BA%8C%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F%E4%B8%8E%E6%8F%92%E4%BB%B6/">Maven（二）：生命周期与插件</a></li>
+<li><a href="/posts/maven%E4%B8%89%E4%BB%93%E5%BA%93%E4%B8%8E%E9%85%8D%E7%BD%AE/">Maven（三）：仓库与配置</a></li>
+<li><a href="/posts/maven%E5%9B%9B%E5%A4%9A%E6%A8%A1%E5%9D%97%E9%A1%B9%E7%9B%AE%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/">Maven（四）：多模块项目与最佳实践</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

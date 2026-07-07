@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Spring Cloud 链路追踪：Sleuth &#43; Zipkin 全链路监控 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一链路追踪核心概念">一、链路追踪核心概念</a>
+      <ul>
+        <li><a href="#11-trace-和-span">1.1 Trace 和 Span</a></li>
+        <li><a href="#12-核心标识">1.2 核心标识</a></li>
+      </ul>
+    </li>
+    <li><a href="#二sleuth-快速入门">二、Sleuth 快速入门</a>
+      <ul>
+        <li><a href="#21-依赖">2.1 依赖</a></li>
+        <li><a href="#22-效果">2.2 效果</a></li>
+      </ul>
+    </li>
+    <li><a href="#三zipkin-集成">三、Zipkin 集成</a>
+      <ul>
+        <li><a href="#31-启动-zipkin">3.1 启动 Zipkin</a></li>
+        <li><a href="#32-依赖">3.2 依赖</a></li>
+        <li><a href="#33-配置">3.3 配置</a></li>
+      </ul>
+    </li>
+    <li><a href="#四日志关联">四、日志关联</a>
+      <ul>
+        <li><a href="#41-日志框架集成">4.1 日志框架集成</a></li>
+        <li><a href="#42-通过-trace-id-查询日志">4.2 通过 Trace ID 查询日志</a></li>
+      </ul>
+    </li>
+    <li><a href="#五异步场景">五、异步场景</a>
+      <ul>
+        <li><a href="#51-线程池传递">5.1 线程池传递</a></li>
+        <li><a href="#52-mq-消息传递">5.2 MQ 消息传递</a></li>
+      </ul>
+    </li>
+    <li><a href="#六自定义链路信息">六、自定义链路信息</a></li>
+    <li><a href="#七zipkin-数据持久化">七、Zipkin 数据持久化</a></li>
+    <li><a href="#八总结">八、总结</a>
+      <ul>
+        <li><a href="#链路追踪架构">链路追踪架构</a></li>
+        <li><a href="#配置速查">配置速查</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Spring Cloud 链路追踪：Sleuth &#43; Zipkin 全链路监控</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>在微服务架构中，一个请求可能经过多个服务。当请求出现延迟或失败时，传统方式难以快速定位问题发生在哪个服务。链路追踪通过在请求中注入 Trace ID，将一次请求经过的所有服务串联起来，实现全链路可视化。</p>
+<h2 id="一链路追踪核心概念">一、链路追踪核心概念</h2>
+<h3 id="11-trace-和-span">1.1 Trace 和 Span</h3>
+<pre tabindex="0"><code>Trace（追踪）：一次请求的完整调用链路
+Span（跨度）：链路中的一个服务调用
+
+Trace = Span1 + Span2 + Span3 + ...
+
+                  Trace ID = abc123
+                      │
+    ┌─────────────────┼─────────────────┐
+    │                 │                  │
+  Span A           Span B             Span C
+(网关)             (用户服务)         (订单服务)
+    │                 │                  │
+    ▼                 ▼                  ▼
+[50ms]            [200ms]            [150ms]
+
+Trace ID：abc123（全局唯一，贯穿整个链路）
+Span ID：a1b2（每个服务调用生成唯一的 Span ID）
+Parent Span ID：父级的 Span ID（串联调用关系）
+</code></pre><h3 id="12-核心标识">1.2 核心标识</h3>
+<table>
+	<thead>
+			<tr>
+					<th>标识</th>
+					<th>说明</th>
+					<th>传递方式</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>traceId</td>
+					<td>全局追踪 ID</td>
+					<td>HTTP Header：x-trace-id</td>
+			</tr>
+			<tr>
+					<td>spanId</td>
+					<td>当前调用 ID</td>
+					<td>每个服务重新生成</td>
+			</tr>
+			<tr>
+					<td>parentId</td>
+					<td>父调用 ID</td>
+					<td>从上游 Header 获取</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="二sleuth-快速入门">二、Sleuth 快速入门</h2>
+<h3 id="21-依赖">2.1 依赖</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;groupId&gt;</span>org.springframework.cloud<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>spring-cloud-starter-sleuth<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/dependency&gt;</span>
+</span></span></code></pre></div><h3 id="22-效果">2.2 效果</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># 引入 Sleuth 后，日志会自动打印 Trace ID 和 Span ID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 无需额外配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="ld">2024-01-01 10:00:00.123</span><span class="w"> </span><span class="p">[</span><span class="l">user-service,abc123,a1b2,true] INFO  [GET /api/users/1]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                          </span><span class="l">│        │      │    │</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                          </span><span class="l">│        │      │    └── 是否导出到 Zipkin</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                          </span><span class="l">│        │      └─────── Span ID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                          </span><span class="l">│        └────────────── Trace ID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                          </span><span class="l">└────────────────────── 服务名</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="三zipkin-集成">三、Zipkin 集成</h2>
+<h3 id="31-启动-zipkin">3.1 启动 Zipkin</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 方式一：Docker 启动</span>
+</span></span><span class="line"><span class="cl">docker run -d -p 9411:9411 openzipkin/zipkin
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 方式二：JAR 包启动</span>
+</span></span><span class="line"><span class="cl">wget https://repo1.maven.org/maven2/io/zipkin/zipkin-server/2.23.16/zipkin-server-2.23.16-exec.jar
+</span></span><span class="line"><span class="cl">java -jar zipkin-server-2.23.16-exec.jar
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># 访问控制台：http://localhost:9411</span>
+</span></span></code></pre></div><h3 id="32-依赖">3.2 依赖</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;dependency&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;groupId&gt;</span>org.springframework.cloud<span class="nt">&lt;/groupId&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>spring-cloud-sleuth-zipkin<span class="nt">&lt;/artifactId&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/dependency&gt;</span>
+</span></span></code></pre></div><h3 id="33-配置">3.3 配置</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sleuth</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">sampler</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">probability</span><span class="p">:</span><span class="w"> </span><span class="m">1.0</span><span class="w">       </span><span class="c"># 采样率（1.0 = 100% 采样）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">web</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">client</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">zipkin</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">base-url</span><span class="p">:</span><span class="w"> </span><span class="l">http://localhost:9411</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">sender</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l">web             </span><span class="w"> </span><span class="c"># 发送方式：web/kafka/rabbit</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="四日志关联">四、日志关联</h2>
+<h3 id="41-日志框架集成">4.1 日志框架集成</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- Logback 中配置 MDC 输出 Trace ID --&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;appender</span> <span class="na">name=</span><span class="s">&#34;CONSOLE&#34;</span> <span class="na">class=</span><span class="s">&#34;ch.qos.logback.core.ConsoleAppender&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;encoder&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;pattern&gt;</span>
+</span></span><span class="line"><span class="cl">            %d{yyyy-MM-dd HH:mm:ss.SSS} [%X{traceId},%X{spanId}] %-5level %logger{36} - %msg%n
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/pattern&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/encoder&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/appender&gt;</span>
+</span></span></code></pre></div><h3 id="42-通过-trace-id-查询日志">4.2 通过 Trace ID 查询日志</h3>
+<pre tabindex="0"><code># 全链路日志查询
+
+Kibana 查询：traceId: &#34;abc123&#34;
+Elasticsearch 搜索：x-trace-id: abc123
+
+可以查询到一次请求在所有服务中打印的日志。
+</code></pre><hr>
+<h2 id="五异步场景">五、异步场景</h2>
+<h3 id="51-线程池传递">5.1 线程池传递</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Sleuth 默认使用 LazyTraceExecutor 包装线程池</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 自动在新的线程中传递 Trace 信息</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ThreadPoolConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">ExecutorService</span><span class="w"> </span><span class="nf">executorService</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// Sleuth 会自动增强 @Async</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">Executors</span><span class="p">.</span><span class="na">newFixedThreadPool</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AsyncService</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Async</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">asyncMethod</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 这里 Trace ID 会自动传递</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="52-mq-消息传递">5.2 MQ 消息传递</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Spring Cloud Sleuth 对 RabbitMQ 和 Kafka 也有自动支持</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 在消息的 Header 中自动注入 Trace 信息</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 发送端自动注入</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="n">rabbitTemplate</span><span class="p">.</span><span class="na">convertAndSend</span><span class="p">(</span><span class="s">&#34;exchange&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;routingKey&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">message</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// Header 中自动包含：b3（traceId, spanId）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 消费端自动提取</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@RabbitListener</span><span class="p">(</span><span class="n">queues</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;queue&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handle</span><span class="p">(</span><span class="n">Message</span><span class="w"> </span><span class="n">message</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 自动从 Header 中提取 Trace 信息</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 消费逻辑的日志会继承发送端的 Trace ID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="六自定义链路信息">六、自定义链路信息</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 自定义 Tag</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@RestController</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@RequestMapping</span><span class="p">(</span><span class="s">&#34;/api&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderController</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Tracer</span><span class="w"> </span><span class="n">tracer</span><span class="p">;</span><span class="w">  </span><span class="c1">// Brave Tracer</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@GetMapping</span><span class="p">(</span><span class="s">&#34;/orders/{id}&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Order</span><span class="w"> </span><span class="nf">getOrder</span><span class="p">(</span><span class="nd">@PathVariable</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 向当前 Span 添加自定义 Tag</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Span</span><span class="w"> </span><span class="n">span</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tracer</span><span class="p">.</span><span class="na">currentSpan</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">span</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">span</span><span class="p">.</span><span class="na">tag</span><span class="p">(</span><span class="s">&#34;order.id&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="p">.</span><span class="na">valueOf</span><span class="p">(</span><span class="n">id</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">span</span><span class="p">.</span><span class="na">tag</span><span class="p">(</span><span class="s">&#34;order.source&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;web&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">orderService</span><span class="p">.</span><span class="na">findById</span><span class="p">(</span><span class="n">id</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="七zipkin-数据持久化">七、Zipkin 数据持久化</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># Zipkin 默认将数据存储在内存中</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 生产环境需要配置持久化存储</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># 使用 Elasticsearch（推荐）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">zipkin</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">storage</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l">elasticsearch</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      
+</span></span></span><span class="line"><span class="cl"><span class="c"># 使用 MySQL</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">zipkin</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">storage</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l">mysql</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># Docker Compose 方式</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="s1">&#39;2&#39;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">services</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">zipkin</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l">openzipkin/zipkin</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">environment</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="l">STORAGE_TYPE=elasticsearch</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="l">ES_HOSTS=http://elasticsearch:9200</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">ports</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="m">9411</span><span class="p">:</span><span class="m">9411</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">elasticsearch</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l">elasticsearch:7.x</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="八总结">八、总结</h2>
+<h3 id="链路追踪架构">链路追踪架构</h3>
+<pre tabindex="0"><code>请求 → 网关 → 用户服务 → 订单服务 → 支付服务
+  │       │        │         │          │
+  └───────┴────────┴─────────┴──────────┴──→ Zipkin（收集数据）
+                                                 │
+                                                 ▼
+                                            Elasticsearch（存储）
+                                                 │
+                                                 ▼
+                                            Zipkin UI（可视化）
+</code></pre><h3 id="配置速查">配置速查</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sleuth</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">sampler</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">probability</span><span class="p">:</span><span class="w"> </span><span class="m">1.0</span><span class="w">      </span><span class="c"># 采样率</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">zipkin</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">base-url</span><span class="p">:</span><span class="w"> </span><span class="l">http://localhost:9411</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">sender</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l">web            </span><span class="w"> </span><span class="c"># web/kafka/rabbit</span><span class="w">
+</span></span></span></code></pre></div><p><strong>上一篇：</strong> <a href="/posts/spring-cloud-%E7%86%94%E6%96%AD%E9%99%90%E6%B5%81sentinel-%E6%B5%81%E9%87%8F%E6%B2%BB%E7%90%86/">Spring Cloud 熔断限流：Sentinel 流量治理</a></p>
+<p><strong>下一篇：</strong> <a href="/posts/nacos-%E7%BB%BC%E5%90%88%E5%AE%9E%E6%88%98%E6%B3%A8%E5%86%8C%E4%B8%AD%E5%BF%83--%E9%85%8D%E7%BD%AE%E4%B8%AD%E5%BF%83%E4%B8%80%E4%BD%93%E5%8C%96/">Nacos 综合实战：注册中心 + 配置中心一体化</a></p>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

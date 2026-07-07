@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>支付系统架构设计（十）：支付可观测性 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一可观测性三大支柱">一、可观测性三大支柱</a></li>
+    <li><a href="#二业务监控指标体系">二、业务监控指标体系</a>
+      <ul>
+        <li><a href="#21-核心业务指标">2.1 核心业务指标</a></li>
+        <li><a href="#22-prometheus-指标暴露">2.2 Prometheus 指标暴露</a></li>
+      </ul>
+    </li>
+    <li><a href="#三链路追踪">三、链路追踪</a>
+      <ul>
+        <li><a href="#31-核心链路埋点">3.1 核心链路埋点</a></li>
+      </ul>
+    </li>
+    <li><a href="#四告警体系">四、告警体系</a>
+      <ul>
+        <li><a href="#41-告警规则">4.1 告警规则</a></li>
+      </ul>
+    </li>
+    <li><a href="#五可观测性技术栈">五、可观测性技术栈</a></li>
+    <li><a href="#六总结">六、总结</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">支付系统架构设计（十）：支付可观测性</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>支付系统就像一个&quot;黑盒子&quot;——你不知道什么时候会出问题，直到用户反馈或对账发现差异。可观测性就是给这个黑盒子装上仪表盘，让我们能够实时了解系统的运行状态。</p>
+<p>本文覆盖支付系统的三大可观测性支柱：<strong>日志、指标、链路追踪</strong>，以及支付特有的<strong>业务监控和告警体系</strong>。</p>
+<blockquote>
+<p><strong>系列导航</strong></p>
+<ul>
+<li><a href="/posts/%E6%94%AF%E4%BB%98%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E4%B8%80%E6%95%B4%E4%BD%93%E6%9E%B6%E6%9E%84%E6%A6%82%E8%A7%88/">支付系统架构设计（一）：整体架构概览</a></li>
+<li><a href="/posts/%E6%94%AF%E4%BB%98%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E4%B9%9D%E6%94%AF%E4%BB%98%E9%AB%98%E5%8F%AF%E7%94%A8%E4%B8%8E%E5%AE%B9%E7%81%BE/">支付系统架构设计（九）：支付高可用与容灾</a></li>
+<li>本文：支付可观测性</li>
+</ul>
+</blockquote>
+<h2 id="一可观测性三大支柱">一、可观测性三大支柱</h2>
+<pre tabindex="0"><code>┌─────────────────────────────────────────────────────────┐
+│                  可观测性三大支柱                          │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  Logging (日志)                                          │
+│  ├── 业务日志：支付单状态变更、入账记录                      │
+│  ├── 访问日志：请求 IP、参数、响应时间                        │
+│  └── 错误日志：异常堆栈、失败原因                            │
+│                                                         │
+│  Metrics (指标)                                          │
+│  ├── 业务指标：支付成功率、支付金额、退款率                   │
+│  ├── 系统指标：QPS、响应时间、错误率                        │
+│  └── 资源指标：CPU、内存、GC                               │
+│                                                         │
+│  Tracing (链路追踪)                                       │
+│  ├── 全链路：从接入层 → 核心层 → 渠道层                     │
+│  ├── 跨服务：HTTP/MQ/RPC 调用关系                         │
+│  └── 耗时分析：各环节耗时占比                              │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+</code></pre><h2 id="二业务监控指标体系">二、业务监控指标体系</h2>
+<h3 id="21-核心业务指标">2.1 核心业务指标</h3>
+<pre tabindex="0"><code>支付系统核心指标（实时监控）：
+
+┌─────────────────────────────────────────────────────────┐
+│  支付成功率    = 成功支付单数 / 总支付单数  → 目标 ≥ 99%   │
+│  支付 QPS      = 每秒支付请求数                           │
+│  支付成功 QPS  = 每秒支付成功数                           │
+│  平均响应时间  = 支付的 P50/P95/P99 耗时                  │
+│  退款率        = 退款金额 / 支付金额 → 目标 ≤ 5%          │
+│  渠道可用率    = 各渠道成功/失败比例                       │
+└─────────────────────────────────────────────────────────┘
+</code></pre><h3 id="22-prometheus-指标暴露">2.2 Prometheus 指标暴露</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@RestController</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PaymentMetricsController</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">MeterRegistry</span><span class="w"> </span><span class="n">meterRegistry</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Counter</span><span class="w"> </span><span class="n">paymentTotalCounter</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Counter</span><span class="w"> </span><span class="n">paymentSuccessCounter</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Counter</span><span class="w"> </span><span class="n">paymentFailCounter</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Timer</span><span class="w"> </span><span class="n">paymentDurationTimer</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">PaymentMetricsController</span><span class="p">(</span><span class="n">MeterRegistry</span><span class="w"> </span><span class="n">meterRegistry</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">meterRegistry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">meterRegistry</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">paymentTotalCounter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">meterRegistry</span><span class="p">.</span><span class="na">counter</span><span class="p">(</span><span class="s">&#34;payment.total&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">paymentSuccessCounter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">meterRegistry</span><span class="p">.</span><span class="na">counter</span><span class="p">(</span><span class="s">&#34;payment.success&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">paymentFailCounter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">meterRegistry</span><span class="p">.</span><span class="na">counter</span><span class="p">(</span><span class="s">&#34;payment.fail&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">paymentDurationTimer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">meterRegistry</span><span class="p">.</span><span class="na">timer</span><span class="p">(</span><span class="s">&#34;payment.duration&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">recordPaymentResult</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">channel</span><span class="p">,</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">success</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">durationMs</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">paymentTotalCounter</span><span class="p">.</span><span class="na">increment</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">success</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">paymentSuccessCounter</span><span class="p">.</span><span class="na">increment</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">paymentFailCounter</span><span class="p">.</span><span class="na">increment</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">paymentDurationTimer</span><span class="p">.</span><span class="na">record</span><span class="p">(</span><span class="n">Duration</span><span class="p">.</span><span class="na">ofMillis</span><span class="p">(</span><span class="n">durationMs</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="三链路追踪">三、链路追踪</h2>
+<h3 id="31-核心链路埋点">3.1 核心链路埋点</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@Slf4j</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PaymentTraceHelper</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * 支付全链路追踪埋点
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">tracePayment</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">orderId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">channel</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Span</span><span class="w"> </span><span class="n">span</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tracer</span><span class="p">.</span><span class="na">spanBuilder</span><span class="p">(</span><span class="s">&#34;payment-process&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">setSpanKind</span><span class="p">(</span><span class="n">SpanKind</span><span class="p">.</span><span class="na">SERVER</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">startSpan</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">Scope</span><span class="w"> </span><span class="n">scope</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">span</span><span class="p">.</span><span class="na">makeCurrent</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">span</span><span class="p">.</span><span class="na">setAttribute</span><span class="p">(</span><span class="s">&#34;order.id&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">orderId</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">span</span><span class="p">.</span><span class="na">setAttribute</span><span class="p">(</span><span class="s">&#34;channel&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">channel</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// Step 1: 创建支付单</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">traceStep</span><span class="p">(</span><span class="s">&#34;create-order&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// Step 2: 调用渠道</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">traceStep</span><span class="p">(</span><span class="s">&#34;call-channel&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// Step 3: 处理回调</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">traceStep</span><span class="p">(</span><span class="s">&#34;handle-callback&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// Step 4: 入账</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">traceStep</span><span class="p">(</span><span class="s">&#34;bookkeeping&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">span</span><span class="p">.</span><span class="na">end</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">traceStep</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">stepName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Span</span><span class="w"> </span><span class="n">stepSpan</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tracer</span><span class="p">.</span><span class="na">spanBuilder</span><span class="p">(</span><span class="n">stepName</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">startSpan</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">Scope</span><span class="w"> </span><span class="n">scope</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">stepSpan</span><span class="p">.</span><span class="na">makeCurrent</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 执行步骤</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">stepSpan</span><span class="p">.</span><span class="na">end</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="四告警体系">四、告警体系</h2>
+<h3 id="41-告警规则">4.1 告警规则</h3>
+<pre tabindex="0"><code>┌───────────────────────────────────────────────────────────────┐
+│  告警等级     |  触发条件                |  响应时间            │
+├───────────────────────────────────────────────────────────────┤
+│  P0 严重      |  支付成功率 &lt; 90%        |  立即响应（5 分钟）  │
+│  P0 严重      |  支付全链路不可用         |  立即响应            │
+│  P1 警告      |  支付成功率 &lt; 95%        |  15 分钟内处理       │
+│  P1 警告      |  某渠道成功率 &lt; 90%      |  15 分钟内处理       │
+│  P2 通知      |  对账出现差异            |  工作日内处理         │
+│  P2 通知      |  退款率 &gt; 10%            |  工作日内处理         │
+└───────────────────────────────────────────────────────────────┘
+</code></pre><h2 id="五可观测性技术栈">五、可观测性技术栈</h2>
+<table>
+	<thead>
+			<tr>
+					<th>组件</th>
+					<th>选型</th>
+					<th>用途</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>日志采集</td>
+					<td>Filebeat + ELK</td>
+					<td>统一日志收集与检索</td>
+			</tr>
+			<tr>
+					<td>指标监控</td>
+					<td>Prometheus + Grafana</td>
+					<td>实时指标采集与可视化</td>
+			</tr>
+			<tr>
+					<td>链路追踪</td>
+					<td>SkyWalking / Jaeger</td>
+					<td>分布式调用链追踪</td>
+			</tr>
+			<tr>
+					<td>告警通知</td>
+					<td>AlertManager + 钉钉/企微</td>
+					<td>多渠道告警通知</td>
+			</tr>
+			<tr>
+					<td>业务大盘</td>
+					<td>自研 + Grafana</td>
+					<td>支付业务核心看板</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="六总结">六、总结</h2>
+<p>可观测性是支付系统运维的&quot;眼睛&quot;。优秀的设计原则：</p>
+<ol>
+<li><strong>全链路覆盖</strong>：从用户请求到渠道响应，每一个环节都要可观测</li>
+<li><strong>分级告警</strong>：P0/P1/P2 分级，避免告警疲劳</li>
+<li><strong>业务视角</strong>：不只是看 CPU/QPS，更要看支付成功率、渠道可用率</li>
+<li><strong>数据驱动</strong>：所有监控数据最终服务于快速定位问题和持续优化</li>
+</ol>
+<hr>
+<blockquote>
+<p><strong>📚 系列文章导航</strong></p>
+<ul>
+<li><a href="/posts/%E6%94%AF%E4%BB%98%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E4%B8%80%E6%95%B4%E4%BD%93%E6%9E%B6%E6%9E%84%E6%A6%82%E8%A7%88/">支付系统架构设计（一）：整体架构概览</a></li>
+<li><a href="/posts/%E6%94%AF%E4%BB%98%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E4%BA%8C%E6%94%AF%E4%BB%98%E6%A0%B8%E5%BF%83%E9%A2%86%E5%9F%9F%E5%BB%BA%E6%A8%A1ddd/">支付系统架构设计（二）：支付核心领域建模（DDD）</a></li>
+<li><a href="/posts/%E6%94%AF%E4%BB%98%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E4%B8%89%E6%94%AF%E4%BB%98%E7%8A%B6%E6%80%81%E6%9C%BA%E4%B8%8E%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F/">支付系统架构设计（三）：支付状态机与生命周期</a></li>
+<li><a href="/posts/%E6%94%AF%E4%BB%98%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E5%9B%9B%E6%94%AF%E4%BB%98%E5%B9%82%E7%AD%89%E6%80%A7%E4%B8%8E%E4%B8%80%E8%87%B4%E6%80%A7/">支付系统架构设计（四）：支付幂等性与一致性</a></li>
+<li><a href="/posts/%E6%94%AF%E4%BB%98%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E4%BA%94%E6%94%AF%E4%BB%98%E7%BD%91%E5%85%B3%E4%B8%8E%E6%B8%A0%E9%81%93%E8%B7%AF%E7%94%B1/">支付系统架构设计（五）：支付网关与渠道路由</a></li>
+<li><a href="/posts/%E6%94%AF%E4%BB%98%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E5%85%AD%E5%AF%B9%E8%B4%A6%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/">支付系统架构设计（六）：对账系统设计</a></li>
+<li><a href="/posts/%E6%94%AF%E4%BB%98%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E4%B8%83%E8%B5%84%E9%87%91%E8%B4%A6%E6%88%B7%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/">支付系统架构设计（七）：资金账户系统设计</a></li>
+<li><a href="/posts/%E6%94%AF%E4%BB%98%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E5%85%AB%E6%94%AF%E4%BB%98%E5%AE%89%E5%85%A8%E4%B8%8E%E9%A3%8E%E6%8E%A7/">支付系统架构设计（八）：支付安全与风控</a></li>
+<li><a href="/posts/%E6%94%AF%E4%BB%98%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E4%B9%9D%E6%94%AF%E4%BB%98%E9%AB%98%E5%8F%AF%E7%94%A8%E4%B8%8E%E5%AE%B9%E7%81%BE/">支付系统架构设计（九）：支付高可用与容灾</a></li>
+<li>本文：支付可观测性</li>
+</ul>
+</blockquote>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

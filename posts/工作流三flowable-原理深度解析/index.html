@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>工作流（三）：Flowable 原理深度解析 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一引擎架构">一、引擎架构</a>
+      <ul>
+        <li><a href="#11-processengine-的创建">1.1 ProcessEngine 的创建</a></li>
+        <li><a href="#12-核心组件">1.2 核心组件</a></li>
+      </ul>
+    </li>
+    <li><a href="#二命令拦截器模式">二、命令拦截器模式</a>
+      <ul>
+        <li><a href="#21-架构">2.1 架构</a></li>
+        <li><a href="#22-命令模式源码">2.2 命令模式源码</a></li>
+        <li><a href="#23-拦截器链">2.3 拦截器链</a></li>
+        <li><a href="#24-commandcontext引擎的核心上下文">2.4 CommandContext——引擎的核心上下文</a></li>
+      </ul>
+    </li>
+    <li><a href="#三bpmn-解析流程">三、BPMN 解析流程</a>
+      <ul>
+        <li><a href="#31-部署时的解析">3.1 部署时的解析</a></li>
+      </ul>
+    </li>
+    <li><a href="#四流程实例执行链路">四、流程实例执行链路</a>
+      <ul>
+        <li><a href="#41-startprocessinstancebykey-的完整链路">4.1 startProcessInstanceByKey 的完整链路</a></li>
+        <li><a href="#42-任务完成的执行链路">4.2 任务完成的执行链路</a></li>
+        <li><a href="#43-条件表达式的计算">4.3 条件表达式的计算</a></li>
+      </ul>
+    </li>
+    <li><a href="#五流程定义缓存">五、流程定义缓存</a></li>
+    <li><a href="#六历史数据管理">六、历史数据管理</a></li>
+    <li><a href="#七总结">七、总结</a>
+      <ul>
+        <li><a href="#核心机制速记">核心机制速记</a></li>
+        <li><a href="#源码文件索引">源码文件索引</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">工作流（三）：Flowable 原理深度解析</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>前两篇覆盖了 Flowable 的选型、概念和 Spring Boot 集成。本文深入引擎内部，解析 Flowable 的<strong>引擎架构</strong>、<strong>命令拦截器模式</strong>、<strong>BPMN 解析流程</strong>以及<strong>流程实例的执行链路</strong>。</p>
+<h2 id="一引擎架构">一、引擎架构</h2>
+<h3 id="11-processengine-的创建">1.1 ProcessEngine 的创建</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Spring Boot 自动配置时创建 ProcessEngine 的过程</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 1. Spring Boot Starter 加载 FlowableAutoConfiguration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 创建 SpringProcessEngineConfiguration（初始化数据源）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. 调用 ProcessEngineConfiguration.buildProcessEngine()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// buildProcessEngine() 的核心步骤：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">ProcessEngine</span><span class="w"> </span><span class="nf">buildProcessEngine</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 初始化配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initConfig</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 初始化数据库</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initDatabase</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 初始化服务工厂（创建所有 Service）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initServiceFactory</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 4. 初始化命令执行器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initCommandExecutor</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 5. 部署自动扫描的流程</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">initDeployment</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 6. 返回 ProcessEngine 实例</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ProcessEngineImpl</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="12-核心组件">1.2 核心组件</h3>
+<pre tabindex="0"><code>ProcessEngine（流程引擎）
+    │
+    ├── ProcessEngineConfiguration（引擎配置）
+    │     ├── 数据源
+    │     ├── 历史级别
+    │     ├── 异步执行器配置
+    │     └── 自定义配置（监听器、事件处理器等）
+    │
+    ├── CommandExecutor（命令执行器）
+    │     └── 所有 API 调用最终会封装为 Command 执行
+    │
+    ├── ServiceFactory（服务工厂）
+    │     ├── RepositoryService
+    │     ├── RuntimeService
+    │     ├── TaskService
+    │     ├── HistoryService
+    │     ├── IdentityService
+    │     ├── ManagementService
+    │     └── DynamicBpmnService
+    │
+    └── DeploymentManager（部署管理器）
+          └── 扫描和部署 BPMN 文件
+</code></pre><hr>
+<h2 id="二命令拦截器模式">二、命令拦截器模式</h2>
+<p>Flowable 所有 API 调用统一通过<strong>命令拦截器链</strong>执行。</p>
+<h3 id="21-架构">2.1 架构</h3>
+<pre tabindex="0"><code>客户端调用（如 runtimeService.startProcessInstanceByKey()）
+    │
+    ▼
+Service 封装为 Command
+    │
+    ▼
+CommandExecutor（命令执行器）
+    │
+    ▼
+拦截器链（Interceptor Chain）
+    │
+    ├── LogInterceptor（日志）
+    ├── TransactionInterceptor（事务）  
+    ├── CommandContextInterceptor（上下文）
+    └── CommandInvoker（最终执行器）
+          │
+          ▼
+Command 执行（实际的业务逻辑）
+</code></pre><h3 id="22-命令模式源码">2.2 命令模式源码</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 所有 Service 中的操作都封装为 Command</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 例如启动流程：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">ProcessInstance</span><span class="w"> </span><span class="nf">startProcessInstanceByKey</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">processDefinitionKey</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                                                   </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">variables</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 封装命令 → 提交到命令执行器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">commandExecutor</span><span class="p">.</span><span class="na">execute</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">StartProcessInstanceCmd</span><span class="p">(</span><span class="n">processDefinitionKey</span><span class="p">,</span><span class="w"> </span><span class="n">variables</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// Command 接口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">Command</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">T</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="n">CommandContext</span><span class="w"> </span><span class="n">commandContext</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 命令执行器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">CommandExecutorImpl</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">CommandExecutor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">CommandInterceptor</span><span class="w"> </span><span class="n">first</span><span class="p">;</span><span class="w">   </span><span class="c1">// 拦截器链头部</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="n">Command</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">command</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 交给拦截器链执行</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">first</span><span class="p">.</span><span class="na">execute</span><span class="p">(</span><span class="n">command</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="23-拦截器链">2.3 拦截器链</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 命令拦截器接口</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">CommandInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="n">Command</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">command</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">CommandInterceptor</span><span class="w"> </span><span class="nf">getNext</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">setNext</span><span class="p">(</span><span class="n">CommandInterceptor</span><span class="w"> </span><span class="n">next</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 事务拦截器</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">TransactionInterceptor</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">CommandInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">CommandInterceptor</span><span class="w"> </span><span class="n">next</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">TransactionManager</span><span class="w"> </span><span class="n">transactionManager</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="n">Command</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">command</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 在事务中执行命令</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">transactionManager</span><span class="p">.</span><span class="na">execute</span><span class="p">(</span><span class="n">status</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">next</span><span class="p">.</span><span class="na">execute</span><span class="p">(</span><span class="n">command</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 命令上下文拦截器（设置 CommandContext 到 ThreadLocal）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">CommandContextInterceptor</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">CommandInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="n">Command</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">command</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">CommandContext</span><span class="w"> </span><span class="n">context</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CommandContext</span><span class="p">(</span><span class="n">command</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">context</span><span class="p">.</span><span class="na">open</span><span class="p">();</span><span class="w">  </span><span class="c1">// 设置 CommandContext 到 ThreadLocal</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">next</span><span class="p">.</span><span class="na">execute</span><span class="p">(</span><span class="n">command</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">context</span><span class="p">.</span><span class="na">close</span><span class="p">();</span><span class="w">  </span><span class="c1">// 清理 ThreadLocal</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">context</span><span class="p">.</span><span class="na">flush</span><span class="p">();</span><span class="w">  </span><span class="c1">// 刷出未提交的修改到数据库</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h3 id="24-commandcontext引擎的核心上下文">2.4 CommandContext——引擎的核心上下文</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// CommandContext 持有引擎运行时的所有数据</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">CommandContext</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 当前命令</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">Command</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">command</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 引擎配置</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">ProcessEngineConfigurationImpl</span><span class="w"> </span><span class="n">processEngineConfiguration</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 所有的 Service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">RepositorySession</span><span class="w"> </span><span class="n">repositorySession</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">RuntimeSession</span><span class="w"> </span><span class="n">runtimeSession</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">TaskSession</span><span class="w"> </span><span class="n">taskSession</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">HistorySession</span><span class="w"> </span><span class="n">historySession</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 脏数据缓存（事务提交时写入数据库）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">PersistentObject</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">transactionContext</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 命令执行过程中的异常</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="n">exception</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="三bpmn-解析流程">三、BPMN 解析流程</h2>
+<h3 id="31-部署时的解析">3.1 部署时的解析</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 部署 BPMN 文件时，Flowable 将其解析为内存模型</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 1. DeploymentManager.deploy()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. BpmnDeployer.deploy()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. BpmnParser.parse()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// BpmnParser 的核心流程：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Process</span><span class="w"> </span><span class="nf">parseBpmnModel</span><span class="p">(</span><span class="n">BpmnModel</span><span class="w"> </span><span class="n">bpmnModel</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Process</span><span class="w"> </span><span class="n">process</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Process</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 解析流程属性（id、name、isExecutable）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">process</span><span class="p">.</span><span class="na">setId</span><span class="p">(</span><span class="n">bpmnModel</span><span class="p">.</span><span class="na">getMainProcess</span><span class="p">().</span><span class="na">getId</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 解析开始事件</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">StartEvent</span><span class="w"> </span><span class="n">startEvent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parseStartEvent</span><span class="p">(</span><span class="n">bpmnModel</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">process</span><span class="p">.</span><span class="na">addFlowElement</span><span class="p">(</span><span class="n">startEvent</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 解析用户任务（UserTask）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">UserTask</span><span class="w"> </span><span class="n">userTask</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">bpmnModel</span><span class="p">.</span><span class="na">getMainProcess</span><span class="p">().</span><span class="na">getUserTasks</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">process</span><span class="p">.</span><span class="na">addFlowElement</span><span class="p">(</span><span class="n">parseUserTask</span><span class="p">(</span><span class="n">userTask</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 4. 解析服务任务（ServiceTask）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">ServiceTask</span><span class="w"> </span><span class="n">serviceTask</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">bpmnModel</span><span class="p">.</span><span class="na">getMainProcess</span><span class="p">().</span><span class="na">getServiceTasks</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">process</span><span class="p">.</span><span class="na">addFlowElement</span><span class="p">(</span><span class="n">parseServiceTask</span><span class="p">(</span><span class="n">serviceTask</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 5. 解析网关（Gateway）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Gateway</span><span class="w"> </span><span class="n">gateway</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">bpmnModel</span><span class="p">.</span><span class="na">getMainProcess</span><span class="p">().</span><span class="na">getGateways</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">process</span><span class="p">.</span><span class="na">addFlowElement</span><span class="p">(</span><span class="n">parseGateway</span><span class="p">(</span><span class="n">gateway</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 6. 解析连线（SequenceFlow）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">SequenceFlow</span><span class="w"> </span><span class="n">flow</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">bpmnModel</span><span class="p">.</span><span class="na">getMainProcess</span><span class="p">().</span><span class="na">getSequenceFlows</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">process</span><span class="p">.</span><span class="na">addFlowElement</span><span class="p">(</span><span class="n">parseSequenceFlow</span><span class="p">(</span><span class="n">flow</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 7. 注册到 ProcessEngineConfiguration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">processEngineConfiguration</span><span class="p">.</span><span class="na">getDeploymentManager</span><span class="p">()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">getProcessCache</span><span class="p">().</span><span class="na">add</span><span class="p">(</span><span class="n">process</span><span class="p">.</span><span class="na">getId</span><span class="p">(),</span><span class="w"> </span><span class="n">process</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">process</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="四流程实例执行链路">四、流程实例执行链路</h2>
+<h3 id="41-startprocessinstancebykey-的完整链路">4.1 startProcessInstanceByKey 的完整链路</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. RuntimeService.startProcessInstanceByKey()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    → 封装为 StartProcessInstanceCmd</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. CommandExecutor.execute(cmd)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    → 拦截器链执行</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. StartProcessInstanceCmd.execute()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    a. 通过 processDefinitionKey 查询 ProcessDefinition</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    b. 创建 ProcessInstance（数据库 ACT_RU_EXECUTION 插入记录）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    c. 初始化流程变量（插入 ACT_RU_VARIABLE）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    d. 执行流程：从开始事件走到第一个 Task</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    e. 创建第一个 Task（插入 ACT_RU_TASK）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    f. 返回 ProcessInstance</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 4. ProcessInstance 包含了：</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    - processInstanceId（流程实例 ID）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    - processDefinitionId（流程定义 ID）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    - businessKey（业务 key）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    - variables（流程变量）</span><span class="w">
+</span></span></span></code></pre></div><h3 id="42-任务完成的执行链路">4.2 任务完成的执行链路</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. TaskService.complete(taskId, variables)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    → 封装为 CompleteTaskCmd</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. CompleteTaskCmd.execute()</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    a. 查询当前 Task</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    b. 设置变量</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    c. 删除当前 Task（从 ACT_RU_TASK 移除 → 写入 ACT_HI_TASKINST）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    d. 获取当前 Activity 的出向连线（SequenceFlow）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    e. 计算连线条件（conditionExpression）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    f. 找到满足条件的下一个节点</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    g. 如果下一节点是 UserTask → 创建新 Task</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    h. 如果下一节点是 EndEvent → 结束流程实例（ACT_RU → ACT_HI）</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">//    i. 返回</span><span class="w">
+</span></span></span></code></pre></div><h3 id="43-条件表达式的计算">4.3 条件表达式的计算</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 连线上的 conditionExpression</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// ${approved == true}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// ${days &gt; 3}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// Flowable 用自定义的表达式引擎进行求值</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ConditionUtil</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">evaluateCondition</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">expression</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                             </span><span class="n">DelegateExecution</span><span class="w"> </span><span class="n">execution</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 从 execution 中获取流程变量</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">variables</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">execution</span><span class="p">.</span><span class="na">getVariables</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 使用表达式引擎计算</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// Flowable 使用自己实现的 SimpleEL 或 JUEL</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ExpressionManager</span><span class="p">.</span><span class="na">evaluate</span><span class="p">(</span><span class="n">expression</span><span class="p">,</span><span class="w"> </span><span class="n">variables</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 返回 Boolean 结果</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">Boolean</span><span class="p">.</span><span class="na">TRUE</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">result</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="五流程定义缓存">五、流程定义缓存</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Flowable 将解析后的 Process 对象缓存在内存中</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1">// 避免每次执行流程都重新解析 BPMN</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ProcessDefinitionCache</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 一级缓存：流程定义 ID → Process</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Process</span><span class="o">&gt;</span><span class="w"> </span><span class="n">processCache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ConcurrentHashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 二级缓存：流程定义 Key → 最新版本的 ProcessDefinition</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">ProcessDefinition</span><span class="o">&gt;</span><span class="w"> </span><span class="n">processDefinitionCache</span><span class="w"> </span><span class="o">=</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">ConcurrentHashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 根据流程定义 Key 获取 Process</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Process</span><span class="w"> </span><span class="nf">getProcess</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">processDefinitionKey</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">processDefinitionId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">processDefinitionCache</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">processDefinitionKey</span><span class="p">).</span><span class="na">getId</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">processCache</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">processDefinitionId</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><hr>
+<h2 id="六历史数据管理">六、历史数据管理</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// HistoryManager 负责将运行时数据复制到历史表</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DefaultHistoryManager</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">HistoryManager</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">recordProcessInstanceEnd</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">processInstanceId</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                          </span><span class="n">String</span><span class="w"> </span><span class="n">deleteReason</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">                                          </span><span class="n">String</span><span class="w"> </span><span class="n">activityId</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 查询运行时执行流</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 复制到 ACT_HI_PROCINST</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 删除 ACT_RU_EXECUTION 中的记录</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 记录结束时间</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">recordTaskEnd</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">taskId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">deleteReason</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 从 ACT_RU_TASK 复制到 ACT_HI_TASKINST</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 设置结束时间</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 删除 ACT_RU_TASK 中的记录</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>历史级别对比：</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>级别</th>
+					<th>记录内容</th>
+					<th style="text-align: center">影响</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>none</td>
+					<td>不记录历史</td>
+					<td style="text-align: center">性能最好，无法查询历史</td>
+			</tr>
+			<tr>
+					<td>activity</td>
+					<td>记录流程活动实例</td>
+					<td style="text-align: center">可查询流程经过的节点</td>
+			</tr>
+			<tr>
+					<td>audit</td>
+					<td>活动 + 变量（默认）</td>
+					<td style="text-align: center">可查询变量变化</td>
+			</tr>
+			<tr>
+					<td>full</td>
+					<td>所有内容</td>
+					<td style="text-align: center">可完整追溯</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="七总结">七、总结</h2>
+<h3 id="核心机制速记">核心机制速记</h3>
+<table>
+	<thead>
+			<tr>
+					<th>机制</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>命令拦截器</td>
+					<td>所有 API 通过 Command + 拦截器链执行</td>
+			</tr>
+			<tr>
+					<td>解析流程</td>
+					<td>BPMN XML → BpmnModel → Process（内存模型）</td>
+			</tr>
+			<tr>
+					<td>流程执行</td>
+					<td>开始事件 → 任务 → 网关(条件) → 任务 → 结束</td>
+			</tr>
+			<tr>
+					<td>历史迁移</td>
+					<td>运行时表 → 历史表（已经结束的记录移到历史表）</td>
+			</tr>
+			<tr>
+					<td>流程缓存</td>
+					<td>Process 对象缓存在内存中，避免重复解析</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="源码文件索引">源码文件索引</h3>
+<table>
+	<thead>
+			<tr>
+					<th>类</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>CommandExecutorImpl</td>
+					<td>命令执行器实现</td>
+			</tr>
+			<tr>
+					<td>CommandContext</td>
+					<td>命令执行上下文</td>
+			</tr>
+			<tr>
+					<td>StartProcessInstanceCmd</td>
+					<td>启动流程命令</td>
+			</tr>
+			<tr>
+					<td>CompleteTaskCmd</td>
+					<td>完成任务命令</td>
+			</tr>
+			<tr>
+					<td>BpmnParser</td>
+					<td>BPMN 解析器</td>
+			</tr>
+			<tr>
+					<td>DefaultHistoryManager</td>
+					<td>历史数据管理器</td>
+			</tr>
+			<tr>
+					<td>ProcessDefinitionCache</td>
+					<td>流程定义缓存</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>上一篇：</strong> <a href="/posts/%E5%B7%A5%E4%BD%9C%E6%B5%81%E4%BA%8Cspring-boot-%E9%9B%86%E6%88%90-flowable-%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81%E7%A4%BA%E4%BE%8B/">工作流（二）：Spring Boot 集成 Flowable 与工作流示例</a></p>
+<p><strong>系列索引：</strong></p>
+<ul>
+<li><a href="/posts/%E5%B7%A5%E4%BD%9C%E6%B5%81%E4%B8%80%E9%80%89%E5%9E%8B%E4%B8%8E-flowable-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5/">工作流（一）：选型与 Flowable 核心概念</a></li>
+<li><a href="/posts/%E5%B7%A5%E4%BD%9C%E6%B5%81%E4%BA%8Cspring-boot-%E9%9B%86%E6%88%90-flowable-%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81%E7%A4%BA%E4%BE%8B/">工作流（二）：Spring Boot 集成 Flowable 与工作流示例</a></li>
+<li><a href="/posts/%E5%B7%A5%E4%BD%9C%E6%B5%81%E4%B8%89flowable-%E5%8E%9F%E7%90%86%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/">工作流（三）：Flowable 原理深度解析</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>Java WebGIS 实战指南（五）：JTS 空间计算引擎 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一jts-核心模型">一、JTS 核心模型</a></li>
+    <li><a href="#二空间关系判断">二、空间关系判断</a></li>
+    <li><a href="#三缓冲区分析">三、缓冲区分析</a></li>
+    <li><a href="#四叠加分析">四、叠加分析</a></li>
+    <li><a href="#五空间计算-api">五、空间计算 API</a></li>
+    <li><a href="#六总结">六、总结</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">Java WebGIS 实战指南（五）：JTS 空间计算引擎</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>JTS（Java Topology Suite）是 Java 空间计算的事实标准库。它提供了完整的几何模型和空间运算能力——空间关系判断、缓冲区分析、叠加分析等。本文将深入 JTS 的核心 API 并给出实战示例。</p>
+<blockquote>
+<p><strong>📚 系列文章导航</strong></p>
+<ul>
+<li><a href="/posts/java-webgis-%E5%AE%9E%E6%88%98%E6%8C%87%E5%8D%97%E4%B8%80%E6%A6%82%E8%BF%B0%E4%B8%8E%E6%8A%80%E6%9C%AF%E6%A0%88%E9%80%89%E5%9E%8B/">概述与技术栈选型</a></li>
+<li><a href="/posts/java-webgis-%E5%AE%9E%E6%88%98%E6%8C%87%E5%8D%97%E4%BA%8Cspring-boot-%E9%9B%86%E6%88%90-geotools/">Spring Boot 集成 GeoTools 实战</a></li>
+<li><a href="/posts/java-webgis-%E5%AE%9E%E6%88%98%E6%8C%87%E5%8D%97%E4%B8%89postgis-%E7%A9%BA%E9%97%B4%E6%95%B0%E6%8D%AE%E5%BA%93%E5%AE%9E%E6%88%98/">PostGIS 空间数据库实战</a></li>
+<li><a href="/posts/java-webgis-%E5%AE%9E%E6%88%98%E6%8C%87%E5%8D%97%E5%9B%9Bgeotools-%E7%A9%BA%E9%97%B4%E6%95%B0%E6%8D%AE%E8%AF%BB%E5%86%99%E5%AE%9E%E6%88%98/">GeoTools 空间数据读写实战</a></li>
+<li>本文：JTS 空间计算引擎</li>
+<li><a href="/posts/java-webgis-%E5%AE%9E%E6%88%98%E6%8C%87%E5%8D%97%E5%85%ADogc-web-%E6%9C%8D%E5%8A%A1%E5%AE%9E%E6%88%98-wmswmts/">下一篇：OGC WMS/WMTS 服务实战</a></li>
+<li><a href="/posts/java-webgis-%E5%AE%9E%E6%88%98%E6%8C%87%E5%8D%97%E4%B8%83ogc-web-%E6%9C%8D%E5%8A%A1%E5%AE%9E%E6%88%98-wfs/">OGC WFS 服务实战</a></li>
+<li><a href="/posts/java-webgis-%E5%AE%9E%E6%88%98%E6%8C%87%E5%8D%97%E5%85%AB%E7%A9%BA%E9%97%B4%E6%95%B0%E6%8D%AE%E7%BC%96%E7%A0%81%E4%B8%8E%E4%BC%A0%E8%BE%93%E4%BC%98%E5%8C%96/">空间数据编码与传输优化</a></li>
+<li><a href="/posts/java-webgis-%E5%AE%9E%E6%88%98%E6%8C%87%E5%8D%97%E4%B9%9D%E7%A9%BA%E9%97%B4%E6%95%B0%E6%8D%AE%E6%90%9C%E7%B4%A2%E5%BC%95%E6%93%8E%E8%AE%BE%E8%AE%A1/">空间数据搜索引擎设计</a></li>
+<li><a href="/posts/java-webgis-%E5%AE%9E%E6%88%98%E6%8C%87%E5%8D%97%E5%8D%81%E6%B5%B7%E9%87%8F%E7%A9%BA%E9%97%B4%E6%95%B0%E6%8D%AE%E7%9A%84%E5%90%8E%E7%AB%AF%E6%B8%B2%E6%9F%93/">海量空间数据的后端渲染</a></li>
+<li><a href="/posts/java-webgis-%E5%AE%9E%E6%88%98%E6%8C%87%E5%8D%97%E5%8D%81%E4%B8%80webgis-%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E5%AE%9E%E6%88%98/">WebGIS 性能优化实战</a></li>
+<li><a href="/posts/java-webgis-%E5%AE%9E%E6%88%98%E6%8C%87%E5%8D%97%E5%8D%81%E4%BA%8C%E5%89%8D%E7%AB%AF%E5%9C%B0%E5%9B%BE%E5%B1%95%E7%A4%BA/">前端地图展示</a></li>
+</ul>
+</blockquote>
+<h2 id="一jts-核心模型">一、JTS 核心模型</h2>
+<p>JTS 的几何模型遵循 OGC Simple Features 规范：</p>
+<pre tabindex="0"><code>Geometry
+├── Point              // 点
+├── LineString         // 线
+├── Polygon            // 面
+├── MultiPoint         // 多点
+├── MultiLineString    // 多线
+├── MultiPolygon       // 多面
+└── GeometryCollection // 几何集合
+</code></pre><h2 id="二空间关系判断">二、空间关系判断</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SpatialRelationService</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">GeometryFactory</span><span class="w"> </span><span class="n">gf</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">JTSFactoryFinder</span><span class="p">.</span><span class="na">getGeometryFactory</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * 判断点是否在多边形内（空间包含）
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">contains</span><span class="p">(</span><span class="kt">double</span><span class="w"> </span><span class="n">lng</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">lat</span><span class="p">,</span><span class="w"> </span><span class="n">Polygon</span><span class="w"> </span><span class="n">polygon</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Point</span><span class="w"> </span><span class="n">point</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gf</span><span class="p">.</span><span class="na">createPoint</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">Coordinate</span><span class="p">(</span><span class="n">lng</span><span class="p">,</span><span class="w"> </span><span class="n">lat</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">polygon</span><span class="p">.</span><span class="na">contains</span><span class="p">(</span><span class="n">point</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * 判断两个多边形是否相交
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">intersects</span><span class="p">(</span><span class="n">Geometry</span><span class="w"> </span><span class="n">geom1</span><span class="p">,</span><span class="w"> </span><span class="n">Geometry</span><span class="w"> </span><span class="n">geom2</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">geom1</span><span class="p">.</span><span class="na">intersects</span><span class="p">(</span><span class="n">geom2</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * 计算两个几何之间的距离（单位：度）
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="nf">distance</span><span class="p">(</span><span class="n">Geometry</span><span class="w"> </span><span class="n">geom1</span><span class="p">,</span><span class="w"> </span><span class="n">Geometry</span><span class="w"> </span><span class="n">geom2</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">geom1</span><span class="p">.</span><span class="na">distance</span><span class="p">(</span><span class="n">geom2</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * 空间关系大全
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">SpatialRelations</span><span class="w"> </span><span class="nf">analyzeRelation</span><span class="p">(</span><span class="n">Geometry</span><span class="w"> </span><span class="n">geom1</span><span class="p">,</span><span class="w"> </span><span class="n">Geometry</span><span class="w"> </span><span class="n">geom2</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SpatialRelations</span><span class="w"> </span><span class="n">rel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SpatialRelations</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rel</span><span class="p">.</span><span class="na">setContains</span><span class="p">(</span><span class="n">geom1</span><span class="p">.</span><span class="na">contains</span><span class="p">(</span><span class="n">geom2</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rel</span><span class="p">.</span><span class="na">setWithin</span><span class="p">(</span><span class="n">geom1</span><span class="p">.</span><span class="na">within</span><span class="p">(</span><span class="n">geom2</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rel</span><span class="p">.</span><span class="na">setIntersects</span><span class="p">(</span><span class="n">geom1</span><span class="p">.</span><span class="na">intersects</span><span class="p">(</span><span class="n">geom2</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rel</span><span class="p">.</span><span class="na">setDisjoint</span><span class="p">(</span><span class="n">geom1</span><span class="p">.</span><span class="na">disjoint</span><span class="p">(</span><span class="n">geom2</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rel</span><span class="p">.</span><span class="na">setTouches</span><span class="p">(</span><span class="n">geom1</span><span class="p">.</span><span class="na">touches</span><span class="p">(</span><span class="n">geom2</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rel</span><span class="p">.</span><span class="na">setCrosses</span><span class="p">(</span><span class="n">geom1</span><span class="p">.</span><span class="na">crosses</span><span class="p">(</span><span class="n">geom2</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rel</span><span class="p">.</span><span class="na">setOverlaps</span><span class="p">(</span><span class="n">geom1</span><span class="p">.</span><span class="na">overlaps</span><span class="p">(</span><span class="n">geom2</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">rel</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Data</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SpatialRelations</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">contains</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">within</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">intersects</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">disjoint</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">touches</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">crosses</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">private</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">overlaps</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="三缓冲区分析">三、缓冲区分析</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">BufferAnalysisService</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * 创建缓冲区（WGS84 坐标）
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Geometry</span><span class="w"> </span><span class="nf">createBuffer</span><span class="p">(</span><span class="n">Geometry</span><span class="w"> </span><span class="n">geom</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">bufferDegrees</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">geom</span><span class="p">.</span><span class="na">buffer</span><span class="p">(</span><span class="n">bufferDegrees</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * 创建精确距离缓冲区（米）
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * 将几何投影到 Web Mercator，做缓冲区，再转回 WGS84
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Geometry</span><span class="w"> </span><span class="nf">createBufferInMeters</span><span class="p">(</span><span class="n">Geometry</span><span class="w"> </span><span class="n">geom</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">bufferMeters</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 获取几何中心点</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Coordinate</span><span class="w"> </span><span class="n">centroid</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">geom</span><span class="p">.</span><span class="na">getCentroid</span><span class="p">().</span><span class="na">getCoordinate</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 投影到 Web Mercator</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">CoordinateReferenceSystem</span><span class="w"> </span><span class="n">sourceCRS</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CRS</span><span class="p">.</span><span class="na">decode</span><span class="p">(</span><span class="s">&#34;EPSG:4326&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">CoordinateReferenceSystem</span><span class="w"> </span><span class="n">targetCRS</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CRS</span><span class="p">.</span><span class="na">decode</span><span class="p">(</span><span class="s">&#34;EPSG:3857&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MathTransform</span><span class="w"> </span><span class="n">toMercator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CRS</span><span class="p">.</span><span class="na">findMathTransform</span><span class="p">(</span><span class="n">sourceCRS</span><span class="p">,</span><span class="w"> </span><span class="n">targetCRS</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 做缓冲区</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Geometry</span><span class="w"> </span><span class="n">mercatorGeom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">JTS</span><span class="p">.</span><span class="na">transform</span><span class="p">(</span><span class="n">geom</span><span class="p">,</span><span class="w"> </span><span class="n">toMercator</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Geometry</span><span class="w"> </span><span class="n">buffer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mercatorGeom</span><span class="p">.</span><span class="na">buffer</span><span class="p">(</span><span class="n">bufferMeters</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 转回 WGS84</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MathTransform</span><span class="w"> </span><span class="n">toWgs84</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CRS</span><span class="p">.</span><span class="na">findMathTransform</span><span class="p">(</span><span class="n">targetCRS</span><span class="p">,</span><span class="w"> </span><span class="n">sourceCRS</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">JTS</span><span class="p">.</span><span class="na">transform</span><span class="p">(</span><span class="n">buffer</span><span class="p">,</span><span class="w"> </span><span class="n">toWgs84</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="四叠加分析">四、叠加分析</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm"> * 叠加分析：查找在一个区域内的所有要素
+</span></span></span><span class="line"><span class="cl"><span class="cm"> */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">FeatureResult</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">overlayAnalysis</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">FeatureCollection</span><span class="o">&lt;</span><span class="n">SimpleFeatureType</span><span class="p">,</span><span class="w"> </span><span class="n">SimpleFeature</span><span class="o">&gt;</span><span class="w"> </span><span class="n">features</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Geometry</span><span class="w"> </span><span class="n">clipArea</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">FeatureResult</span><span class="o">&gt;</span><span class="w"> </span><span class="n">results</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">FeatureIterator</span><span class="o">&lt;</span><span class="n">SimpleFeature</span><span class="o">&gt;</span><span class="w"> </span><span class="n">iterator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">features</span><span class="p">.</span><span class="na">features</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">iterator</span><span class="p">.</span><span class="na">hasNext</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">SimpleFeature</span><span class="w"> </span><span class="n">feature</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">iterator</span><span class="p">.</span><span class="na">next</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Geometry</span><span class="w"> </span><span class="n">geom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">Geometry</span><span class="p">)</span><span class="w"> </span><span class="n">feature</span><span class="p">.</span><span class="na">getDefaultGeometry</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 求交</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Geometry</span><span class="w"> </span><span class="n">intersection</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">geom</span><span class="p">.</span><span class="na">intersection</span><span class="p">(</span><span class="n">clipArea</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">intersection</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">results</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">FeatureResult</span><span class="p">(</span><span class="n">feature</span><span class="p">,</span><span class="w"> </span><span class="n">intersection</span><span class="p">));</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">results</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="五空间计算-api">五、空间计算 API</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@RestController</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@RequestMapping</span><span class="p">(</span><span class="s">&#34;/api/spatial&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nd">@RequiredArgsConstructor</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SpatialAnalysisController</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">SpatialRelationService</span><span class="w"> </span><span class="n">relationService</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">BufferAnalysisService</span><span class="w"> </span><span class="n">bufferService</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * 创建缓冲区
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@PostMapping</span><span class="p">(</span><span class="s">&#34;/buffer&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Geometry</span><span class="w"> </span><span class="nf">createBuffer</span><span class="p">(</span><span class="nd">@RequestBody</span><span class="w"> </span><span class="n">BufferRequest</span><span class="w"> </span><span class="n">request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Geometry</span><span class="w"> </span><span class="n">geom</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parseWkt</span><span class="p">(</span><span class="n">request</span><span class="p">.</span><span class="na">getWkt</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">bufferService</span><span class="p">.</span><span class="na">createBufferInMeters</span><span class="p">(</span><span class="n">geom</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getBufferMeters</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * 空间包含查询
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@PostMapping</span><span class="p">(</span><span class="s">&#34;/contains&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">checkContains</span><span class="p">(</span><span class="nd">@RequestBody</span><span class="w"> </span><span class="n">ContainsRequest</span><span class="w"> </span><span class="n">request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Geometry</span><span class="w"> </span><span class="n">geom1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parseWkt</span><span class="p">(</span><span class="n">request</span><span class="p">.</span><span class="na">getWkt1</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Geometry</span><span class="w"> </span><span class="n">geom2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parseWkt</span><span class="p">(</span><span class="n">request</span><span class="p">.</span><span class="na">getWkt2</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">geom1</span><span class="p">.</span><span class="na">contains</span><span class="p">(</span><span class="n">geom2</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><h2 id="六总结">六、总结</h2>
+<ul>
+<li>JTS 的 <code>Geometry</code> 层次结构完整覆盖了 OGC Simple Features 规范</li>
+<li><code>buffer()</code>、<code>intersection()</code>、<code>contains()</code> 是最常用的空间分析方法</li>
+<li>使用 Web Mercator 投影做精确距离的缓冲区分析，再转回 WGS84</li>
+<li>JTS + GeoTools 的组合可以满足大部分 Java WebGIS 的空间计算需求</li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>
