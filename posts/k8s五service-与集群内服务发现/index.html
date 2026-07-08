@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>K8s（五）：Service 与集群内服务发现 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    <link rel="stylesheet" href="/fonts/fonts.css">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一service-的工作原理">一、Service 的工作原理</a>
+      <ul>
+        <li><a href="#11-为什么需要-service">1.1 为什么需要 Service？</a></li>
+        <li><a href="#12-标签选择器label-selector">1.2 标签选择器（Label Selector）</a></li>
+        <li><a href="#13-endpoints-对象">1.3 Endpoints 对象</a></li>
+      </ul>
+    </li>
+    <li><a href="#二service-类型">二、Service 类型</a>
+      <ul>
+        <li><a href="#21-clusterip默认">2.1 ClusterIP（默认）</a></li>
+        <li><a href="#22-nodeport">2.2 NodePort</a></li>
+        <li><a href="#23-loadbalancer">2.3 LoadBalancer</a></li>
+        <li><a href="#24-externalname">2.4 ExternalName</a></li>
+      </ul>
+    </li>
+    <li><a href="#三服务发现机制">三、服务发现机制</a>
+      <ul>
+        <li><a href="#31-环境变量方式">3.1 环境变量方式</a></li>
+        <li><a href="#32-coredns推荐的方案">3.2 CoreDNS——推荐的方案</a></li>
+      </ul>
+    </li>
+    <li><a href="#四实战创建一个-clusterip-服务">四、实战：创建一个 ClusterIP 服务</a>
+      <ul>
+        <li><a href="#41-创建-deployment">4.1 创建 Deployment</a></li>
+        <li><a href="#42-创建-service">4.2 创建 Service</a></li>
+        <li><a href="#43-验证-service">4.3 验证 Service</a></li>
+        <li><a href="#44-在集群内验证">4.4 在集群内验证</a></li>
+      </ul>
+    </li>
+    <li><a href="#五无头服务headless-service">五、无头服务（Headless Service）</a></li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#系列文章">系列文章</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">K8s（五）：Service 与集群内服务发现</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>在前几篇文章中，我们学习了如何通过 Deployment 管理 Pod 的部署和扩缩容。但这里有一个核心问题：<strong>Pod 的 IP 地址是不固定的</strong>。</p>
+<p>当你删除一个 Pod，ReplicaSet 会重新创建一个新 Pod，但新 Pod 的 IP 与旧 Pod 完全不同。如果我们直接通过 Pod IP 访问服务，一旦 Pod 重启或调度到其他节点，客户端就会断连。</p>
+<p>此外，多个副本之间需要负载均衡——当一个 Deployment 有 3 个副本时，客户端应该访问哪一个？</p>
+<p>Kubernetes 用 <strong>Service</strong> 完美解决了这些问题。</p>
+<h2 id="一service-的工作原理">一、Service 的工作原理</h2>
+<h3 id="11-为什么需要-service">1.1 为什么需要 Service？</h3>
+<pre><code class="language-text">           ┌──────────────────────────┐
+           │        客户端             │
+           └──────────┬───────────────┘
+                      │
+                      ▼
+              ┌───────────────┐
+              │   Service     │  ← 稳定的虚拟 IP（ClusterIP）
+              │   (10.96.0.1) │
+              └───┬───┬───┬──┘
+                  │   │   │
+      ┌───────────┘   │   └───────────┐
+      ▼               ▼               ▼
+  ┌─────────┐   ┌─────────┐   ┌─────────┐
+  │ Pod A   │   │ Pod B   │   │ Pod C   │
+  │10.1.0.3 │   │10.1.0.5 │   │10.1.0.7 │
+  └─────────┘   └─────────┘   └─────────┘
+</code></pre>
+<p>Service 提供 <strong>稳定的虚拟 IP（ClusterIP）和 DNS 名称</strong>，客户端只需访问 Service，Kubernetes 会自动将请求转发到后端的某个 Pod。后端 Pod 的增删对客户端完全透明。</p>
+<h3 id="12-标签选择器label-selector">1.2 标签选择器（Label Selector）</h3>
+<p>Service 通过 <strong>标签选择器</strong> 找到后端 Pod：</p>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:          # 标签选择器
+    app: nginx       # 匹配所有带有 app=nginx 标签的 Pod
+  ports:
+    - protocol: TCP
+      port: 80       # Service 暴露的端口
+      targetPort: 80 # Pod 上的目标端口
+</code></pre>
+<p>当一个 Pod 的标签与 <code>selector</code> 匹配时，它就会被自动加入 Service 的端点列表。如果 Pod 标签发生变化（不再匹配），它也会自动从列表中移除。</p>
+<h3 id="13-endpoints-对象">1.3 Endpoints 对象</h3>
+<p>Kubernetes 会自动为每个 Service 创建一个同名的 Endpoints 对象，记录所有匹配 Pod 的 IP:Port：</p>
+<pre><code class="language-bash">kubectl get endpoints my-service
+</code></pre>
+<pre><code class="language-text">NAME         ENDPOINTS                     AGE
+my-service   10.1.0.3:80,10.1.0.5:80,10.1.0.7:80   10m
+</code></pre>
+<p>你也可以手动创建 Endpoints（当需要将 Service 指向集群外部的服务时，例如一个外部的数据库）。</p>
+<hr>
+<h2 id="二service-类型">二、Service 类型</h2>
+<p>Kubernetes 支持四种 Service 类型，适用于不同的场景：</p>
+<h3 id="21-clusterip默认">2.1 ClusterIP（默认）</h3>
+<pre><code class="language-text">类型：ClusterIP
+访问范围：集群内部
+外部访问：❌ 不支持
+适用场景：内部服务间调用
+</code></pre>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  type: ClusterIP       # 可省略，默认值
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+      targetPort: 80
+</code></pre>
+<p>Kubernetes 会为 Service 分配一个虚拟 IP（ClusterIP），仅在集群内部可达。</p>
+<h3 id="22-nodeport">2.2 NodePort</h3>
+<pre><code class="language-text">类型：NodePort
+访问范围：集群外部
+外部访问：✅ 通过节点 IP:端口访问
+适用场景：开发调试、直接暴露服务
+</code></pre>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  type: NodePort
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080    # 可选，不指定则随机分配（30000-32767）
+</code></pre>
+<p>NodePort 会在<strong>每个 Node</strong> 上开放一个端口（30080），外部可以通过 <code>任何节点IP:30080</code> 访问服务。</p>
+<pre><code class="language-text">  ┌─────────┐
+  │ 客户端    │
+  └────┬────┘
+       │ http://NodeIP:30080
+       ▼
+┌──────────────┐
+│  Node (30080) │
+│  ┌──────────┐ │
+│  │ Service   │ │
+│  │ ClusterIP │ │
+│  └────┬─────┘ │
+│       ▼       │
+│  ┌──────────┐ │
+│  │ Pod:80   │ │
+│  └──────────┘ │
+└──────────────┘
+</code></pre>
+<h3 id="23-loadbalancer">2.3 LoadBalancer</h3>
+<pre><code class="language-text">类型：LoadBalancer
+访问范围：集群外部
+外部访问：✅ 通过云负载均衡器 IP 访问
+适用场景：公有云环境（AWS、GCP、Azure）
+</code></pre>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+      targetPort: 80
+</code></pre>
+<p>LoadBalancer 在 NodePort 的基础上，自动调用云平台（如 AWS ELB、GCP TCP LB）创建一个外部负载均衡器，将外部流量分发到集群的所有 NodePort 上。</p>
+<h3 id="24-externalname">2.4 ExternalName</h3>
+<pre><code class="language-text">类型：ExternalName
+访问范围：集群内部
+外部访问：✅ 将 Service 映射到外部 DNS
+适用场景：将集群外部的服务包装成内部服务
+</code></pre>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Service
+metadata:
+  name: external-db
+spec:
+  type: ExternalName
+  externalName: my-database.example.com   # 外部 DNS 名称
+</code></pre>
+<p>ExternalName 没有 selector，也不定义端口。它直接将 Service 的 DNS 解析为 <code>externalName</code> 的 CNAME。应用无需关心数据库在集群内还是集群外，访问 <code>external-db</code> 即可。</p>
+<hr>
+<h2 id="三服务发现机制">三、服务发现机制</h2>
+<p>Pod 如何找到 Service 的地址？Kubernetes 提供了两种机制：</p>
+<h3 id="31-环境变量方式">3.1 环境变量方式</h3>
+<p>当 Pod 创建时，kubelet 会将当前 Namespace 中所有 Service 的信息注入为环境变量：</p>
+<pre><code class="language-bash"># 在 Pod 中查看
+env | grep SERVICE
+</code></pre>
+<pre><code class="language-text">MY_SERVICE_SERVICE_HOST=10.96.0.1
+MY_SERVICE_SERVICE_PORT=80
+MY_SERVICE_PORT=tcp://10.96.0.1:80
+</code></pre>
+<p><strong>限制</strong>：环境变量只在 Pod <strong>创建时</strong>注入。如果一个 Service 在 Pod 创建之后才创建，Pod 不会自动获得新的环境变量。</p>
+<h3 id="32-coredns推荐的方案">3.2 CoreDNS——推荐的方案</h3>
+<p>Kubernetes 集群默认安装 CoreDNS，它为 Service 提供 DNS 解析：</p>
+<pre><code>Service 名称 → 完整域名
+
+&lt;service&gt;.&lt;namespace&gt;.svc.cluster.local
+</code></pre>
+<p>在同一个 Namespace 中，可以直接用 Service 名称访问：</p>
+<pre><code class="language-bash"># 在 Pod 内访问
+curl http://my-service:80
+</code></pre>
+<p>跨 Namespace 访问：</p>
+<pre><code class="language-bash">curl http://my-service.default.svc.cluster.local:80
+</code></pre>
+<p><strong>推荐</strong>：始终使用 DNS 名称代替环境变量。DNS 方式更灵活，不受 Pod 创建顺序影响。</p>
+<hr>
+<h2 id="四实战创建一个-clusterip-服务">四、实战：创建一个 ClusterIP 服务</h2>
+<h3 id="41-创建-deployment">4.1 创建 Deployment</h3>
+<p>首先创建一个 Nginx Deployment：</p>
+<pre><code class="language-yaml"># nginx-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.21-alpine
+          ports:
+            - containerPort: 80
+</code></pre>
+<pre><code class="language-bash">kubectl apply -f nginx-deployment.yaml
+kubectl get pods -l app=nginx
+</code></pre>
+<pre><code class="language-text">NAME                                READY   STATUS    RESTARTS   AGE
+nginx-deployment-7c5c7c7b6f-2xqk9   1/1     Running   0          1m
+nginx-deployment-7c5c7c7b6f-4b7n3   1/1     Running   0          1m
+nginx-deployment-7c5c7c7b6f-9p2s1   1/1     Running   0          1m
+</code></pre>
+<h3 id="42-创建-service">4.2 创建 Service</h3>
+<pre><code class="language-yaml"># nginx-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  type: ClusterIP
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+      targetPort: 80
+</code></pre>
+<pre><code class="language-bash">kubectl apply -f nginx-service.yaml
+</code></pre>
+<h3 id="43-验证-service">4.3 验证 Service</h3>
+<pre><code class="language-bash"># 查看 Service
+kubectl get svc nginx-service
+</code></pre>
+<pre><code class="language-text">NAME            TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+nginx-service   ClusterIP   10.96.123.45   &lt;none&gt;        80/TCP    1m
+</code></pre>
+<pre><code class="language-bash"># 查看 Endpoints
+kubectl get endpoints nginx-service
+</code></pre>
+<pre><code class="language-text">NAME            ENDPOINTS                                               AGE
+nginx-service   10.1.0.3:80,10.1.0.5:80,10.1.0.7:80                   1m
+</code></pre>
+<h3 id="44-在集群内验证">4.4 在集群内验证</h3>
+<p>启动一个临时 Pod 来测试 Service 访问：</p>
+<pre><code class="language-bash">kubectl run test-pod --image=busybox -it --rm --restart=Never -- sh
+</code></pre>
+<p>在 Pod 内执行：</p>
+<pre><code class="language-bash"># 通过 ClusterIP 访问
+wget -qO- http://10.96.123.45:80
+
+# 通过 Service 名称访问（DNS）
+wget -qO- http://nginx-service:80
+</code></pre>
+<p>两种方式都应该返回 Nginx 的默认欢迎页面。</p>
+<hr>
+<h2 id="五无头服务headless-service">五、无头服务（Headless Service）</h2>
+<p>有时你不需要负载均衡，也不需要虚拟 IP——你希望客户端直接访问到所有 Pod 的真实 IP。这就是 <strong>Headless Service</strong> 的用途。</p>
+<p>Headless Service 将 <code>clusterIP</code> 设为 <code>None</code>：</p>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Service
+metadata:
+  name: headless-nginx
+spec:
+  clusterIP: None        # 关键字段
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+      targetPort: 80
+</code></pre>
+<p>Headless Service 的特点：</p>
+<pre><code class="language-text">| 特性 | 普通 Service | Headless Service |
+|------|-------------|-----------------|
+| ClusterIP | 有（虚拟 IP） | 无（None） |
+| 负载均衡 | 自动轮询 | 无（由客户端处理） |
+| DNS 解析 | 返回单个虚拟 IP | 返回所有 Pod 的 IP 列表 |
+| 适用场景 | 大部分无状态应用 | 有状态应用（StatefulSet）、需要直连 Pod 的场景 |
+</code></pre>
+<p>DNS 解析示例：</p>
+<pre><code class="language-bash"># 普通 Service DNS 查询
+nslookup nginx-service
+# 返回: 10.96.123.45
+
+# Headless Service DNS 查询
+nslookup headless-nginx
+# 返回:
+# 10.1.0.3
+# 10.1.0.5
+# 10.1.0.7
+</code></pre>
+<p>Headless Service 在 StatefulSet、Kafka、Elasticsearch 等有状态应用中广泛使用，我们将在后续文章中详细展开。</p>
+<hr>
+<h2 id="总结">总结</h2>
+<p>Service 是 Kubernetes 网络模型的核心组件，它解决了 Pod IP 不固定和服务发现两大难题。</p>
+<table>
+	<thead>
+			<tr>
+					<th>概念</th>
+					<th>一句话</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>ClusterIP</strong></td>
+					<td>默认类型，提供集群内部的虚拟 IP</td>
+			</tr>
+			<tr>
+					<td><strong>NodePort</strong></td>
+					<td>在每个节点上开放端口，供外部访问</td>
+			</tr>
+			<tr>
+					<td><strong>LoadBalancer</strong></td>
+					<td>结合云平台 LB 对外暴露服务</td>
+			</tr>
+			<tr>
+					<td><strong>ExternalName</strong></td>
+					<td>将外部 DNS 映射为内部 Service</td>
+			</tr>
+			<tr>
+					<td><strong>CoreDNS</strong></td>
+					<td>集群内的 DNS 服务，提供基于名称的服务发现</td>
+			</tr>
+			<tr>
+					<td><strong>Headless Service</strong></td>
+					<td>不提供虚拟 IP，直接返回 Pod IP 列表</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>核心命令</strong>：</p>
+<pre><code class="language-bash">kubectl expose deployment nginx --port=80 --type=ClusterIP --name=my-service
+kubectl get svc
+kubectl get endpoints
+kubectl describe svc my-service
+</code></pre>
+<p>下一篇文章我们将介绍 <strong>Ingress</strong>——如何通过域名和路径规则，将集群外部流量精细化地路由到不同的 Service。</p>
+<hr>
+<h2 id="系列文章">系列文章</h2>
+<ul>
+<li><a href="/posts/k8s%E4%B8%80%E4%BB%8E%E9%9B%B6%E8%AE%A4%E8%AF%86-kubernetes-%E6%9E%B6%E6%9E%84%E4%B8%8E%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5/">K8s（一）：从零认识 Kubernetes — 架构与核心概念</a></li>
+<li><a href="/posts/k8s%E4%BA%8C%E4%BD%BF%E7%94%A8-kubeadm-%E6%90%AD%E5%BB%BA-k8s-%E9%9B%86%E7%BE%A4%E5%AE%9E%E6%88%98/">K8s（二）：使用 kubeadm 搭建 K8s 集群实战</a></li>
+<li><a href="/posts/k8s%E4%B8%89pod-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%E4%B8%8E%E5%AE%B9%E5%99%A8%E7%BC%96%E6%8E%92%E5%9F%BA%E7%A1%80/">K8s（三）：Pod 核心概念与容器编排基础</a></li>
+<li><a href="/posts/k8s%E5%9B%9Bdeployment-%E4%B8%8E-replicaset-%E5%BA%94%E7%94%A8%E9%83%A8%E7%BD%B2%E4%B8%8E%E6%89%A9%E7%BC%A9%E5%AE%B9/">K8s（四）：Deployment 与 ReplicaSet — 应用部署与扩缩容</a></li>
+<li><a href="/posts/k8s%E5%85%ADingress-%E4%B8%8E%E9%9B%86%E7%BE%A4%E5%A4%96%E9%83%A8%E6%B5%81%E9%87%8F%E6%8E%A5%E5%85%A5/">K8s（六）：Ingress 与集群外部流量接入</a></li>
+<li><a href="/posts/k8s%E4%B8%83configmap-%E4%B8%8E-secret-%E9%85%8D%E7%BD%AE%E7%AE%A1%E7%90%86/">K8s（七）：ConfigMap 与 Secret — 配置管理</a></li>
+<li><a href="/posts/k8s%E5%85%ABvolume-%E4%B8%8E%E6%8C%81%E4%B9%85%E5%8C%96%E5%AD%98%E5%82%A8/">K8s（八）：Volume 与持久化存储</a></li>
+<li><a href="/posts/k8s%E4%B9%9Dstatefulset-%E4%B8%8E%E6%9C%89%E7%8A%B6%E6%80%81%E5%BA%94%E7%94%A8/">K8s（九）：StatefulSet 与有状态应用</a></li>
+<li><a href="/posts/k8s%E5%8D%81helm-%E5%8C%85%E7%AE%A1%E7%90%86%E5%99%A8%E5%85%A5%E9%97%A8/">K8s（十）：Helm 包管理器入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%B8%80%E9%9B%86%E7%BE%A4%E5%AE%89%E5%85%A8%E5%9F%BA%E7%A1%80-rbac-%E4%B8%8E-serviceaccount/">K8s（十一）：集群安全基础 — RBAC 与 ServiceAccount</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%BA%8C%E7%9B%91%E6%8E%A7%E4%B8%8E%E6%97%A5%E5%BF%97-%E5%8F%AF%E8%A7%82%E6%B5%8B%E6%80%A7%E5%85%A5%E9%97%A8/">K8s（十二）：监控与日志 — 可观测性入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%B8%89%E7%94%9F%E4%BA%A7%E5%AE%9E%E8%B7%B5%E4%B8%8E%E7%B3%BB%E5%88%97%E6%80%BB%E7%BB%93/">K8s（十三）：生产实践与系列总结</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

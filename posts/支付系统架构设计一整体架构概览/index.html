@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -120,7 +117,7 @@
 </blockquote>
 <h2 id="一支付系统的复杂性来源">一、支付系统的复杂性来源</h2>
 <p>在设计支付系统之前，先理解它为什么复杂。</p>
-<pre tabindex="0"><code>支付系统的核心挑战：
+<pre><code>支付系统的核心挑战：
 
 1. 资金安全 ──────────── 任何一笔资金差错都不可接受
 2. 高可用 ────────────── 支付失败直接导致业务中断，可用性要求 99.99%+
@@ -128,11 +125,12 @@
 4. 合规性 ────────────── 不同国家/地区的金融监管要求
 5. 多渠道 ────────────── 对接微信、支付宝、银联、银行卡等 N 个渠道
 6. 高并发 ────────────── 大促期间峰值 QPS 可达数十万
-</code></pre><p>一个设计良好的支付系统，核心目标可以总结为四个字：<strong>不丢、不错</strong>。</p>
+</code></pre>
+<p>一个设计良好的支付系统，核心目标可以总结为四个字：<strong>不丢、不错</strong>。</p>
 <hr>
 <h2 id="二整体分层架构">二、整体分层架构</h2>
 <p>我们将支付系统按照<strong>关注点分离</strong>的原则，划分为四个横向层次和一个纵向支撑体系：</p>
-<pre tabindex="0"><code>┌─────────────────────────────────────────────────────────┐
+<pre><code>┌─────────────────────────────────────────────────────────┐
 │                    接入层（Gateway）                      │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐│
 │  │ 统一收银台 │  │ 支付 API  │  │ 商户后台  │  │ SDK / H5  ││
@@ -170,7 +168,8 @@
 │  │          │  │          │  │          │  │          ││
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘│
 └─────────────────────────────────────────────────────────┘
-</code></pre><h3 id="分层职责速览">分层职责速览</h3>
+</code></pre>
+<h3 id="分层职责速览">分层职责速览</h3>
 <table>
 	<thead>
 			<tr>
@@ -211,7 +210,7 @@
 <h2 id="三各层详细设计">三、各层详细设计</h2>
 <h3 id="31-接入层gateway-layer">3.1 接入层（Gateway Layer）</h3>
 <p>接入层是支付系统的<strong>门面</strong>，负责统一收敛所有外部请求。</p>
-<pre tabindex="0"><code>接入层的功能：
+<pre><code>接入层的功能：
 ┌──────────────────────────────────────────────┐
 │              接入层职责矩阵                      │
 ├──────────────────────────────────────────────┤
@@ -222,30 +221,32 @@
 │ 5. 安全防护             IP 黑白名单、防重放攻击  │
 │ 6. 协议转换             XML ↔ JSON、加密解密    │
 └──────────────────────────────────────────────┘
-</code></pre><p><strong>关键设计要点</strong>：</p>
+</code></pre>
+<p><strong>关键设计要点</strong>：</p>
 <ul>
 <li><strong>签名机制</strong>：所有接入请求必须携带签名，防止篡改和重放攻击</li>
 <li><strong>接口版本化</strong>：<code>/v1/pay</code>、<code>/v2/pay</code>，支持多版本共存和平滑升级</li>
 <li><strong>统一异常处理</strong>：定义标准的错误码体系，所有异常统一格式返回</li>
 </ul>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 支付接口统一响应体</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PaymentResponse</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">code</span><span class="p">;</span><span class="w">        </span><span class="c1">// 业务码：SUCCESS / PARAM_ERROR / SYSTEM_ERROR</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">message</span><span class="p">;</span><span class="w">     </span><span class="c1">// 提示信息</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">requestId</span><span class="p">;</span><span class="w">   </span><span class="c1">// 全局唯一请求 ID，用于链路追踪</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="n">data</span><span class="p">;</span><span class="w">             </span><span class="c1">// 业务数据</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">PaymentResponse</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">success</span><span class="p">(</span><span class="n">T</span><span class="w"> </span><span class="n">data</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">PaymentResponse</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="s">&#34;SUCCESS&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;成功&#34;</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="n">data</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">PaymentResponse</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">fail</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">code</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">message</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">PaymentResponse</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">code</span><span class="p">,</span><span class="w"> </span><span class="n">message</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="32-核心业务层core-layer">3.2 核心业务层（Core Layer）</h3>
+<pre><code class="language-java">// 支付接口统一响应体
+public class PaymentResponse&lt;T&gt; {
+    private String code;        // 业务码：SUCCESS / PARAM_ERROR / SYSTEM_ERROR
+    private String message;     // 提示信息
+    private String requestId;   // 全局唯一请求 ID，用于链路追踪
+    private T data;             // 业务数据
+
+    public static &lt;T&gt; PaymentResponse&lt;T&gt; success(T data) {
+        return new PaymentResponse&lt;&gt;(&quot;SUCCESS&quot;, &quot;成功&quot;, null, data);
+    }
+
+    public static &lt;T&gt; PaymentResponse&lt;T&gt; fail(String code, String message) {
+        return new PaymentResponse&lt;&gt;(code, message, null, null);
+    }
+}
+</code></pre>
+<h3 id="32-核心业务层core-layer">3.2 核心业务层（Core Layer）</h3>
 <p>核心业务层是支付系统的<strong>大脑</strong>，负责所有支付相关业务流程的编排。</p>
-<pre tabindex="0"><code>                          ┌───────────┐
+<pre><code>                          ┌───────────┐
                           │  支付请求   │
                           └─────┬─────┘
                                 │
@@ -274,7 +275,8 @@
                           │ 成功 → 记账  │
                           │ 失败 → 退款  │
                           └───────────┘
-</code></pre><p><strong>核心领域对象</strong>：</p>
+</code></pre>
+<p><strong>核心领域对象</strong>：</p>
 <table>
 	<thead>
 			<tr>
@@ -304,7 +306,7 @@
 <p>核心业务层最关键的设计是<strong>状态机</strong>，这将在本系列的第三篇文章中深入展开。</p>
 <h3 id="33-账务层accounting-layer">3.3 账务层（Accounting Layer）</h3>
 <p>账务层负责<code>资金账目的记录和核对</code>。这是支付系统区别于普通业务系统的核心所在。</p>
-<pre tabindex="0"><code>账务层的核心模型——复式记账（Double-Entry）：
+<pre><code>账务层的核心模型——复式记账（Double-Entry）：
 
   用户 A 支付 100 元给商户 B：
 
@@ -313,7 +315,8 @@
 
   ── 任何一笔交易，借方总额 = 贷方总额
   ── 任何时候，所有账户余额之和 = 0（有正有负）
-</code></pre><p><strong>关键设计要点</strong>：</p>
+</code></pre>
+<p><strong>关键设计要点</strong>：</p>
 <ul>
 <li><strong>记账与支付分离</strong>：支付成功先记账流水，再异步更新余额，通过最终一致性保证</li>
 <li><strong>流水不可篡改</strong>：流水表采用 append-only 设计，不允许 UPDATE 和 DELETE</li>
@@ -321,7 +324,7 @@
 </ul>
 <h3 id="34-渠道层channel-layer">3.4 渠道层（Channel Layer）</h3>
 <p>渠道层是支付系统的<strong>四肢</strong>，负责与外部支付渠道交互。</p>
-<pre tabindex="0"><code>渠道适配器接口（抽象）：
+<pre><code>渠道适配器接口（抽象）：
 
 ┌──────────────────────────────────────────┐
 │            ChannelAdapter              │
@@ -338,7 +341,8 @@
 │微信适配器 │ │支付宝  │ │银联    │ │银行卡       │
 │          │ │适配器  │ │适配器  │ │适配器        │
 └──────────┘ └────────┘ └────────┘ └─────────────┘
-</code></pre><p><strong>关键设计要点</strong>：</p>
+</code></pre>
+<p><strong>关键设计要点</strong>：</p>
 <ul>
 <li><strong>适配器模式</strong>：每个渠道实现统一接口，新增渠道不影响核心逻辑</li>
 <li><strong>异步通知处理</strong>：渠道的回调通知必须做幂等处理，防止重复入账</li>
@@ -347,7 +351,7 @@
 <hr>
 <h2 id="四核心支付链路端到端">四、核心支付链路端到端</h2>
 <p>以用户通过收银台选择微信支付为例，完整链路如下：</p>
-<pre tabindex="0"><code>用户           接入层          核心层          账务层          渠道层         微信
+<pre><code>用户           接入层          核心层          账务层          渠道层         微信
  │              │              │              │              │            │
  │  发起支付请求  │              │              │              │            │
  │─────────────&gt;│              │              │              │            │
@@ -373,7 +377,8 @@
  │  支付结果      │              │              │              │            │
  │&lt;─────────────│&lt;─────────────│              │              │            │
  │              │              │              │              │            │
-</code></pre><h3 id="关键设计决策同步-vs-异步">关键设计决策：同步 vs 异步</h3>
+</code></pre>
+<h3 id="关键设计决策同步-vs-异步">关键设计决策：同步 vs 异步</h3>
 <table>
 	<thead>
 			<tr>
@@ -418,7 +423,7 @@
 <hr>
 <h2 id="五项目骨架模块划分">五、项目骨架：模块划分</h2>
 <p>下面是我们整个系列配套的 Java 项目骨架，采用 Maven 多模块结构：</p>
-<pre tabindex="0"><code>payment-system/
+<pre><code>payment-system/
 ├── pom.xml                          # 父 POM，统一依赖管理
 ├── payment-common/                  # 公共模块
 │   ├── pom.xml
@@ -464,7 +469,8 @@
         ├── config/                  # 配置类
         └── resource/
             └── application.yml
-</code></pre><blockquote>
+</code></pre>
+<blockquote>
 <p>📦 完整的项目代码在文章的配套仓库中，后续每篇文章会逐步添加上线。</p>
 </blockquote>
 <hr>
@@ -539,11 +545,12 @@
 <blockquote>
 <p>核心业务层不依赖渠道层和账务层的具体实现，只依赖接口。</p>
 </blockquote>
-<pre tabindex="0"><code>payment-core
+<pre><code>payment-core
    ├── repository.PaymentRepository (接口)  ← 由 infrastructure 实现
    ├── client.ChannelClient (接口)          ← 由 channel 层实现
    └── client.AccountClient (接口)          ← 由 account 层实现
-</code></pre><h3 id="73-最终一致性优先">7.3 最终一致性优先</h3>
+</code></pre>
+<h3 id="73-最终一致性优先">7.3 最终一致性优先</h3>
 <blockquote>
 <p>除了资金操作本身，其他环节都优先考虑最终一致性而非强一致性。</p>
 </blockquote>
@@ -610,6 +617,9 @@
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

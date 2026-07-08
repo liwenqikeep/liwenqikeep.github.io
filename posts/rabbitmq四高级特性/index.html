@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -119,85 +116,89 @@
 <p>RabbitMQ 提供了多种高级特性来满足复杂的业务需求：<strong>死信队列</strong>处理消费失败的消息、<strong>延迟队列</strong>实现定时任务、<strong>TTL</strong> 控制消息存活时间，以及<strong>优先级队列</strong>保证重要消息优先处理。</p>
 <h2 id="一死信队列dlx">一、死信队列（DLX）</h2>
 <h3 id="11-什么是死信">1.1 什么是死信</h3>
-<pre tabindex="0"><code>死信（Dead Letter）：无法被正常消费的消息
+<pre><code>死信（Dead Letter）：无法被正常消费的消息
 
 消息变成死信的三种情况：
 1. 消息被拒绝（basicNack/basicReject）且 requeue=false
 2. 消息 TTL 过期
 3. 队列达到最大长度
-</code></pre><h3 id="12-死信队列架构">1.2 死信队列架构</h3>
-<pre tabindex="0"><code>正常队列 → 死信转发（x-dead-letter-exchange）→ 死信队列 → 死信消费者
+</code></pre>
+<h3 id="12-死信队列架构">1.2 死信队列架构</h3>
+<pre><code>正常队列 → 死信转发（x-dead-letter-exchange）→ 死信队列 → 死信消费者
                      │
                      ├── TTL 过期
                      ├── 消费者拒绝且不重新入队
                      └── 队列达到最大长度
-</code></pre><h3 id="13-配置死信队列">1.3 配置死信队列</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DLXConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 死信交换机（普通交换机）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">DirectExchange</span><span class="w"> </span><span class="nf">deadLetterExchange</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DirectExchange</span><span class="p">(</span><span class="s">&#34;exchange.dlx&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 死信队列</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Queue</span><span class="w"> </span><span class="nf">deadLetterQueue</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">QueueBuilder</span><span class="p">.</span><span class="na">durable</span><span class="p">(</span><span class="s">&#34;queue.dlx&#34;</span><span class="p">).</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 死信绑定</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Binding</span><span class="w"> </span><span class="nf">deadLetterBinding</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">BindingBuilder</span><span class="p">.</span><span class="na">bind</span><span class="p">(</span><span class="n">deadLetterQueue</span><span class="p">())</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">to</span><span class="p">(</span><span class="n">deadLetterExchange</span><span class="p">()).</span><span class="na">with</span><span class="p">(</span><span class="s">&#34;dead&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 4. 业务队列（配置死信转发）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Queue</span><span class="w"> </span><span class="nf">businessQueue</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">args</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;x-dead-letter-exchange&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;exchange.dlx&#34;</span><span class="p">);</span><span class="w">    </span><span class="c1">// 死信交换机</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">args</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;x-dead-letter-routing-key&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;dead&#34;</span><span class="p">);</span><span class="w">         </span><span class="c1">// 死信路由键</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">args</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;x-max-length&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">10000</span><span class="p">);</span><span class="w">                       </span><span class="c1">// 队列最大长度</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">QueueBuilder</span><span class="p">.</span><span class="na">durable</span><span class="p">(</span><span class="s">&#34;queue.business&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">withArguments</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 5. 业务交换机绑定</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Binding</span><span class="w"> </span><span class="nf">businessBinding</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">BindingBuilder</span><span class="p">.</span><span class="na">bind</span><span class="p">(</span><span class="n">businessQueue</span><span class="p">())</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">to</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">DirectExchange</span><span class="p">(</span><span class="s">&#34;exchange.business&#34;</span><span class="p">))</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">with</span><span class="p">(</span><span class="s">&#34;business&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="14-死信消费者处理失败消息">1.4 死信消费者（处理失败消息）</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DeadLetterConsumer</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@RabbitListener</span><span class="p">(</span><span class="n">queues</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;queue.dlx&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleDeadLetter</span><span class="p">(</span><span class="n">Message</span><span class="w"> </span><span class="n">message</span><span class="p">,</span><span class="w"> </span><span class="n">Channel</span><span class="w"> </span><span class="n">channel</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;收到死信: {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">String</span><span class="p">(</span><span class="n">message</span><span class="p">.</span><span class="na">getBody</span><span class="p">()));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 从消息头获取原始信息</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MessageProperties</span><span class="w"> </span><span class="n">props</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">message</span><span class="p">.</span><span class="na">getMessageProperties</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;原始交换机: {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">props</span><span class="p">.</span><span class="na">getHeader</span><span class="p">(</span><span class="s">&#34;x-first-death-exchange&#34;</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;原始路由键: {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">props</span><span class="p">.</span><span class="na">getHeader</span><span class="p">(</span><span class="s">&#34;x-first-death-routing-key&#34;</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;死亡原因: {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">props</span><span class="p">.</span><span class="na">getHeader</span><span class="p">(</span><span class="s">&#34;x-first-death-reason&#34;</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 死信处理策略：记录到数据库 + 人工介入</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">deadLetterService</span><span class="p">.</span><span class="na">record</span><span class="p">(</span><span class="n">message</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">channel</span><span class="p">.</span><span class="na">basicAck</span><span class="p">(</span><span class="n">props</span><span class="p">.</span><span class="na">getDeliveryTag</span><span class="p">(),</span><span class="w"> </span><span class="kc">false</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+</code></pre>
+<h3 id="13-配置死信队列">1.3 配置死信队列</h3>
+<pre><code class="language-java">@Configuration
+public class DLXConfig {
+    
+    // 1. 死信交换机（普通交换机）
+    @Bean
+    public DirectExchange deadLetterExchange() {
+        return new DirectExchange(&quot;exchange.dlx&quot;);
+    }
+    
+    // 2. 死信队列
+    @Bean
+    public Queue deadLetterQueue() {
+        return QueueBuilder.durable(&quot;queue.dlx&quot;).build();
+    }
+    
+    // 3. 死信绑定
+    @Bean
+    public Binding deadLetterBinding() {
+        return BindingBuilder.bind(deadLetterQueue())
+                .to(deadLetterExchange()).with(&quot;dead&quot;);
+    }
+    
+    // 4. 业务队列（配置死信转发）
+    @Bean
+    public Queue businessQueue() {
+        Map&lt;String, Object&gt; args = new HashMap&lt;&gt;();
+        args.put(&quot;x-dead-letter-exchange&quot;, &quot;exchange.dlx&quot;);    // 死信交换机
+        args.put(&quot;x-dead-letter-routing-key&quot;, &quot;dead&quot;);         // 死信路由键
+        args.put(&quot;x-max-length&quot;, 10000);                       // 队列最大长度
+        return QueueBuilder.durable(&quot;queue.business&quot;)
+                .withArguments(args)
+                .build();
+    }
+    
+    // 5. 业务交换机绑定
+    @Bean
+    public Binding businessBinding() {
+        return BindingBuilder.bind(businessQueue())
+                .to(new DirectExchange(&quot;exchange.business&quot;))
+                .with(&quot;business&quot;);
+    }
+}
+</code></pre>
+<h3 id="14-死信消费者处理失败消息">1.4 死信消费者（处理失败消息）</h3>
+<pre><code class="language-java">@Component
+public class DeadLetterConsumer {
+    
+    @RabbitListener(queues = &quot;queue.dlx&quot;)
+    public void handleDeadLetter(Message message, Channel channel) {
+        log.warn(&quot;收到死信: {}&quot;, new String(message.getBody()));
+        
+        // 从消息头获取原始信息
+        MessageProperties props = message.getMessageProperties();
+        log.warn(&quot;原始交换机: {}&quot;, props.getHeader(&quot;x-first-death-exchange&quot;));
+        log.warn(&quot;原始路由键: {}&quot;, props.getHeader(&quot;x-first-death-routing-key&quot;));
+        log.warn(&quot;死亡原因: {}&quot;, props.getHeader(&quot;x-first-death-reason&quot;));
+        
+        // 死信处理策略：记录到数据库 + 人工介入
+        deadLetterService.record(message);
+        channel.basicAck(props.getDeliveryTag(), false);
+    }
+}
+</code></pre>
+<hr>
 <h2 id="二延迟队列">二、延迟队列</h2>
 <p>RabbitMQ 本身没有延迟队列功能，通过<strong>死信队列 + TTL</strong> 实现。</p>
 <h3 id="21-实现原理">2.1 实现原理</h3>
-<pre tabindex="0"><code>Producer → 延迟队列（设置 TTL，不消费）→ TTL 过期 → 死信队列 → 消费者
+<pre><code>Producer → 延迟队列（设置 TTL，不消费）→ TTL 过期 → 死信队列 → 消费者
 
 流程：
 1. 消息发送到延迟队列，消息 TTL = 延迟时间
@@ -205,201 +206,213 @@
 3. TTL 过期后，消息变为死信
 4. 死信转发到业务队列
 5. 消费者从业务队列消费
-</code></pre><h3 id="22-通过-spring-实现延迟队列">2.2 通过 Spring 实现延迟队列</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DelayConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 延迟交换机（死信交换机）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">DirectExchange</span><span class="w"> </span><span class="nf">delayExchange</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DirectExchange</span><span class="p">(</span><span class="s">&#34;exchange.delay&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 延迟队列：消息在此等待 TTL 过期</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Queue</span><span class="w"> </span><span class="nf">delayQueue</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">args</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;x-dead-letter-exchange&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;exchange.business&#34;</span><span class="p">);</span><span class="w">  </span><span class="c1">// 到期后转发到业务交换机</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">args</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;x-dead-letter-routing-key&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;business&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">QueueBuilder</span><span class="p">.</span><span class="na">durable</span><span class="p">(</span><span class="s">&#34;queue.delay&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">withArguments</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Binding</span><span class="w"> </span><span class="nf">delayBinding</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">BindingBuilder</span><span class="p">.</span><span class="na">bind</span><span class="p">(</span><span class="n">delayQueue</span><span class="p">())</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">to</span><span class="p">(</span><span class="n">delayExchange</span><span class="p">()).</span><span class="na">with</span><span class="p">(</span><span class="s">&#34;delay&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 业务队列：实际消费</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Queue</span><span class="w"> </span><span class="nf">businessQueue</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">QueueBuilder</span><span class="p">.</span><span class="na">durable</span><span class="p">(</span><span class="s">&#34;queue.business.delay&#34;</span><span class="p">).</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">DirectExchange</span><span class="w"> </span><span class="nf">businessExchange</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DirectExchange</span><span class="p">(</span><span class="s">&#34;exchange.business&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Binding</span><span class="w"> </span><span class="nf">businessBinding</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">BindingBuilder</span><span class="p">.</span><span class="na">bind</span><span class="p">(</span><span class="n">businessQueue</span><span class="p">())</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">to</span><span class="p">(</span><span class="n">businessExchange</span><span class="p">()).</span><span class="na">with</span><span class="p">(</span><span class="s">&#34;business&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="23-发送延迟消息">2.3 发送延迟消息</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DelayProducer</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">RabbitTemplate</span><span class="w"> </span><span class="n">rabbitTemplate</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 发送延迟消息（通过消息 TTL）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">sendDelay</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">message</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">delayMillis</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MessageProperties</span><span class="w"> </span><span class="n">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MessageProperties</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">properties</span><span class="p">.</span><span class="na">setExpiration</span><span class="p">(</span><span class="n">String</span><span class="p">.</span><span class="na">valueOf</span><span class="p">(</span><span class="n">delayMillis</span><span class="p">));</span><span class="w">  </span><span class="c1">// TTL = 延迟时间</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Message</span><span class="w"> </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MessageBuilder</span><span class="p">.</span><span class="na">withBody</span><span class="p">(</span><span class="n">message</span><span class="p">.</span><span class="na">getBytes</span><span class="p">())</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">andProperties</span><span class="p">(</span><span class="n">properties</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rabbitTemplate</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="s">&#34;exchange.delay&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;delay&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">msg</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 示例：30 分钟后取消订单</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">cancelOrderAfter30Min</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">sendDelay</span><span class="p">(</span><span class="s">&#34;cancel:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">orderId</span><span class="p">,</span><span class="w"> </span><span class="n">30</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">60</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">1000</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 消费者（处理延迟到期的消息）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DelayConsumer</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@RabbitListener</span><span class="p">(</span><span class="n">queues</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;queue.business.delay&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handle</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">message</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;延迟消息到期: {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">message</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 处理业务</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="24-插件方式推荐">2.4 插件方式（推荐）</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 安装延迟消息插件</span>
-</span></span><span class="line"><span class="cl">rabbitmq-plugins <span class="nb">enable</span> rabbitmq_delayed_message_exchange
-</span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 使用插件后，可以直接使用延迟交换机</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">CustomExchange</span><span class="w"> </span><span class="nf">delayExchange</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">args</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;x-delayed-type&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;direct&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CustomExchange</span><span class="p">(</span><span class="s">&#34;exchange.delayed&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;x-delayed-message&#34;</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DelayProducer</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">RabbitTemplate</span><span class="w"> </span><span class="n">rabbitTemplate</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">sendDelay</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">message</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">delayMillis</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MessageProperties</span><span class="w"> </span><span class="n">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MessageProperties</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">properties</span><span class="p">.</span><span class="na">setDelay</span><span class="p">((</span><span class="kt">int</span><span class="p">)</span><span class="w"> </span><span class="n">delayMillis</span><span class="p">);</span><span class="w">  </span><span class="c1">// 插件支持的延迟属性</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Message</span><span class="w"> </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MessageBuilder</span><span class="p">.</span><span class="na">withBody</span><span class="p">(</span><span class="n">message</span><span class="p">.</span><span class="na">getBytes</span><span class="p">())</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">andProperties</span><span class="p">(</span><span class="n">properties</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rabbitTemplate</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="s">&#34;exchange.delayed&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;delay&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">msg</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+</code></pre>
+<h3 id="22-通过-spring-实现延迟队列">2.2 通过 Spring 实现延迟队列</h3>
+<pre><code class="language-java">@Configuration
+public class DelayConfig {
+    
+    // 延迟交换机（死信交换机）
+    @Bean
+    public DirectExchange delayExchange() {
+        return new DirectExchange(&quot;exchange.delay&quot;);
+    }
+    
+    // 延迟队列：消息在此等待 TTL 过期
+    @Bean
+    public Queue delayQueue() {
+        Map&lt;String, Object&gt; args = new HashMap&lt;&gt;();
+        args.put(&quot;x-dead-letter-exchange&quot;, &quot;exchange.business&quot;);  // 到期后转发到业务交换机
+        args.put(&quot;x-dead-letter-routing-key&quot;, &quot;business&quot;);
+        return QueueBuilder.durable(&quot;queue.delay&quot;)
+                .withArguments(args)
+                .build();
+    }
+    
+    @Bean
+    public Binding delayBinding() {
+        return BindingBuilder.bind(delayQueue())
+                .to(delayExchange()).with(&quot;delay&quot;);
+    }
+    
+    // 业务队列：实际消费
+    @Bean
+    public Queue businessQueue() {
+        return QueueBuilder.durable(&quot;queue.business.delay&quot;).build();
+    }
+    
+    @Bean
+    public DirectExchange businessExchange() {
+        return new DirectExchange(&quot;exchange.business&quot;);
+    }
+    
+    @Bean
+    public Binding businessBinding() {
+        return BindingBuilder.bind(businessQueue())
+                .to(businessExchange()).with(&quot;business&quot;);
+    }
+}
+</code></pre>
+<h3 id="23-发送延迟消息">2.3 发送延迟消息</h3>
+<pre><code class="language-java">@Service
+public class DelayProducer {
+    
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+    
+    // 发送延迟消息（通过消息 TTL）
+    public void sendDelay(String message, long delayMillis) {
+        MessageProperties properties = new MessageProperties();
+        properties.setExpiration(String.valueOf(delayMillis));  // TTL = 延迟时间
+        Message msg = MessageBuilder.withBody(message.getBytes())
+                .andProperties(properties)
+                .build();
+        
+        rabbitTemplate.send(&quot;exchange.delay&quot;, &quot;delay&quot;, msg);
+    }
+    
+    // 示例：30 分钟后取消订单
+    public void cancelOrderAfter30Min(Long orderId) {
+        sendDelay(&quot;cancel:&quot; + orderId, 30 * 60 * 1000);
+    }
+}
+
+// 消费者（处理延迟到期的消息）
+@Component
+public class DelayConsumer {
+    
+    @RabbitListener(queues = &quot;queue.business.delay&quot;)
+    public void handle(String message) {
+        log.info(&quot;延迟消息到期: {}&quot;, message);
+        // 处理业务
+    }
+}
+</code></pre>
+<h3 id="24-插件方式推荐">2.4 插件方式（推荐）</h3>
+<pre><code class="language-bash"># 安装延迟消息插件
+rabbitmq-plugins enable rabbitmq_delayed_message_exchange
+</code></pre>
+<pre><code class="language-java">// 使用插件后，可以直接使用延迟交换机
+@Bean
+public CustomExchange delayExchange() {
+    Map&lt;String, Object&gt; args = new HashMap&lt;&gt;();
+    args.put(&quot;x-delayed-type&quot;, &quot;direct&quot;);
+    return new CustomExchange(&quot;exchange.delayed&quot;, &quot;x-delayed-message&quot;, true, false, args);
+}
+
+@Service
+public class DelayProducer {
+    
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+    
+    public void sendDelay(String message, long delayMillis) {
+        MessageProperties properties = new MessageProperties();
+        properties.setDelay((int) delayMillis);  // 插件支持的延迟属性
+        Message msg = MessageBuilder.withBody(message.getBytes())
+                .andProperties(properties)
+                .build();
+        
+        rabbitTemplate.send(&quot;exchange.delayed&quot;, &quot;delay&quot;, msg);
+    }
+}
+</code></pre>
+<hr>
 <h2 id="三ttltime-to-live">三、TTL（Time To Live）</h2>
 <h3 id="31-消息-ttl">3.1 消息 TTL</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 方式一：队列统一设置</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Queue</span><span class="w"> </span><span class="nf">queueWithTTL</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">args</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;x-message-ttl&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">60000</span><span class="p">);</span><span class="w">  </span><span class="c1">// 队列中消息 60 秒过期</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">QueueBuilder</span><span class="p">.</span><span class="na">durable</span><span class="p">(</span><span class="s">&#34;queue.ttl&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">withArguments</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 方式二：消息单独设置</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">MessageProperties</span><span class="w"> </span><span class="n">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MessageProperties</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">properties</span><span class="p">.</span><span class="na">setExpiration</span><span class="p">(</span><span class="s">&#34;30000&#34;</span><span class="p">);</span><span class="w">  </span><span class="c1">// 此消息 30 秒过期</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">Message</span><span class="w"> </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MessageBuilder</span><span class="p">.</span><span class="na">withBody</span><span class="p">(</span><span class="n">body</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">.</span><span class="na">andProperties</span><span class="p">(</span><span class="n">properties</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span></code></pre></div><h3 id="32-队列-ttl">3.2 队列 TTL</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 队列自动删除（没有消费者且没有消息后）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Queue</span><span class="w"> </span><span class="nf">autoDeleteQueue</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">args</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;x-expires&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">1800000</span><span class="p">);</span><span class="w">  </span><span class="c1">// 30 分钟无消费者自动删除</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">QueueBuilder</span><span class="p">.</span><span class="na">durable</span><span class="p">(</span><span class="s">&#34;queue.auto&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">withArguments</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// 方式一：队列统一设置
+@Bean
+public Queue queueWithTTL() {
+    Map&lt;String, Object&gt; args = new HashMap&lt;&gt;();
+    args.put(&quot;x-message-ttl&quot;, 60000);  // 队列中消息 60 秒过期
+    return QueueBuilder.durable(&quot;queue.ttl&quot;)
+            .withArguments(args)
+            .build();
+}
+
+// 方式二：消息单独设置
+MessageProperties properties = new MessageProperties();
+properties.setExpiration(&quot;30000&quot;);  // 此消息 30 秒过期
+Message msg = MessageBuilder.withBody(body)
+        .andProperties(properties)
+        .build();
+</code></pre>
+<h3 id="32-队列-ttl">3.2 队列 TTL</h3>
+<pre><code class="language-java">// 队列自动删除（没有消费者且没有消息后）
+@Bean
+public Queue autoDeleteQueue() {
+    Map&lt;String, Object&gt; args = new HashMap&lt;&gt;();
+    args.put(&quot;x-expires&quot;, 1800000);  // 30 分钟无消费者自动删除
+    return QueueBuilder.durable(&quot;queue.auto&quot;)
+            .withArguments(args)
+            .build();
+}
+</code></pre>
+<hr>
 <h2 id="四优先级队列">四、优先级队列</h2>
 <h3 id="41-配置">4.1 配置</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Queue</span><span class="w"> </span><span class="nf">priorityQueue</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">args</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;x-max-priority&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">10</span><span class="p">);</span><span class="w">  </span><span class="c1">// 优先级范围 0-10</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">QueueBuilder</span><span class="p">.</span><span class="na">durable</span><span class="p">(</span><span class="s">&#34;queue.priority&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">withArguments</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="42-发送优先级消息">4.2 发送优先级消息</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PriorityProducer</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">RabbitTemplate</span><span class="w"> </span><span class="n">rabbitTemplate</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">send</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">message</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">priority</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MessageProperties</span><span class="w"> </span><span class="n">properties</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MessageProperties</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">properties</span><span class="p">.</span><span class="na">setPriority</span><span class="p">(</span><span class="n">priority</span><span class="p">);</span><span class="w">  </span><span class="c1">// 设置优先级</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Message</span><span class="w"> </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MessageBuilder</span><span class="p">.</span><span class="na">withBody</span><span class="p">(</span><span class="n">message</span><span class="p">.</span><span class="na">getBytes</span><span class="p">())</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">andProperties</span><span class="p">(</span><span class="n">properties</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rabbitTemplate</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="s">&#34;exchange.priority&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;priority&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">msg</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 使用</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">priorityProducer</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="s">&#34;普通消息&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">0</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">priorityProducer</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="s">&#34;VIP消息&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">10</span><span class="p">);</span><span class="w">  </span><span class="c1">// VIP消息优先消费</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">@Bean
+public Queue priorityQueue() {
+    Map&lt;String, Object&gt; args = new HashMap&lt;&gt;();
+    args.put(&quot;x-max-priority&quot;, 10);  // 优先级范围 0-10
+    return QueueBuilder.durable(&quot;queue.priority&quot;)
+            .withArguments(args)
+            .build();
+}
+</code></pre>
+<h3 id="42-发送优先级消息">4.2 发送优先级消息</h3>
+<pre><code class="language-java">@Service
+public class PriorityProducer {
+    
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+    
+    public void send(String message, int priority) {
+        MessageProperties properties = new MessageProperties();
+        properties.setPriority(priority);  // 设置优先级
+        Message msg = MessageBuilder.withBody(message.getBytes())
+                .andProperties(properties)
+                .build();
+        
+        rabbitTemplate.send(&quot;exchange.priority&quot;, &quot;priority&quot;, msg);
+    }
+}
+
+// 使用
+priorityProducer.send(&quot;普通消息&quot;, 0);
+priorityProducer.send(&quot;VIP消息&quot;, 10);  // VIP消息优先消费
+</code></pre>
+<hr>
 <h2 id="五流量控制">五、流量控制</h2>
 <h3 id="51-prefetch-限制">5.1 Prefetch 限制</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spring</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">rabbitmq</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">listener</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">simple</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">prefetch</span><span class="p">:</span><span class="w"> </span><span class="m">10</span><span class="w">       </span><span class="c"># 消费者最多同时处理 10 条未确认消息</span><span class="w">
-</span></span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">SimpleRabbitListenerContainerFactory</span><span class="w"> </span><span class="nf">factory</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ConnectionFactory</span><span class="w"> </span><span class="n">connectionFactory</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">SimpleRabbitListenerContainerFactory</span><span class="w"> </span><span class="n">factory</span><span class="w"> </span><span class="o">=</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">SimpleRabbitListenerContainerFactory</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">factory</span><span class="p">.</span><span class="na">setPrefetchCount</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">factory</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="52-队列长度限制">5.2 队列长度限制</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Queue</span><span class="w"> </span><span class="nf">limitedQueue</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">args</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;x-max-length&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">10000</span><span class="p">);</span><span class="w">          </span><span class="c1">// 最多 10000 条</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">args</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;x-max-length-bytes&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">10485760</span><span class="p">);</span><span class="w"> </span><span class="c1">// 最大 10MB</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">args</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;x-overflow&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;drop-head&#34;</span><span class="p">);</span><span class="w">      </span><span class="c1">// 满时丢弃头部（默认）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// args.put(&#34;x-overflow&#34;, &#34;reject-publish&#34;); // 满时拒绝新消息</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">QueueBuilder</span><span class="p">.</span><span class="na">durable</span><span class="p">(</span><span class="s">&#34;queue.limited&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">withArguments</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-yaml">spring:
+  rabbitmq:
+    listener:
+      simple:
+        prefetch: 10       # 消费者最多同时处理 10 条未确认消息
+</code></pre>
+<pre><code class="language-java">@Bean
+public SimpleRabbitListenerContainerFactory factory(
+        ConnectionFactory connectionFactory) {
+    SimpleRabbitListenerContainerFactory factory = 
+            new SimpleRabbitListenerContainerFactory();
+    factory.setPrefetchCount(10);
+    return factory;
+}
+</code></pre>
+<h3 id="52-队列长度限制">5.2 队列长度限制</h3>
+<pre><code class="language-java">@Bean
+public Queue limitedQueue() {
+    Map&lt;String, Object&gt; args = new HashMap&lt;&gt;();
+    args.put(&quot;x-max-length&quot;, 10000);          // 最多 10000 条
+    args.put(&quot;x-max-length-bytes&quot;, 10485760); // 最大 10MB
+    args.put(&quot;x-overflow&quot;, &quot;drop-head&quot;);      // 满时丢弃头部（默认）
+    // args.put(&quot;x-overflow&quot;, &quot;reject-publish&quot;); // 满时拒绝新消息
+    return QueueBuilder.durable(&quot;queue.limited&quot;)
+            .withArguments(args)
+            .build();
+}
+</code></pre>
+<hr>
 <h2 id="六总结">六、总结</h2>
 <h3 id="高级特性速查">高级特性速查</h3>
 <table>
@@ -482,6 +495,9 @@
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

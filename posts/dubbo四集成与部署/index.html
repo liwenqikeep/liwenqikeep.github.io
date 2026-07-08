@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -106,154 +103,162 @@
 <p>本文覆盖 Dubbo 在生产环境中的集成与部署方案：<strong>Nacos 注册中心集群</strong>、<strong>Kubernetes 部署</strong>、<strong>服务网格（Service Mesh）</strong> 以及<strong>生产环境配置</strong>。</p>
 <h2 id="一nacos-注册中心集群">一、Nacos 注册中心集群</h2>
 <h3 id="11-集群配置">1.1 集群配置</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># Nacos 集群至少 3 节点，保证 Raft 多数存活</span>
-</span></span><span class="line"><span class="cl"><span class="c1"># application.properties</span>
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl"><span class="c1"># 集群节点</span>
-</span></span><span class="line"><span class="cl">nacos.member.list<span class="o">=</span><span class="se">\
-</span></span></span><span class="line"><span class="cl">192.168.1.10:8848,<span class="se">\
-</span></span></span><span class="line"><span class="cl">192.168.1.11:8848,<span class="se">\
-</span></span></span><span class="line"><span class="cl">192.168.1.12:8848
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl"><span class="c1"># 使用 MySQL 持久化</span>
-</span></span><span class="line"><span class="cl">spring.datasource.platform<span class="o">=</span>mysql
-</span></span><span class="line"><span class="cl">db.url.0<span class="o">=</span>jdbc:mysql://mysql:3306/nacos?characterEncoding<span class="o">=</span>utf8
-</span></span><span class="line"><span class="cl">db.user<span class="o">=</span>nacos
-</span></span><span class="line"><span class="cl">db.password<span class="o">=</span>nacos
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl"><span class="c1"># 开启认证</span>
-</span></span><span class="line"><span class="cl">nacos.core.auth.enabled<span class="o">=</span><span class="nb">true</span>
-</span></span></code></pre></div><h3 id="12-dubbo-客户端配置">1.2 Dubbo 客户端配置</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">dubbo</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">registry</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l">nacos://192.168.1.10:8848?backup=192.168.1.11:8848,192.168.1.12:8848</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># 或通过 Nacos 域名</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># address: nacos://nacos-cluster:8848</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-bash"># Nacos 集群至少 3 节点，保证 Raft 多数存活
+# application.properties
+
+# 集群节点
+nacos.member.list=\
+192.168.1.10:8848,\
+192.168.1.11:8848,\
+192.168.1.12:8848
+
+# 使用 MySQL 持久化
+spring.datasource.platform=mysql
+db.url.0=jdbc:mysql://mysql:3306/nacos?characterEncoding=utf8
+db.user=nacos
+db.password=nacos
+
+# 开启认证
+nacos.core.auth.enabled=true
+</code></pre>
+<h3 id="12-dubbo-客户端配置">1.2 Dubbo 客户端配置</h3>
+<pre><code class="language-yaml">dubbo:
+  registry:
+    address: nacos://192.168.1.10:8848?backup=192.168.1.11:8848,192.168.1.12:8848
+    # 或通过 Nacos 域名
+    # address: nacos://nacos-cluster:8848
+</code></pre>
+<hr>
 <h2 id="二zookeeper-注册中心">二、ZooKeeper 注册中心</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">dubbo</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">registry</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l">zookeeper://192.168.1.10:2181?backup=192.168.1.11:2181,192.168.1.12:2181</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="m">10000</span><span class="w">
-</span></span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- ZK 依赖 --&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;dependency&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;groupId&gt;</span>org.apache.dubbo<span class="nt">&lt;/groupId&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>dubbo-registry-zookeeper<span class="nt">&lt;/artifactId&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;/dependency&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;dependency&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;groupId&gt;</span>org.apache.curator<span class="nt">&lt;/groupId&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;artifactId&gt;</span>curator-framework<span class="nt">&lt;/artifactId&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;version&gt;</span>5.1.0<span class="nt">&lt;/version&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;/dependency&gt;</span>
-</span></span></code></pre></div><hr>
+<pre><code class="language-yaml">dubbo:
+  registry:
+    address: zookeeper://192.168.1.10:2181?backup=192.168.1.11:2181,192.168.1.12:2181
+    timeout: 10000
+</code></pre>
+<pre><code class="language-xml">&lt;!-- ZK 依赖 --&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.apache.dubbo&lt;/groupId&gt;
+    &lt;artifactId&gt;dubbo-registry-zookeeper&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.apache.curator&lt;/groupId&gt;
+    &lt;artifactId&gt;curator-framework&lt;/artifactId&gt;
+    &lt;version&gt;5.1.0&lt;/version&gt;
+&lt;/dependency&gt;
+</code></pre>
+<hr>
 <h2 id="三kubernetes-部署">三、Kubernetes 部署</h2>
 <h3 id="31-不使用注册中心">3.1 不使用注册中心</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># 在 Kubernetes 中，可以直接通过 Service 名调用</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c"># 替代注册中心</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">dubbo</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">registry</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="kc">N</span><span class="l">/A </span><span class="w"> </span><span class="c"># 不使用注册中心</span><span class="w">
-</span></span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># Kubernetes Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">v1</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-provider</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">selector</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-provider</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ports</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l">TCP</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="m">20880</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">targetPort</span><span class="p">:</span><span class="w"> </span><span class="m">20880</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c"># StatefulSet（Dubbo 需要稳定的 Pod 名称）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">apps/v1</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">StatefulSet</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-provider</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceName</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-provider</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">replicas</span><span class="p">:</span><span class="w"> </span><span class="m">3</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">selector</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">matchLabels</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-provider</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">template</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">metadata</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">labels</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-provider</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">spec</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">containers</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-provider</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-provider:latest</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">ports</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span>- <span class="nt">containerPort</span><span class="p">:</span><span class="w"> </span><span class="m">20880</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c"># 消费者</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">apps/v1</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Deployment</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-consumer</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">replicas</span><span class="p">:</span><span class="w"> </span><span class="m">2</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">selector</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">matchLabels</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-consumer</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">template</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">metadata</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">labels</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-consumer</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">spec</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">containers</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-consumer</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo-consumer:latest</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">env</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">DUBBO_REGISTRY_ADDRESS</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">              </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="kc">N</span><span class="l">/A</span><span class="w">
-</span></span></span></code></pre></div><h3 id="32-使用-nacos--k8s">3.2 使用 Nacos + K8s</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># Nacos 也部署在 K8s 中</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">dubbo</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">registry</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l">nacos://nacos:8848</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-yaml"># 在 Kubernetes 中，可以直接通过 Service 名调用
+# 替代注册中心
+
+dubbo:
+  registry:
+    address: N/A  # 不使用注册中心
+</code></pre>
+<pre><code class="language-yaml"># Kubernetes Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: dubbo-provider
+spec:
+  selector:
+    app: dubbo-provider
+  ports:
+    - name: dubbo
+      protocol: TCP
+      port: 20880
+      targetPort: 20880
+---
+# StatefulSet（Dubbo 需要稳定的 Pod 名称）
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dubbo-provider
+spec:
+  serviceName: dubbo-provider
+  replicas: 3
+  selector:
+    matchLabels:
+      app: dubbo-provider
+  template:
+    metadata:
+      labels:
+        app: dubbo-provider
+    spec:
+      containers:
+        - name: dubbo-provider
+          image: dubbo-provider:latest
+          ports:
+            - containerPort: 20880
+---
+# 消费者
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dubbo-consumer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dubbo-consumer
+  template:
+    metadata:
+      labels:
+        app: dubbo-consumer
+    spec:
+      containers:
+        - name: dubbo-consumer
+          image: dubbo-consumer:latest
+          env:
+            - name: DUBBO_REGISTRY_ADDRESS
+              value: N/A
+</code></pre>
+<h3 id="32-使用-nacos--k8s">3.2 使用 Nacos + K8s</h3>
+<pre><code class="language-yaml"># Nacos 也部署在 K8s 中
+dubbo:
+  registry:
+    address: nacos://nacos:8848
+</code></pre>
+<hr>
 <h2 id="四生产环境配置">四、生产环境配置</h2>
 <h3 id="41-完整配置">4.1 完整配置</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">dubbo</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">application</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">user-service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">qos-enable</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">qos-port</span><span class="p">:</span><span class="w"> </span><span class="m">22222</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">qos-accept-foreign-ip</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="w">  </span><span class="c"># 禁止外部访问 QOS</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">registry</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l">nacos://nacos-cluster:8848</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">register</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">subscribe</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">check</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="m">15000</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">protocol</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span>-<span class="m">1</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">serialization</span><span class="p">:</span><span class="w"> </span><span class="l">hessian2</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">threads</span><span class="p">:</span><span class="w"> </span><span class="m">200</span><span class="w">          </span><span class="c"># 线程池大小</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">threadpool</span><span class="p">:</span><span class="w"> </span><span class="l">fixed    </span><span class="w"> </span><span class="c"># 线程池类型（fixed/cached/limited）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">accepts</span><span class="p">:</span><span class="w"> </span><span class="m">1000</span><span class="w">         </span><span class="c"># 最大连接数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">provider</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="m">5000</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="m">2</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">loadbalance</span><span class="p">:</span><span class="w"> </span><span class="l">leastactive</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">filter</span><span class="p">:</span><span class="w"> </span><span class="s1">&#39;-exception&#39;</span><span class="w">  </span><span class="c"># 排除某些 Filter</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">consumer</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="m">5000</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="m">0</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">check</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">loadbalance</span><span class="p">:</span><span class="w"> </span><span class="l">roundrobin</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">filter</span><span class="p">:</span><span class="w"> </span><span class="l">customLog,traceId</span><span class="w">
-</span></span></span></code></pre></div><h3 id="42-常见配置">4.2 常见配置</h3>
+<pre><code class="language-yaml">dubbo:
+  application:
+    name: user-service
+    qos-enable: true
+    qos-port: 22222
+    qos-accept-foreign-ip: false  # 禁止外部访问 QOS
+  
+  registry:
+    address: nacos://nacos-cluster:8848
+    register: true
+    subscribe: true
+    check: false
+    timeout: 15000
+  
+  protocol:
+    name: dubbo
+    port: -1
+    serialization: hessian2
+    threads: 200          # 线程池大小
+    threadpool: fixed     # 线程池类型（fixed/cached/limited）
+    accepts: 1000         # 最大连接数
+  
+  provider:
+    timeout: 5000
+    retries: 2
+    loadbalance: leastactive
+    filter: '-exception'  # 排除某些 Filter
+  
+  consumer:
+    timeout: 5000
+    retries: 0
+    check: false
+    loadbalance: roundrobin
+    filter: customLog,traceId
+</code></pre>
+<h3 id="42-常见配置">4.2 常见配置</h3>
 <table>
 	<thead>
 			<tr>
@@ -293,7 +298,7 @@
 <hr>
 <h2 id="五服务网格service-mesh">五、服务网格（Service Mesh）</h2>
 <p>Dubbo 3.x 支持 Service Mesh 架构，可以将通信能力下沉到 Sidecar。</p>
-<pre tabindex="0"><code>Dubbo 3.x 的 Mesh 架构：
+<pre><code>Dubbo 3.x 的 Mesh 架构：
 
 应用进程
   ├── Dubbo API（业务逻辑）
@@ -305,36 +310,39 @@ Sidecar（Envoy / Proxyless）
   ├── 熔断
   ├── 限流
   └── 可观测性
-</code></pre><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># Proxyless 模式（Dubbo 3.x）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nt">dubbo</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">application</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">user-service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">registry</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l">nacos://nacos-cluster:8848</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">protocol</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">tri   </span><span class="w"> </span><span class="c"># Triple 协议（基于 HTTP/2）</span><span class="w">
-</span></span></span></code></pre></div><hr>
+</code></pre>
+<pre><code class="language-yaml"># Proxyless 模式（Dubbo 3.x）
+dubbo:
+  application:
+    name: user-service
+  registry:
+    address: nacos://nacos-cluster:8848
+  protocol:
+    name: tri    # Triple 协议（基于 HTTP/2）
+</code></pre>
+<hr>
 <h2 id="六总结">六、总结</h2>
 <h3 id="dubbo-生产配置速查">Dubbo 生产配置速查</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">dubbo</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">application</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">user-service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">registry</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l">nacos://nacos-cluster:8848</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">check</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">protocol</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dubbo</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span>-<span class="m">1</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">threads</span><span class="p">:</span><span class="w"> </span><span class="m">200</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">provider</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="m">5000</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="m">2</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">loadbalance</span><span class="p">:</span><span class="w"> </span><span class="l">leastactive</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">consumer</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="m">5000</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="m">0</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">check</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="w">
-</span></span></span></code></pre></div><h3 id="集成方案速查">集成方案速查</h3>
+<pre><code class="language-yaml">dubbo:
+  application:
+    name: user-service
+  registry:
+    address: nacos://nacos-cluster:8848
+    check: false
+  protocol:
+    name: dubbo
+    port: -1
+    threads: 200
+  provider:
+    timeout: 5000
+    retries: 2
+    loadbalance: leastactive
+  consumer:
+    timeout: 5000
+    retries: 0
+    check: false
+</code></pre>
+<h3 id="集成方案速查">集成方案速查</h3>
 <table>
 	<thead>
 			<tr>
@@ -403,6 +411,9 @@ Sidecar（Envoy / Proxyless）
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

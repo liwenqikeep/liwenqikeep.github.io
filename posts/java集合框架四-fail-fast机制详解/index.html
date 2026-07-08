@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -131,111 +128,118 @@
         <div class="page-content">
             <h2 id="前言">前言</h2>
 <p>在使用 Java 集合的迭代器遍历时，你一定遇到过这个异常：</p>
-<pre tabindex="0"><code>java.util.ConcurrentModificationException
-</code></pre><p>这就是 <strong>fail-fast（快速失败）</strong> 机制在起作用。这篇文章我们来深入理解它的原理、作用和如何避免。</p>
+<pre><code>java.util.ConcurrentModificationException
+</code></pre>
+<p>这就是 <strong>fail-fast（快速失败）</strong> 机制在起作用。这篇文章我们来深入理解它的原理、作用和如何避免。</p>
 <h2 id="什么是-fail-fast">什么是 fail-fast？</h2>
 <p>fail-fast 是 Java 集合框架的一种<strong>错误检测机制</strong>。</p>
 <p>当你在迭代遍历集合的过程中，如果检测到集合被<strong>结构性修改</strong>（添加、删除元素），就会立即抛出 <code>ConcurrentModificationException</code>，而不是等到迭代结束才发现问题。</p>
 <h3 id="结构性修改-vs-非结构性修改">结构性修改 vs 非结构性修改</h3>
-<pre tabindex="0"><code>结构性修改：
+<pre><code>结构性修改：
   • add()、remove()、clear() 等改变集合大小的操作
   • 集合的内部结构发生了变化
 
 非结构性修改：
   • set() 替换已有元素（不改变集合大小）
   • 修改集合中某个元素的属性（如果是可变对象）
-</code></pre><h3 id="触发-fail-fast-的经典场景">触发 fail-fast 的经典场景</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;A&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;B&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;C&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 用 foreach 遍历（底层就是迭代器）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">list</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="s">&#34;B&#34;</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">s</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">list</span><span class="p">.</span><span class="na">remove</span><span class="p">(</span><span class="n">s</span><span class="p">);</span><span class="w">  </span><span class="c1">// ❌ ConcurrentModificationException！</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="modcount-计数器">modCount 计数器</h2>
+</code></pre>
+<h3 id="触发-fail-fast-的经典场景">触发 fail-fast 的经典场景</h3>
+<pre><code class="language-java">List&lt;String&gt; list = new ArrayList&lt;&gt;();
+list.add(&quot;A&quot;);
+list.add(&quot;B&quot;);
+list.add(&quot;C&quot;);
+
+// 用 foreach 遍历（底层就是迭代器）
+for (String s : list) {
+    if (&quot;B&quot;.equals(s)) {
+        list.remove(s);  // ❌ ConcurrentModificationException！
+    }
+}
+</code></pre>
+<h2 id="modcount-计数器">modCount 计数器</h2>
 <p>fail-fast 的实现依赖于 <strong>modCount</strong> 这个字段。</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractList 中的定义</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="kd">transient</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">modCount</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
-</span></span></span></code></pre></div><h3 id="modcount-的语义">modCount 的语义</h3>
-<pre tabindex="0"><code>modCount：记录集合被结构性修改的次数
+<pre><code class="language-java">// AbstractList 中的定义
+protected transient int modCount = 0;
+</code></pre>
+<h3 id="modcount-的语义">modCount 的语义</h3>
+<pre><code>modCount：记录集合被结构性修改的次数
 
 • 每次 add()、remove()、clear() → modCount++
 • 每次迭代器创建时 → 记录初始 modCount（expectedModCount）
 • 每次 next()/remove() 时 → 检查 modCount == expectedModCount
-</code></pre><h3 id="modcount-变化的时机">modCount 变化的时机</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ArrayList.add() 方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="n">E</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ensureCapacityInternal</span><span class="p">(</span><span class="n">size</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">1</span><span class="p">);</span><span class="w">  </span><span class="c1">// 可能触发扩容</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">elementData</span><span class="o">[</span><span class="n">size</span><span class="o">++]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">e</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 最终调用的是 AbstractList 的以下方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="n">modCount</span><span class="o">++</span><span class="w">  </span><span class="c1">// 每次结构性修改</span><span class="w">
-</span></span></span></code></pre></div><h2 id="迭代器的实现原理">迭代器的实现原理</h2>
+</code></pre>
+<h3 id="modcount-变化的时机">modCount 变化的时机</h3>
+<pre><code class="language-java">// ArrayList.add() 方法
+public boolean add(E e) {
+    ensureCapacityInternal(size + 1);  // 可能触发扩容
+    elementData[size++] = e;
+    return true;
+}
+
+// 最终调用的是 AbstractList 的以下方法
+protected void modCount++  // 每次结构性修改
+</code></pre>
+<h2 id="迭代器的实现原理">迭代器的实现原理</h2>
 <h3 id="arraylist-的迭代器---itr">ArrayList 的迭代器 - Itr</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ArrayList.iterator() 返回的迭代器</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Itr</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Iterator</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">cursor</span><span class="p">;</span><span class="w">          </span><span class="c1">// 下一个要返回的元素的索引</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">lastRet</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">;</span><span class="w">    </span><span class="c1">// 上一次返回的元素的索引，-1 表示没有</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">expectedModCount</span><span class="p">;</span><span class="w"> </span><span class="c1">// 创建迭代器时记录的 modCount</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Itr</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 创建迭代器时，保存当前的 modCount</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">expectedModCount</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">modCount</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">hasNext</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">cursor</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@SuppressWarnings</span><span class="p">(</span><span class="s">&#34;unchecked&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">E</span><span class="w"> </span><span class="nf">next</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 核心检查！</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">checkForComodification</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cursor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">NoSuchElementException</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">elementData</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ArrayList</span><span class="p">.</span><span class="na">this</span><span class="p">.</span><span class="na">elementData</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">elementData</span><span class="p">.</span><span class="na">length</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ConcurrentModificationException</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">cursor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">1</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">E</span><span class="p">)</span><span class="w"> </span><span class="n">elementData</span><span class="o">[</span><span class="n">lastRet</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">i</span><span class="o">]</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// fail-fast 检查</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">final</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">checkForComodification</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">modCount</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">expectedModCount</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ConcurrentModificationException</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">remove</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">lastRet</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalStateException</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">checkForComodification</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">ArrayList</span><span class="p">.</span><span class="na">this</span><span class="p">.</span><span class="na">remove</span><span class="p">(</span><span class="n">lastRet</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">cursor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lastRet</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">lastRet</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 关键！同步 expectedModCount</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">expectedModCount</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">modCount</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">IndexOutOfBoundsException</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ConcurrentModificationException</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="关键流程图">关键流程图</h3>
-<pre tabindex="0"><code>创建迭代器时：
+<pre><code class="language-java">// ArrayList.iterator() 返回的迭代器
+private class Itr implements Iterator&lt;E&gt; {
+    int cursor;          // 下一个要返回的元素的索引
+    int lastRet = -1;    // 上一次返回的元素的索引，-1 表示没有
+    int expectedModCount; // 创建迭代器时记录的 modCount
+    
+    Itr() {
+        // 创建迭代器时，保存当前的 modCount
+        expectedModCount = modCount;
+    }
+    
+    public boolean hasNext() {
+        return cursor != size;
+    }
+    
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public E next() {
+        // 核心检查！
+        checkForComodification();
+        
+        int i = cursor;
+        if (i &gt;= size) {
+            throw new NoSuchElementException();
+        }
+        Object[] elementData = ArrayList.this.elementData;
+        if (i &gt;= elementData.length) {
+            throw new ConcurrentModificationException();
+        }
+        cursor = i + 1;
+        return (E) elementData[lastRet = i];
+    }
+    
+    // fail-fast 检查
+    final void checkForComodification() {
+        if (modCount != expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+    }
+    
+    public void remove() {
+        if (lastRet &lt; 0) {
+            throw new IllegalStateException();
+        }
+        checkForComodification();
+        
+        try {
+            ArrayList.this.remove(lastRet);
+            cursor = lastRet;
+            lastRet = -1;
+            // 关键！同步 expectedModCount
+            expectedModCount = modCount;
+        } catch (IndexOutOfBoundsException ex) {
+            throw new ConcurrentModificationException();
+        }
+    }
+}
+</code></pre>
+<h3 id="关键流程图">关键流程图</h3>
+<pre><code>创建迭代器时：
 ┌─────────────────────────────────────────────────┐
 │  expectedModCount = modCount（当前值）          │
 │  例如：expectedModCount = 5                      │
@@ -254,40 +258,42 @@
 │  expectedModCount = modCount（同步）            │
 │  所以不会抛出异常                                │
 └─────────────────────────────────────────────────┘
-</code></pre><h2 id="为什么会抛出异常">为什么会抛出异常？</h2>
+</code></pre>
+<h2 id="为什么会抛出异常">为什么会抛出异常？</h2>
 <h3 id="场景还原">场景还原</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;A&#34;</span><span class="p">);</span><span class="w">  </span><span class="c1">// modCount = 1</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;B&#34;</span><span class="p">);</span><span class="w">  </span><span class="c1">// modCount = 2</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;C&#34;</span><span class="p">);</span><span class="w">  </span><span class="c1">// modCount = 3</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">Iterator</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">it</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">list</span><span class="p">.</span><span class="na">iterator</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 此时：expectedModCount = modCount = 3</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// foreach 底层调用 it.next()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">list</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="s">&#34;B&#34;</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">s</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">list</span><span class="p">.</span><span class="na">remove</span><span class="p">(</span><span class="n">s</span><span class="p">);</span><span class="w">  </span><span class="c1">// modCount = 4（结构性修改！）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 但 expectedModCount 仍然是 3</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 下一次调用 it.next() 时</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">it</span><span class="p">.</span><span class="na">next</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// checkForComodification()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// if (4 != 3) → throw ConcurrentModificationException</span><span class="w">
-</span></span></span></code></pre></div><h3 id="示意图">示意图</h3>
-<pre tabindex="0"><code>                    modCount vs expectedModCount
+<pre><code class="language-java">List&lt;String&gt; list = new ArrayList&lt;&gt;();
+list.add(&quot;A&quot;);  // modCount = 1
+list.add(&quot;B&quot;);  // modCount = 2
+list.add(&quot;C&quot;);  // modCount = 3
+
+Iterator&lt;String&gt; it = list.iterator();
+// 此时：expectedModCount = modCount = 3
+
+// foreach 底层调用 it.next()
+for (String s : list) {
+    if (&quot;B&quot;.equals(s)) {
+        list.remove(s);  // modCount = 4（结构性修改！）
+        // 但 expectedModCount 仍然是 3
+    }
+}
+
+// 下一次调用 it.next() 时
+it.next();
+// checkForComodification()
+// if (4 != 3) → throw ConcurrentModificationException
+</code></pre>
+<h3 id="示意图">示意图</h3>
+<pre><code>                    modCount vs expectedModCount
 
   ┌─────────────────────────────────────────────────────────┐
   │                                                          │
-  │  list.add(&#34;A&#34;)    list.add(&#34;B&#34;)    list.add(&#34;C&#34;)         │
+  │  list.add(&quot;A&quot;)    list.add(&quot;B&quot;)    list.add(&quot;C&quot;)         │
   │       ↓               ↓               ↓                │
   │  modCount=1       modCount=2       modCount=3           │
   │                                                          │
   │  创建迭代器：expectedModCount = modCount = 3             │
   │                                                          │
-  │  list.remove(&#34;B&#34;)                                       │
+  │  list.remove(&quot;B&quot;)                                       │
   │       ↓                                                  │
   │  modCount=4   ← 改变了！                                 │
   │                                                          │
@@ -296,75 +302,83 @@
   │  if (4 != 3) → ConcurrentModificationException           │
   │                                                          │
   └─────────────────────────────────────────────────────────┘
-</code></pre><h2 id="正确删除元素的方式">正确删除元素的方式</h2>
+</code></pre>
+<h2 id="正确删除元素的方式">正确删除元素的方式</h2>
 <h3 id="方式一使用迭代器的-remove">方式一：使用迭代器的 remove()</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;A&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;B&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;C&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">Iterator</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">it</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">list</span><span class="p">.</span><span class="na">iterator</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">it</span><span class="p">.</span><span class="na">hasNext</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">it</span><span class="p">.</span><span class="na">next</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="s">&#34;B&#34;</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">s</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">it</span><span class="p">.</span><span class="na">remove</span><span class="p">();</span><span class="w">  </span><span class="c1">// ✅ 正确：迭代器自己的 remove 方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// list: [&#34;A&#34;, &#34;C&#34;]</span><span class="w">
-</span></span></span></code></pre></div><h3 id="方式二使用-removeifjdk-8">方式二：使用 removeIf()（JDK 8+）</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;A&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;B&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;C&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// ✅ JDK 8+ 推荐方式</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">removeIf</span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="s">&#34;B&#34;</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">s</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// list: [&#34;A&#34;, &#34;C&#34;]</span><span class="w">
-</span></span></span></code></pre></div><h3 id="方式三倒序遍历避免索引问题">方式三：倒序遍历避免索引问题</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;A&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;B&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;C&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// ✅ 倒序遍历，删除元素不影响前面的索引</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">list</span><span class="p">.</span><span class="na">size</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">1</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">--</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="s">&#34;B&#34;</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">list</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">i</span><span class="p">)))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">list</span><span class="p">.</span><span class="na">remove</span><span class="p">(</span><span class="n">i</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="方式四使用-copyonwritearraylist">方式四：使用 CopyOnWriteArrayList</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 如果需要在遍历时删除，使用并发集合</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CopyOnWriteArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;A&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;B&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;C&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">list</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="s">&#34;B&#34;</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">s</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">list</span><span class="p">.</span><span class="na">remove</span><span class="p">(</span><span class="n">s</span><span class="p">);</span><span class="w">  </span><span class="c1">// ✅ CopyOnWriteArrayList 不会抛异常</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="modcount-的使用位置">modCount 的使用位置</h2>
+<pre><code class="language-java">List&lt;String&gt; list = new ArrayList&lt;&gt;();
+list.add(&quot;A&quot;);
+list.add(&quot;B&quot;);
+list.add(&quot;C&quot;);
+
+Iterator&lt;String&gt; it = list.iterator();
+while (it.hasNext()) {
+    String s = it.next();
+    if (&quot;B&quot;.equals(s)) {
+        it.remove();  // ✅ 正确：迭代器自己的 remove 方法
+    }
+}
+// list: [&quot;A&quot;, &quot;C&quot;]
+</code></pre>
+<h3 id="方式二使用-removeifjdk-8">方式二：使用 removeIf()（JDK 8+）</h3>
+<pre><code class="language-java">List&lt;String&gt; list = new ArrayList&lt;&gt;();
+list.add(&quot;A&quot;);
+list.add(&quot;B&quot;);
+list.add(&quot;C&quot;);
+
+// ✅ JDK 8+ 推荐方式
+list.removeIf(s -&gt; &quot;B&quot;.equals(s));
+// list: [&quot;A&quot;, &quot;C&quot;]
+</code></pre>
+<h3 id="方式三倒序遍历避免索引问题">方式三：倒序遍历避免索引问题</h3>
+<pre><code class="language-java">List&lt;String&gt; list = new ArrayList&lt;&gt;();
+list.add(&quot;A&quot;);
+list.add(&quot;B&quot;);
+list.add(&quot;C&quot;);
+
+// ✅ 倒序遍历，删除元素不影响前面的索引
+for (int i = list.size() - 1; i &gt;= 0; i--) {
+    if (&quot;B&quot;.equals(list.get(i))) {
+        list.remove(i);
+    }
+}
+</code></pre>
+<h3 id="方式四使用-copyonwritearraylist">方式四：使用 CopyOnWriteArrayList</h3>
+<pre><code class="language-java">// 如果需要在遍历时删除，使用并发集合
+List&lt;String&gt; list = new CopyOnWriteArrayList&lt;&gt;();
+list.add(&quot;A&quot;);
+list.add(&quot;B&quot;);
+list.add(&quot;C&quot;);
+
+for (String s : list) {
+    if (&quot;B&quot;.equals(s)) {
+        list.remove(s);  // ✅ CopyOnWriteArrayList 不会抛异常
+    }
+}
+</code></pre>
+<h2 id="modcount-的使用位置">modCount 的使用位置</h2>
 <p>modCount 定义在 <strong>AbstractCollection</strong> 和 <strong>AbstractList</strong> 中：</p>
-<pre tabindex="0"><code>AbstractCollection
+<pre><code>AbstractCollection
     └── AbstractList (modCount 在这里定义)
             ├── ArrayList
             ├── LinkedList
             ├── Vector
             └── ...
-</code></pre><h3 id="哪些操作会修改-modcount">哪些操作会修改 modCount？</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractList.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="kd">transient</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">modCount</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 结构性修改会 modCount++</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">index</span><span class="p">,</span><span class="w"> </span><span class="n">E</span><span class="w"> </span><span class="n">element</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">modCount</span><span class="o">++</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">E</span><span class="w"> </span><span class="nf">remove</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">index</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">modCount</span><span class="o">++</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">clear</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">modCount</span><span class="o">++</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="哪些操作不会修改-modcount">哪些操作不会修改 modCount？</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 非结构性修改，不改变 modCount</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">E</span><span class="w"> </span><span class="nf">set</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">index</span><span class="p">,</span><span class="w"> </span><span class="n">E</span><span class="w"> </span><span class="n">element</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span><span class="w">  </span><span class="c1">// 替换，不改变大小</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">E</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">index</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span><span class="w">             </span><span class="c1">// 获取，不改变结构</span><span class="w">
-</span></span></span></code></pre></div><h2 id="fail-safe-vs-fail-fast">fail-safe vs fail-fast</h2>
+</code></pre>
+<h3 id="哪些操作会修改-modcount">哪些操作会修改 modCount？</h3>
+<pre><code class="language-java">// AbstractList.java
+protected transient int modCount = 0;
+
+// 结构性修改会 modCount++
+public void add(int index, E element) { modCount++; }
+public E remove(int index) { modCount++; }
+public void clear() { modCount++; }
+</code></pre>
+<h3 id="哪些操作不会修改-modcount">哪些操作不会修改 modCount？</h3>
+<pre><code class="language-java">// 非结构性修改，不改变 modCount
+public E set(int index, E element) { }  // 替换，不改变大小
+public E get(int index) { }             // 获取，不改变结构
+</code></pre>
+<h2 id="fail-safe-vs-fail-fast">fail-safe vs fail-fast</h2>
 <table>
 	<thead>
 			<tr>
@@ -402,19 +416,20 @@
 	</tbody>
 </table>
 <h3 id="fail-safe-示例">fail-safe 示例</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// CopyOnWriteArrayList 的迭代器遍历的是一份快照</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">CopyOnWriteArrayList</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CopyOnWriteArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;A&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;B&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">Iterator</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">it</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">list</span><span class="p">.</span><span class="na">iterator</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">list</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&#34;C&#34;</span><span class="p">);</span><span class="w">  </span><span class="c1">// 修改了原集合</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">it</span><span class="p">.</span><span class="na">hasNext</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="n">it</span><span class="p">.</span><span class="na">next</span><span class="p">());</span><span class="w">  </span><span class="c1">// 仍然只输出 A、B</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 不会输出 C，因为迭代器遍历的是创建时的快照</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="常见面试题">常见面试题</h2>
+<pre><code class="language-java">// CopyOnWriteArrayList 的迭代器遍历的是一份快照
+CopyOnWriteArrayList&lt;String&gt; list = new CopyOnWriteArrayList&lt;&gt;();
+list.add(&quot;A&quot;);
+list.add(&quot;B&quot;);
+
+Iterator&lt;String&gt; it = list.iterator();
+list.add(&quot;C&quot;);  // 修改了原集合
+
+while (it.hasNext()) {
+    System.out.println(it.next());  // 仍然只输出 A、B
+    // 不会输出 C，因为迭代器遍历的是创建时的快照
+}
+</code></pre>
+<h2 id="常见面试题">常见面试题</h2>
 <h3 id="q1fail-fast-机制是什么">Q1：fail-fast 机制是什么？</h3>
 <p><strong>答</strong>：fail-fast 是 Java 集合的一种错误检测机制。当迭代器遍历集合时，如果检测到集合被结构性修改，会立即抛出 ConcurrentModificationException。实现依赖于 modCount 计数器，每次结构性修改 modCount++，迭代器创建时记录 expectedModCount，遍历时比较两者是否相等。</p>
 <h3 id="q2如何避免-concurrentmodificationexception">Q2：如何避免 ConcurrentModificationException？</h3>
@@ -429,18 +444,19 @@
 <p><strong>答</strong>：modCount 是为了支持 fail-fast 机制，不参与序列化。transient 表示该字段不参与序列化，反序列化后 modCount 会被重置为 0，这符合设计意图（反序列化后的集合是&quot;新&quot;的）。</p>
 <h3 id="q4foreach-和-iterator-的关系">Q4：foreach 和 iterator 的关系？</h3>
 <p><strong>答</strong>：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 编译后等价于：</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">list</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ...</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 编译后的代码：</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">Iterator</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">it</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">list</span><span class="p">.</span><span class="na">iterator</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">it</span><span class="p">.</span><span class="na">hasNext</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">it</span><span class="p">.</span><span class="na">next</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ...</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// 编译后等价于：
+for (String s : list) {
+    // ...
+}
+
+// 编译后的代码：
+Iterator&lt;String&gt; it = list.iterator();
+while (it.hasNext()) {
+    String s = it.next();
+    // ...
+}
+</code></pre>
+<hr>
 <h2 id="总结">总结</h2>
 <ol>
 <li><strong>fail-fast</strong>：结构性修改集合时，迭代器检测到会抛异常</li>
@@ -504,6 +520,9 @@
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

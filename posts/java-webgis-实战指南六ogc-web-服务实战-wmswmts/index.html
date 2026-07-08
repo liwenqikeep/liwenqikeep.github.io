@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -99,7 +96,7 @@
 </ul>
 </blockquote>
 <h2 id="一wms-服务原理">一、WMS 服务原理</h2>
-<pre tabindex="0"><code>WMS 请求流程：
+<pre><code>WMS 请求流程：
 
 GetMap?BBOX=minX,minY,maxX,maxY&amp;WIDTH=256&amp;HEIGHT=256&amp;LAYERS=layer&amp;FORMAT=image/png
 
@@ -107,150 +104,154 @@ GetMap?BBOX=minX,minY,maxX,maxY&amp;WIDTH=256&amp;HEIGHT=256&amp;LAYERS=layer&am
 2. 根据 BBOX 查询空间数据
 3. 使用 GeoTools 渲染为 PNG 图片
 4. 返回图片给前端
-</code></pre><h2 id="二wms-服务实现">二、WMS 服务实现</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@RestController</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@RequestMapping</span><span class="p">(</span><span class="s">&#34;/wms&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@RequiredArgsConstructor</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">WmsController</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">SpatialFeatureRepository</span><span class="w"> </span><span class="n">repository</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@GetMapping</span><span class="p">(</span><span class="s">&#34;/map&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">ResponseEntity</span><span class="o">&lt;</span><span class="kt">byte</span><span class="o">[]&gt;</span><span class="w"> </span><span class="nf">getMap</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nd">@RequestParam</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">bboxMinX</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nd">@RequestParam</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">bboxMinY</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nd">@RequestParam</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">bboxMaxX</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nd">@RequestParam</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">bboxMaxY</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nd">@RequestParam</span><span class="p">(</span><span class="n">defaultValue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;256&#34;</span><span class="p">)</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">width</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nd">@RequestParam</span><span class="p">(</span><span class="n">defaultValue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;256&#34;</span><span class="p">)</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">height</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nd">@RequestParam</span><span class="p">(</span><span class="n">defaultValue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;image/png&#34;</span><span class="p">)</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">format</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 查询空间数据</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">SpatialFeature</span><span class="o">&gt;</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">repository</span><span class="p">.</span><span class="na">findByBbox</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">bboxMinX</span><span class="p">,</span><span class="w"> </span><span class="n">bboxMinY</span><span class="p">,</span><span class="w"> </span><span class="n">bboxMaxX</span><span class="p">,</span><span class="w"> </span><span class="n">bboxMaxY</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 渲染地图图片</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">imageBytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">renderMap</span><span class="p">(</span><span class="n">features</span><span class="p">,</span><span class="w"> </span><span class="n">bboxMinX</span><span class="p">,</span><span class="w"> </span><span class="n">bboxMinY</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">bboxMaxX</span><span class="p">,</span><span class="w"> </span><span class="n">bboxMaxY</span><span class="p">,</span><span class="w"> </span><span class="n">width</span><span class="p">,</span><span class="w"> </span><span class="n">height</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">ResponseEntity</span><span class="p">.</span><span class="na">ok</span><span class="p">()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">contentType</span><span class="p">(</span><span class="n">MediaType</span><span class="p">.</span><span class="na">IMAGE_PNG</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">body</span><span class="p">(</span><span class="n">imageBytes</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="nf">renderMap</span><span class="p">(</span><span class="n">List</span><span class="o">&lt;</span><span class="n">SpatialFeature</span><span class="o">&gt;</span><span class="w"> </span><span class="n">features</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="kt">double</span><span class="w"> </span><span class="n">minX</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">minY</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="kt">double</span><span class="w"> </span><span class="n">maxX</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">maxY</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="kt">int</span><span class="w"> </span><span class="n">width</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">height</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 创建地图</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MapContent</span><span class="w"> </span><span class="n">map</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MapContent</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">map</span><span class="p">.</span><span class="na">setTitle</span><span class="p">(</span><span class="s">&#34;WebGIS Map&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 创建样式</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Style</span><span class="w"> </span><span class="n">style</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SLD</span><span class="p">.</span><span class="na">createSimpleStyle</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">createFeatureType</span><span class="p">(),</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">Color</span><span class="p">.</span><span class="na">RED</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 创建图层</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">FeatureCollection</span><span class="o">&lt;</span><span class="n">SimpleFeatureType</span><span class="p">,</span><span class="w"> </span><span class="n">SimpleFeature</span><span class="o">&gt;</span><span class="w"> </span><span class="n">collection</span><span class="w"> </span><span class="o">=</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">buildFeatureCollection</span><span class="p">(</span><span class="n">features</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">FeatureLayer</span><span class="w"> </span><span class="n">layer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FeatureLayer</span><span class="p">(</span><span class="n">collection</span><span class="p">,</span><span class="w"> </span><span class="n">style</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">map</span><span class="p">.</span><span class="na">addLayer</span><span class="p">(</span><span class="n">layer</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 渲染</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ReferencedEnvelope</span><span class="w"> </span><span class="n">bounds</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ReferencedEnvelope</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">minX</span><span class="p">,</span><span class="w"> </span><span class="n">maxX</span><span class="p">,</span><span class="w"> </span><span class="n">minY</span><span class="p">,</span><span class="w"> </span><span class="n">maxY</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">DefaultGeographicCRS</span><span class="p">.</span><span class="na">WGS84</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">GTRenderer</span><span class="w"> </span><span class="n">renderer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">GTRenderer</span><span class="p">(</span><span class="n">map</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">BufferedImage</span><span class="w"> </span><span class="n">image</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">BufferedImage</span><span class="p">(</span><span class="n">width</span><span class="p">,</span><span class="w"> </span><span class="n">height</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">BufferedImage</span><span class="p">.</span><span class="na">TYPE_INT_ARGB</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Graphics2D</span><span class="w"> </span><span class="n">g2d</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">image</span><span class="p">.</span><span class="na">createGraphics</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">renderer</span><span class="p">.</span><span class="na">setMapExtent</span><span class="p">(</span><span class="n">bounds</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">renderer</span><span class="p">.</span><span class="na">paint</span><span class="p">(</span><span class="n">g2d</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Rectangle</span><span class="p">(</span><span class="n">width</span><span class="p">,</span><span class="w"> </span><span class="n">height</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">g2d</span><span class="p">.</span><span class="na">dispose</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 编码为 PNG</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ByteArrayOutputStream</span><span class="w"> </span><span class="n">baos</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ByteArrayOutputStream</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ImageIO</span><span class="p">.</span><span class="na">write</span><span class="p">(</span><span class="n">image</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;png&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">baos</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">baos</span><span class="p">.</span><span class="na">toByteArray</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="三瓦片服务实现">三、瓦片服务实现</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@RestController</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@RequestMapping</span><span class="p">(</span><span class="s">&#34;/tiles&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@RequiredArgsConstructor</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">TileController</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">SpatialFeatureRepository</span><span class="w"> </span><span class="n">repository</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// Web Mercator 瓦片范围</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">double</span><span class="o">[]</span><span class="w"> </span><span class="n">ORIGIN</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="o">-</span><span class="n">20037508</span><span class="p">.</span><span class="na">34</span><span class="p">,</span><span class="w"> </span><span class="n">20037508</span><span class="p">.</span><span class="na">34</span><span class="p">};</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * 矢量瓦片 API（XYZ 规则）
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * /tiles/{z}/{x}/{y}.pbf
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@GetMapping</span><span class="p">(</span><span class="s">&#34;/{z}/{x}/{y}.pbf&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">ResponseEntity</span><span class="o">&lt;</span><span class="kt">byte</span><span class="o">[]&gt;</span><span class="w"> </span><span class="nf">getTile</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nd">@PathVariable</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">z</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nd">@PathVariable</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nd">@PathVariable</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">y</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 计算瓦片的 BBOX</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">double</span><span class="w"> </span><span class="n">tileSize</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">2</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">Math</span><span class="p">.</span><span class="na">PI</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">6378137</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="n">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">z</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">double</span><span class="w"> </span><span class="n">minX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ORIGIN</span><span class="o">[</span><span class="n">0</span><span class="o">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">tileSize</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">double</span><span class="w"> </span><span class="n">maxX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ORIGIN</span><span class="o">[</span><span class="n">0</span><span class="o">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">tileSize</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">double</span><span class="w"> </span><span class="n">minY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ORIGIN</span><span class="o">[</span><span class="n">1</span><span class="o">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="n">y</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">tileSize</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">double</span><span class="w"> </span><span class="n">maxY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ORIGIN</span><span class="o">[</span><span class="n">1</span><span class="o">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">y</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">tileSize</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 将墨卡托坐标转 WGS84</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">double</span><span class="o">[]</span><span class="w"> </span><span class="n">minLngLat</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mercatorToWgs84</span><span class="p">(</span><span class="n">minX</span><span class="p">,</span><span class="w"> </span><span class="n">minY</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">double</span><span class="o">[]</span><span class="w"> </span><span class="n">maxLngLat</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mercatorToWgs84</span><span class="p">(</span><span class="n">maxX</span><span class="p">,</span><span class="w"> </span><span class="n">maxY</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 查询数据</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">SpatialFeature</span><span class="o">&gt;</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">repository</span><span class="p">.</span><span class="na">findByBbox</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">minLngLat</span><span class="o">[</span><span class="n">0</span><span class="o">]</span><span class="p">,</span><span class="w"> </span><span class="n">minLngLat</span><span class="o">[</span><span class="n">1</span><span class="o">]</span><span class="p">,</span><span class="w"> </span><span class="n">maxLngLat</span><span class="o">[</span><span class="n">0</span><span class="o">]</span><span class="p">,</span><span class="w"> </span><span class="n">maxLngLat</span><span class="o">[</span><span class="n">1</span><span class="o">]</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 生成 GeoJSON 作为瓦片内容</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">geojson</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">convertToGeoJson</span><span class="p">(</span><span class="n">features</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 5. 返回（使用 gzip 压缩）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">compressed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gzipCompress</span><span class="p">(</span><span class="n">geojson</span><span class="p">.</span><span class="na">getBytes</span><span class="p">(</span><span class="n">StandardCharsets</span><span class="p">.</span><span class="na">UTF_8</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">ResponseEntity</span><span class="p">.</span><span class="na">ok</span><span class="p">()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">header</span><span class="p">(</span><span class="s">&#34;Content-Encoding&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;gzip&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">contentType</span><span class="p">(</span><span class="n">MediaType</span><span class="p">.</span><span class="na">parseMediaType</span><span class="p">(</span><span class="s">&#34;application/x-protobuf&#34;</span><span class="p">))</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">body</span><span class="p">(</span><span class="n">compressed</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="四瓦片缓存策略">四、瓦片缓存策略</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">TileCacheService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">RedisTemplate</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]&gt;</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">TILE_CACHE_TTL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">3600</span><span class="p">;</span><span class="w"> </span><span class="c1">// 1 小时过期</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * 获取缓存的瓦片
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="nf">getTile</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">cacheKey</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">().</span><span class="na">get</span><span class="p">(</span><span class="s">&#34;tile:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">cacheKey</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * 缓存瓦片
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">cacheTile</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">cacheKey</span><span class="p">,</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">tileData</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">().</span><span class="na">set</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="s">&#34;tile:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">cacheKey</span><span class="p">,</span><span class="w"> </span><span class="n">tileData</span><span class="p">,</span><span class="w"> </span><span class="n">TILE_CACHE_TTL</span><span class="p">,</span><span class="w"> </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">SECONDS</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="五总结">五、总结</h2>
+</code></pre>
+<h2 id="二wms-服务实现">二、WMS 服务实现</h2>
+<pre><code class="language-java">@RestController
+@RequestMapping(&quot;/wms&quot;)
+@RequiredArgsConstructor
+public class WmsController {
+
+    private final SpatialFeatureRepository repository;
+
+    @GetMapping(&quot;/map&quot;)
+    public ResponseEntity&lt;byte[]&gt; getMap(
+            @RequestParam double bboxMinX,
+            @RequestParam double bboxMinY,
+            @RequestParam double bboxMaxX,
+            @RequestParam double bboxMaxY,
+            @RequestParam(defaultValue = &quot;256&quot;) int width,
+            @RequestParam(defaultValue = &quot;256&quot;) int height,
+            @RequestParam(defaultValue = &quot;image/png&quot;) String format)
+            throws Exception {
+
+        // 1. 查询空间数据
+        List&lt;SpatialFeature&gt; features = repository.findByBbox(
+                bboxMinX, bboxMinY, bboxMaxX, bboxMaxY);
+
+        // 2. 渲染地图图片
+        byte[] imageBytes = renderMap(features, bboxMinX, bboxMinY,
+                bboxMaxX, bboxMaxY, width, height);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.IMAGE_PNG)
+                .body(imageBytes);
+    }
+
+    private byte[] renderMap(List&lt;SpatialFeature&gt; features,
+                              double minX, double minY,
+                              double maxX, double maxY,
+                              int width, int height) throws Exception {
+        // 创建地图
+        MapContent map = new MapContent();
+        map.setTitle(&quot;WebGIS Map&quot;);
+
+        // 创建样式
+        Style style = SLD.createSimpleStyle(
+                createFeatureType(),
+                Color.RED);
+
+        // 创建图层
+        FeatureCollection&lt;SimpleFeatureType, SimpleFeature&gt; collection =
+                buildFeatureCollection(features);
+        FeatureLayer layer = new FeatureLayer(collection, style);
+        map.addLayer(layer);
+
+        // 渲染
+        ReferencedEnvelope bounds = new ReferencedEnvelope(
+                minX, maxX, minY, maxY,
+                DefaultGeographicCRS.WGS84);
+
+        GTRenderer renderer = new GTRenderer(map);
+        BufferedImage image = new BufferedImage(width, height,
+                BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2d = image.createGraphics();
+
+        renderer.setMapExtent(bounds);
+        renderer.paint(g2d, new Rectangle(width, height));
+        g2d.dispose();
+
+        // 编码为 PNG
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(image, &quot;png&quot;, baos);
+        return baos.toByteArray();
+    }
+}
+</code></pre>
+<h2 id="三瓦片服务实现">三、瓦片服务实现</h2>
+<pre><code class="language-java">@RestController
+@RequestMapping(&quot;/tiles&quot;)
+@RequiredArgsConstructor
+public class TileController {
+
+    private final SpatialFeatureRepository repository;
+
+    // Web Mercator 瓦片范围
+    private static final double[] ORIGIN = {-20037508.34, 20037508.34};
+
+    /**
+     * 矢量瓦片 API（XYZ 规则）
+     * /tiles/{z}/{x}/{y}.pbf
+     */
+    @GetMapping(&quot;/{z}/{x}/{y}.pbf&quot;)
+    public ResponseEntity&lt;byte[]&gt; getTile(
+            @PathVariable int z,
+            @PathVariable int x,
+            @PathVariable int y) throws Exception {
+
+        // 1. 计算瓦片的 BBOX
+        double tileSize = 2 * Math.PI * 6378137 / (1 &lt;&lt; z);
+        double minX = ORIGIN[0] + x * tileSize;
+        double maxX = ORIGIN[0] + (x + 1) * tileSize;
+        double minY = ORIGIN[1] - (y + 1) * tileSize;
+        double maxY = ORIGIN[1] - y * tileSize;
+
+        // 2. 将墨卡托坐标转 WGS84
+        double[] minLngLat = mercatorToWgs84(minX, minY);
+        double[] maxLngLat = mercatorToWgs84(maxX, maxY);
+
+        // 3. 查询数据
+        List&lt;SpatialFeature&gt; features = repository.findByBbox(
+                minLngLat[0], minLngLat[1], maxLngLat[0], maxLngLat[1]);
+
+        // 4. 生成 GeoJSON 作为瓦片内容
+        String geojson = convertToGeoJson(features);
+
+        // 5. 返回（使用 gzip 压缩）
+        byte[] compressed = gzipCompress(geojson.getBytes(StandardCharsets.UTF_8));
+
+        return ResponseEntity.ok()
+                .header(&quot;Content-Encoding&quot;, &quot;gzip&quot;)
+                .contentType(MediaType.parseMediaType(&quot;application/x-protobuf&quot;))
+                .body(compressed);
+    }
+}
+</code></pre>
+<h2 id="四瓦片缓存策略">四、瓦片缓存策略</h2>
+<pre><code class="language-java">@Component
+public class TileCacheService {
+
+    @Autowired
+    private RedisTemplate&lt;String, byte[]&gt; redisTemplate;
+
+    private static final long TILE_CACHE_TTL = 3600; // 1 小时过期
+
+    /**
+     * 获取缓存的瓦片
+     */
+    public byte[] getTile(String cacheKey) {
+        return redisTemplate.opsForValue().get(&quot;tile:&quot; + cacheKey);
+    }
+
+    /**
+     * 缓存瓦片
+     */
+    public void cacheTile(String cacheKey, byte[] tileData) {
+        redisTemplate.opsForValue().set(
+                &quot;tile:&quot; + cacheKey, tileData, TILE_CACHE_TTL, TimeUnit.SECONDS);
+    }
+}
+</code></pre>
+<h2 id="五总结">五、总结</h2>
 <ul>
 <li>WMS 动态渲染，适合数据频繁变化的场景；WMTS/瓦片服务适合静态数据</li>
 <li>GeoTools 的 <code>GTRenderer</code> 支持将空间数据渲染为图片</li>
@@ -294,6 +295,9 @@ GetMap?BBOX=minX,minY,maxX,maxY&amp;WIDTH=256&amp;HEIGHT=256&amp;LAYERS=layer&am
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -109,7 +106,7 @@
 </blockquote>
 <h2 id="一性能基线">一、性能基线</h2>
 <h3 id="11-性能指标">1.1 性能指标</h3>
-<pre tabindex="0"><code>WebGIS 性能核心指标：
+<pre><code>WebGIS 性能核心指标：
 
 ┌─────────────────────────────────────────────────────────┐
 │  指标             | 目标              | 测量方式          │
@@ -120,37 +117,40 @@
 │  数据导出时间      | &lt; 5s (1万条)      | 压力测试          │
 │  并发查询 QPS     | &gt; 1000            | JMeter            │
 └─────────────────────────────────────────────────────────┘
-</code></pre><h2 id="二数据库优化">二、数据库优化</h2>
+</code></pre>
+<h2 id="二数据库优化">二、数据库优化</h2>
 <h3 id="21-空间索引">2.1 空间索引</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- GIST 空间索引（必须）
-</span></span></span><span class="line"><span class="cl"><span class="k">CREATE</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_geom_gist</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">spatial_feature</span><span class="w"> </span><span class="k">USING</span><span class="w"> </span><span class="n">GIST</span><span class="w"> </span><span class="p">(</span><span class="n">geom</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">-- 覆盖索引（空间 + 属性联合查询）
-</span></span></span><span class="line"><span class="cl"><span class="k">CREATE</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_geom_type</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">spatial_feature</span><span class="w"> </span><span class="k">USING</span><span class="w"> </span><span class="n">GIST</span><span class="w"> </span><span class="p">(</span><span class="n">geom</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">WHERE</span><span class="w"> </span><span class="n">feature_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;ROAD&#39;</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">-- BRIN 索引（超大数据表，比 GIST 占用空间小）
-</span></span></span><span class="line"><span class="cl"><span class="k">CREATE</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_geom_brin</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">spatial_feature</span><span class="w"> </span><span class="k">USING</span><span class="w"> </span><span class="n">BRIN</span><span class="w"> </span><span class="p">(</span><span class="n">geom</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">WITH</span><span class="w"> </span><span class="p">(</span><span class="n">pages_per_range</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">32</span><span class="p">);</span><span class="w">
-</span></span></span></code></pre></div><h3 id="22-sql-优化">2.2 SQL 优化</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- ❌ 慢：在 WHERE 中使用函数
-</span></span></span><span class="line"><span class="cl"><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">spatial_feature</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">WHERE</span><span class="w"> </span><span class="n">ST_Area</span><span class="p">(</span><span class="n">ST_Transform</span><span class="p">(</span><span class="n">geom</span><span class="p">,</span><span class="w"> </span><span class="mi">3857</span><span class="p">))</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">1000</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">-- ✅ 快：预先计算并存储常用字段
-</span></span></span><span class="line"><span class="cl"><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">spatial_feature</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">WHERE</span><span class="w"> </span><span class="n">area_mercator</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">1000</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">-- ❌ 慢：不精确的 BBOX 条件
-</span></span></span><span class="line"><span class="cl"><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">spatial_feature</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">WHERE</span><span class="w"> </span><span class="n">geom</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">ST_MakeEnvelope</span><span class="p">(</span><span class="mi">116</span><span class="p">,</span><span class="w"> </span><span class="mi">39</span><span class="p">,</span><span class="w"> </span><span class="mi">117</span><span class="p">,</span><span class="w"> </span><span class="mi">40</span><span class="p">,</span><span class="w"> </span><span class="mi">4326</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">-- ✅ 快：使用 ST_Intersects（利用索引）
-</span></span></span><span class="line"><span class="cl"><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">spatial_feature</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">WHERE</span><span class="w"> </span><span class="n">ST_Intersects</span><span class="p">(</span><span class="n">geom</span><span class="p">,</span><span class="w"> </span><span class="n">ST_MakeEnvelope</span><span class="p">(</span><span class="mi">116</span><span class="p">,</span><span class="w"> </span><span class="mi">39</span><span class="p">,</span><span class="w"> </span><span class="mi">117</span><span class="p">,</span><span class="w"> </span><span class="mi">40</span><span class="p">,</span><span class="w"> </span><span class="mi">4326</span><span class="p">));</span><span class="w">
-</span></span></span></code></pre></div><h2 id="三缓存策略">三、缓存策略</h2>
+<pre><code class="language-sql">-- GIST 空间索引（必须）
+CREATE INDEX idx_geom_gist ON spatial_feature USING GIST (geom);
+
+-- 覆盖索引（空间 + 属性联合查询）
+CREATE INDEX idx_geom_type ON spatial_feature USING GIST (geom)
+    WHERE feature_type = 'ROAD';
+
+-- BRIN 索引（超大数据表，比 GIST 占用空间小）
+CREATE INDEX idx_geom_brin ON spatial_feature USING BRIN (geom)
+    WITH (pages_per_range = 32);
+</code></pre>
+<h3 id="22-sql-优化">2.2 SQL 优化</h3>
+<pre><code class="language-sql">-- ❌ 慢：在 WHERE 中使用函数
+SELECT * FROM spatial_feature
+WHERE ST_Area(ST_Transform(geom, 3857)) &gt; 1000;
+
+-- ✅ 快：预先计算并存储常用字段
+SELECT * FROM spatial_feature
+WHERE area_mercator &gt; 1000;
+
+-- ❌ 慢：不精确的 BBOX 条件
+SELECT * FROM spatial_feature
+WHERE geom &amp;&amp; ST_MakeEnvelope(116, 39, 117, 40, 4326);
+
+-- ✅ 快：使用 ST_Intersects（利用索引）
+SELECT * FROM spatial_feature
+WHERE ST_Intersects(geom, ST_MakeEnvelope(116, 39, 117, 40, 4326));
+</code></pre>
+<h2 id="三缓存策略">三、缓存策略</h2>
 <h3 id="31-多级缓存">3.1 多级缓存</h3>
-<pre tabindex="0"><code>┌─────────────────────────────────────────────────────────┐
+<pre><code>┌─────────────────────────────────────────────────────────┐
 │     多级缓存架构                                         │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
@@ -167,75 +167,79 @@
 │    常用元数据、配置信息                                   │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
-</code></pre><h3 id="32-本地缓存">3.2 本地缓存</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SpatialCacheManager</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 热点空间数据缓存（Caffeine）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Cache</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">SpatialFeature</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">localCache</span><span class="w"> </span><span class="o">=</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Caffeine</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">.</span><span class="na">maximumSize</span><span class="p">(</span><span class="n">1000</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">.</span><span class="na">expireAfterWrite</span><span class="p">(</span><span class="n">10</span><span class="p">,</span><span class="w"> </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">MINUTES</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">.</span><span class="na">recordStats</span><span class="p">()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// Redis 缓存</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">RedisTemplate</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="kt">byte</span><span class="o">[]&gt;</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">SpatialFeature</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">getFeatures</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">cacheKey</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 查本地缓存</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">SpatialFeature</span><span class="o">&gt;</span><span class="w"> </span><span class="n">cached</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">localCache</span><span class="p">.</span><span class="na">getIfPresent</span><span class="p">(</span><span class="n">cacheKey</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">cached</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">cached</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 查 Redis</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">redisData</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">().</span><span class="na">get</span><span class="p">(</span><span class="s">&#34;spatial:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">cacheKey</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">redisData</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">List</span><span class="o">&lt;</span><span class="n">SpatialFeature</span><span class="o">&gt;</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">deserialize</span><span class="p">(</span><span class="n">redisData</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">localCache</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">cacheKey</span><span class="p">,</span><span class="w"> </span><span class="n">features</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">features</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="四瓦片分发">四、瓦片分发</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm"> * 瓦片 CDN 预热
-</span></span></span><span class="line"><span class="cl"><span class="cm"> */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@PostConstruct</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">initTileDistribution</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 预生成瓦片后推送到 CDN</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">tileUrls</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">preGenerateTileUrls</span><span class="p">(</span><span class="n">MIN_ZOOM</span><span class="p">,</span><span class="w"> </span><span class="n">MAX_ZOOM</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">cdnClient</span><span class="p">.</span><span class="na">prefetch</span><span class="p">(</span><span class="n">tileUrls</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="五查询性能监控">五、查询性能监控</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Aspect</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SpatialQueryMonitor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Around</span><span class="p">(</span><span class="s">&#34;@annotation(MonitorQuery)&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">monitorQuery</span><span class="p">(</span><span class="n">ProceedingJoinPoint</span><span class="w"> </span><span class="n">pjp</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">long</span><span class="w"> </span><span class="n">start</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Object</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pjp</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kt">long</span><span class="w"> </span><span class="n">elapsed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">start</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">elapsed</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">500</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;慢查询: {}ms, method={}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">elapsed</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">pjp</span><span class="p">.</span><span class="na">getSignature</span><span class="p">().</span><span class="na">toShortString</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 记录指标</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">queryMetrics</span><span class="p">.</span><span class="na">record</span><span class="p">(</span><span class="n">pjp</span><span class="p">.</span><span class="na">getSignature</span><span class="p">().</span><span class="na">getName</span><span class="p">(),</span><span class="w"> </span><span class="n">elapsed</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">queryMetrics</span><span class="p">.</span><span class="na">recordError</span><span class="p">(</span><span class="n">pjp</span><span class="p">.</span><span class="na">getSignature</span><span class="p">().</span><span class="na">getName</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="n">e</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="六总结">六、总结</h2>
+</code></pre>
+<h3 id="32-本地缓存">3.2 本地缓存</h3>
+<pre><code class="language-java">@Component
+public class SpatialCacheManager {
+
+    // 热点空间数据缓存（Caffeine）
+    private final Cache&lt;String, List&lt;SpatialFeature&gt;&gt; localCache =
+            Caffeine.newBuilder()
+                    .maximumSize(1000)
+                    .expireAfterWrite(10, TimeUnit.MINUTES)
+                    .recordStats()
+                    .build();
+
+    // Redis 缓存
+    @Autowired
+    private RedisTemplate&lt;String, byte[]&gt; redisTemplate;
+
+    public List&lt;SpatialFeature&gt; getFeatures(String cacheKey) {
+        // 1. 查本地缓存
+        List&lt;SpatialFeature&gt; cached = localCache.getIfPresent(cacheKey);
+        if (cached != null) return cached;
+
+        // 2. 查 Redis
+        byte[] redisData = redisTemplate.opsForValue().get(&quot;spatial:&quot; + cacheKey);
+        if (redisData != null) {
+            List&lt;SpatialFeature&gt; features = deserialize(redisData);
+            localCache.put(cacheKey, features);
+            return features;
+        }
+
+        return null;
+    }
+}
+</code></pre>
+<h2 id="四瓦片分发">四、瓦片分发</h2>
+<pre><code class="language-java">/**
+ * 瓦片 CDN 预热
+ */
+@PostConstruct
+public void initTileDistribution() {
+    // 预生成瓦片后推送到 CDN
+    List&lt;String&gt; tileUrls = preGenerateTileUrls(MIN_ZOOM, MAX_ZOOM);
+    cdnClient.prefetch(tileUrls);
+}
+</code></pre>
+<h2 id="五查询性能监控">五、查询性能监控</h2>
+<pre><code class="language-java">@Aspect
+@Component
+public class SpatialQueryMonitor {
+
+    @Around(&quot;@annotation(MonitorQuery)&quot;)
+    public Object monitorQuery(ProceedingJoinPoint pjp) throws Throwable {
+        long start = System.currentTimeMillis();
+        try {
+            Object result = pjp.proceed();
+            long elapsed = System.currentTimeMillis() - start;
+
+            if (elapsed &gt; 500) {
+                log.warn(&quot;慢查询: {}ms, method={}&quot;, elapsed,
+                        pjp.getSignature().toShortString());
+            }
+
+            // 记录指标
+            queryMetrics.record(pjp.getSignature().getName(), elapsed);
+            return result;
+        } catch (Exception e) {
+            queryMetrics.recordError(pjp.getSignature().getName());
+            throw e;
+        }
+    }
+}
+</code></pre>
+<h2 id="六总结">六、总结</h2>
 <table>
 	<thead>
 			<tr>
@@ -309,6 +313,9 @@
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

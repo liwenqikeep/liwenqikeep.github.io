@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>K8s（十一）：集群安全基础 — RBAC 与 ServiceAccount - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    <link rel="stylesheet" href="/fonts/fonts.css">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言k8s-安全模型概述">前言：K8s 安全模型概述</a></li>
+    <li><a href="#认证kubeconfig证书与-serviceaccount">认证：kubeconfig、证书与 ServiceAccount</a>
+      <ul>
+        <li><a href="#kubeconfig">kubeconfig</a></li>
+        <li><a href="#serviceaccount">ServiceAccount</a></li>
+      </ul>
+    </li>
+    <li><a href="#授权rbac-模型">授权：RBAC 模型</a>
+      <ul>
+        <li><a href="#rbac-的四类资源">RBAC 的四类资源</a></li>
+        <li><a href="#role-与-clusterrole">Role 与 ClusterRole</a></li>
+        <li><a href="#rolebinding-与-clusterrolebinding">RoleBinding 与 ClusterRoleBinding</a></li>
+        <li><a href="#为什么要区分-role-和-clusterrole">为什么要区分 Role 和 ClusterRole？</a></li>
+      </ul>
+    </li>
+    <li><a href="#实战创建只读用户">实战：创建只读用户</a>
+      <ul>
+        <li><a href="#1-创建证书和-kubeconfig">1. 创建证书和 kubeconfig</a></li>
+        <li><a href="#2-创建只读-role-并绑定">2. 创建只读 Role 并绑定</a></li>
+        <li><a href="#3-验证">3. 验证</a></li>
+      </ul>
+    </li>
+    <li><a href="#实战为应用创建专用-serviceaccount">实战：为应用创建专用 ServiceAccount</a>
+      <ul>
+        <li><a href="#1-创建-serviceaccount">1. 创建 ServiceAccount</a></li>
+        <li><a href="#2-创建-clusterrole-和-clusterrolebinding">2. 创建 ClusterRole 和 ClusterRoleBinding</a></li>
+        <li><a href="#3-在-pod-中使用">3. 在 Pod 中使用</a></li>
+      </ul>
+    </li>
+    <li><a href="#最小权限原则">最小权限原则</a>
+      <ul>
+        <li><a href="#常见权限设计模式">常见权限设计模式</a></li>
+        <li><a href="#常用检查命令">常用检查命令</a></li>
+      </ul>
+    </li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#系列文章">系列文章</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">K8s（十一）：集群安全基础 — RBAC 与 ServiceAccount</h1>
+        </header>
+
+        <div class="page-content">
+            <p>在前面的文章中，我们学会了一堆 kubectl 命令来操作集群：<code>kubectl get pods</code>、<code>kubectl delete deployment</code>……但仔细想想——是谁在背后控制这些操作权限？任何人都能随意删除 Pod 吗？如果让一个 CI/CD 工具操作集群，它应该拥有多大的权限？这些问题都指向 K8s 安全的核心——<strong>认证（Authentication）</strong> 和 <strong>授权（Authorization）</strong>。</p>
+<h2 id="前言k8s-安全模型概述">前言：K8s 安全模型概述</h2>
+<p>K8s 的安全模型分为三个层次：</p>
+<ol>
+<li><strong>认证（Authentication）</strong>：你是谁？——验证请求者的身份</li>
+<li><strong>授权（Authorization）</strong>：你能做什么？——判断请求者是否有权限执行操作</li>
+<li><strong>准入控制（Admission Control）</strong>：资源是否符合规范？——在资源被持久化之前拦截和修改</li>
+</ol>
+<p>本文聚焦前两层——认证和授权。K8s 支持多种授权模式，其中最常用、最灵活的就是 <strong>RBAC（基于角色的访问控制）</strong>。</p>
+<h2 id="认证kubeconfig证书与-serviceaccount">认证：kubeconfig、证书与 ServiceAccount</h2>
+<p>在 K8s 中，所有请求（包括 kubectl、Pod 内应用、外部工具）都需要经过 API Server 的认证。</p>
+<h3 id="kubeconfig">kubeconfig</h3>
+<p>当你用 <code>kubectl</code> 操作集群时，默认读取 <code>~/.kube/config</code> 文件（由 <code>kubeadm init</code> 或云服务商自动生成）。这个文件包含了集群信息、用户凭证和上下文配置：</p>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    certificate-authority-data: ...   # CA 证书
+    server: https://192.168.1.100:6443
+  name: my-cluster
+users:
+- name: kubernetes-admin
+  user:
+    client-certificate-data: ...      # 客户端证书
+    client-key-data: ...              # 客户端私钥
+contexts:
+- context:
+    cluster: my-cluster
+    user: kubernetes-admin
+  name: admin-context
+current-context: admin-context
+</code></pre>
+<p><code>kubectl</code> 向 API Server 发起请求时，会出示客户端证书完成双向 TLS 认证。</p>
+<h3 id="serviceaccount">ServiceAccount</h3>
+<p>刚才说的是<strong>人类用户</strong>的认证方式。那<strong>应用</strong>呢？Pod 内的应用也需要访问 API Server——比如 Prometheus 要查询 Pod 指标、CI/CD Agent 要创建 Deployment。Pod 使用 <strong>ServiceAccount</strong> 进行认证。</p>
+<p>ServiceAccount 是 K8s 中的一种资源类型，专门为 Pod 提供身份。每个 Namespace 都有一个默认的 ServiceAccount（名为 <code>default</code>），但最佳实践是为每个应用创建独立的 ServiceAccount。</p>
+<pre><code class="language-yaml">apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: my-app-sa
+  namespace: default
+</code></pre>
+<p>在 Pod 中指定 ServiceAccount：</p>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Pod
+metadata:
+  name: my-app
+spec:
+  serviceAccountName: my-app-sa   # 指定 ServiceAccount
+  containers:
+  - name: my-app
+    image: my-app:latest
+</code></pre>
+<p>Pod 启动后，K8s 会将该 ServiceAccount 对应的 Token 自动挂载到 <code>/var/run/secrets/kubernetes.io/serviceaccount/token</code>，Pod 内的应用可以用这个 Token 与 API Server 通信。</p>
+<h2 id="授权rbac-模型">授权：RBAC 模型</h2>
+<p>认证通过后，API Server 需要判断你<strong>有没有权限</strong>执行某个操作。K8s 支持多种授权模式：RBAC、ABAC、Node、Webhook 等。其中 <strong>RBAC（Role-Based Access Control）</strong> 是生产环境的标准配置。</p>
+<h3 id="rbac-的四类资源">RBAC 的四类资源</h3>
+<p>RBAC 由四个资源组成，两两配对：</p>
+<table>
+	<thead>
+			<tr>
+					<th>资源类型</th>
+					<th>作用范围</th>
+					<th>用途</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>Role</strong></td>
+					<td>命名空间级</td>
+					<td>定义一组权限规则</td>
+			</tr>
+			<tr>
+					<td><strong>ClusterRole</strong></td>
+					<td>集群级</td>
+					<td>定义集群范围的权限</td>
+			</tr>
+			<tr>
+					<td><strong>RoleBinding</strong></td>
+					<td>命名空间级</td>
+					<td>将 Role 绑定到用户/组/ServiceAccount</td>
+			</tr>
+			<tr>
+					<td><strong>ClusterRoleBinding</strong></td>
+					<td>集群级</td>
+					<td>将 ClusterRole 绑定到用户/组/ServiceAccount</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="role-与-clusterrole">Role 与 ClusterRole</h3>
+<p>Role 在指定 Namespace 内生效，定义了对哪些资源有什么操作权限：</p>
+<pre><code class="language-yaml">apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: pod-reader
+rules:
+- apiGroups: [&quot;&quot;]           # 核心 API 组
+  resources: [&quot;pods&quot;]       # 资源类型
+  verbs: [&quot;get&quot;, &quot;list&quot;, &quot;watch&quot;]   # 允许的操作
+</code></pre>
+<p>ClusterRole 则可以跨 Namespace 访问集群级资源（如 Nodes、PersistentVolumes），或者跨 Namespace 访问命名空间级资源：</p>
+<pre><code class="language-yaml">apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cluster-reader
+rules:
+- apiGroups: [&quot;&quot;]
+  resources: [&quot;nodes&quot;, &quot;persistentvolumes&quot;]   # 集群级资源
+  verbs: [&quot;get&quot;, &quot;list&quot;, &quot;watch&quot;]
+- apiGroups: [&quot;&quot;]
+  resources: [&quot;pods&quot;, &quot;services&quot;, &quot;configmaps&quot;]  # 命名空间级资源
+  verbs: [&quot;get&quot;, &quot;list&quot;, &quot;watch&quot;]
+</code></pre>
+<p><strong>verbs 常用取值：</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>Verb</th>
+					<th>含义</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>get</code></td>
+					<td>获取单个资源</td>
+			</tr>
+			<tr>
+					<td><code>list</code></td>
+					<td>列出资源</td>
+			</tr>
+			<tr>
+					<td><code>watch</code></td>
+					<td>监听资源变化</td>
+			</tr>
+			<tr>
+					<td><code>create</code></td>
+					<td>创建资源</td>
+			</tr>
+			<tr>
+					<td><code>update</code></td>
+					<td>更新资源</td>
+			</tr>
+			<tr>
+					<td><code>patch</code></td>
+					<td>部分更新资源</td>
+			</tr>
+			<tr>
+					<td><code>delete</code></td>
+					<td>删除资源</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="rolebinding-与-clusterrolebinding">RoleBinding 与 ClusterRoleBinding</h3>
+<p>RoleBinding 将 Role 绑定到一个或多个 Subject（用户、组、ServiceAccount）：</p>
+<pre><code class="language-yaml">apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-pods
+  namespace: default
+subjects:
+- kind: User              # 也可以是 Group 或 ServiceAccount
+  name: alice
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: pod-reader
+  apiGroup: rbac.authorization.k8s.io
+</code></pre>
+<p>ClusterRoleBinding 同理，但作用于整个集群：</p>
+<pre><code class="language-yaml">apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-admin-binding
+subjects:
+- kind: ServiceAccount
+  name: admin-sa
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+</code></pre>
+<h3 id="为什么要区分-role-和-clusterrole">为什么要区分 Role 和 ClusterRole？</h3>
+<p>当一个 <strong>ClusterRole</strong> 通过 <strong>RoleBinding</strong> 绑定时，该绑定只会在特定的 Namespace 内生效——这是一种&quot;降级&quot;使用方式。比如，你可以创建一个集群级的 <code>pod-reader</code> ClusterRole，然后在不同 Namespace 用 RoleBinding 来绑定它，而不用在每个 Namespace 重复创建相同的 Role。</p>
+<h2 id="实战创建只读用户">实战：创建只读用户</h2>
+<p>假设你需要为团队中的新成员小明创建一个只能查看资源的只读账号。</p>
+<h3 id="1-创建证书和-kubeconfig">1. 创建证书和 kubeconfig</h3>
+<pre><code class="language-bash"># 生成私钥
+openssl genrsa -out xiaoming.key 2048
+
+# 生成证书签名请求
+openssl req -new -key xiaoming.key -out xiaoming.csr -subj &quot;/CN=xiaoming/O=dev-team&quot;
+
+# 用集群 CA 签发证书
+sudo openssl x509 -req -in xiaoming.csr -CA /etc/kubernetes/pki/ca.crt \
+  -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial -out xiaoming.crt -days 365
+
+# 配置 kubeconfig
+kubectl config set-credentials xiaoming \
+  --client-certificate=xiaoming.crt \
+  --client-key=xiaoming.key
+
+kubectl config set-context xiaoming-context \
+  --cluster=my-cluster \
+  --user=xiaoming
+
+kubectl config use-context xiaoming-context
+</code></pre>
+<p>此时小明使用 <code>xiaoming-context</code> 访问集群，但由于没有授权，任何操作都会被拒绝。</p>
+<h3 id="2-创建只读-role-并绑定">2. 创建只读 Role 并绑定</h3>
+<pre><code class="language-yaml"># reader-role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: readonly-role
+rules:
+- apiGroups: [&quot;&quot;, &quot;apps&quot;, &quot;networking.k8s.io&quot;]
+  resources: [&quot;pods&quot;, &quot;services&quot;, &quot;deployments&quot;, &quot;ingresses&quot;, &quot;configmaps&quot;, &quot;secrets&quot;]
+  verbs: [&quot;get&quot;, &quot;list&quot;, &quot;watch&quot;]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: default
+  name: xiaoming-readonly
+subjects:
+- kind: User
+  name: xiaoming
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: readonly-role
+  apiGroup: rbac.authorization.k8s.io
+</code></pre>
+<pre><code class="language-bash">kubectl apply -f reader-role.yaml
+</code></pre>
+<h3 id="3-验证">3. 验证</h3>
+<pre><code class="language-bash"># 切换到小明上下文
+kubectl config use-context xiaoming-context
+
+# 只读操作 ✅
+kubectl get pods
+kubectl get deployments
+kubectl get services
+
+# 写操作 ❌
+kubectl delete pod nginx-xxx
+# Error from server (Forbidden): pods &quot;nginx-xxx&quot; is forbidden
+</code></pre>
+<h2 id="实战为应用创建专用-serviceaccount">实战：为应用创建专用 ServiceAccount</h2>
+<p>假设你有一个应用需要读取当前 Namespace 下的所有 Pod 和 Service 信息。</p>
+<h3 id="1-创建-serviceaccount">1. 创建 ServiceAccount</h3>
+<pre><code class="language-yaml">apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-reader
+  namespace: default
+</code></pre>
+<h3 id="2-创建-clusterrole-和-clusterrolebinding">2. 创建 ClusterRole 和 ClusterRoleBinding</h3>
+<p>因为我们要创建一个通用的只读角色，用 ClusterRole 方便以后复用：</p>
+<pre><code class="language-yaml"># app-reader-role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: app-reader-role
+rules:
+- apiGroups: [&quot;&quot;]
+  resources: [&quot;pods&quot;, &quot;services&quot;, &quot;endpoints&quot;]
+  verbs: [&quot;get&quot;, &quot;list&quot;, &quot;watch&quot;]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-reader-binding
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: app-reader
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: app-reader-role
+  apiGroup: rbac.authorization.k8s.io
+</code></pre>
+<h3 id="3-在-pod-中使用">3. 在 Pod 中使用</h3>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-sa
+spec:
+  serviceAccountName: app-reader
+  containers:
+  - name: my-app
+    image: curlimages/curl
+    command: [&quot;/bin/sh&quot;, &quot;-c&quot;]
+    args:
+    - |
+      # 使用挂载的 Token 访问 API
+      TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+      curl -sSk -H &quot;Authorization: Bearer $TOKEN&quot; \
+        https://kubernetes.default.svc/api/v1/namespaces/default/pods
+</code></pre>
+<h2 id="最小权限原则">最小权限原则</h2>
+<p>生产环境中，不要为了省事而直接使用 <code>cluster-admin</code> 角色。遵循<strong>最小权限原则</strong>：</p>
+<blockquote>
+<p>每个用户、每个应用只授予完成其任务所必需的最小权限集合。</p>
+</blockquote>
+<h3 id="常见权限设计模式">常见权限设计模式</h3>
+<table>
+	<thead>
+			<tr>
+					<th>场景</th>
+					<th>推荐角色</th>
+					<th>说明</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>开发人员（只读）</td>
+					<td>Role/ClusterRole + get/list/watch</td>
+					<td>查看资源，不修改</td>
+			</tr>
+			<tr>
+					<td>运维人员</td>
+					<td>根据职责自定义 Role</td>
+					<td>可操作对应 Namespace 的资源</td>
+			</tr>
+			<tr>
+					<td>CI/CD 工具</td>
+					<td>特定 Namespace 的创建/更新权限</td>
+					<td>只部署到目标环境</td>
+			</tr>
+			<tr>
+					<td>Prometheus</td>
+					<td>ClusterRole + get/list/watch</td>
+					<td>跨 Namespace 采集指标</td>
+			</tr>
+			<tr>
+					<td>Dashboard</td>
+					<td>用户自身 Namespace 的管理权限</td>
+					<td>避免越权操作</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="常用检查命令">常用检查命令</h3>
+<pre><code class="language-bash"># 查看当前用户权限
+kubectl auth can-i create deployments
+
+# 查看其他用户权限
+kubectl auth can-i get pods --as system:serviceaccount:default:app-reader
+
+# 查看某用户在 Namespace 下的权限
+kubectl auth can-i list pods --namespace kube-system --as xiaoming
+</code></pre>
+<h2 id="总结">总结</h2>
+<p>本文我们学习了：</p>
+<ul>
+<li>K8s 安全三层模型：<strong>认证 → 授权 → 准入控制</strong></li>
+<li><strong>认证</strong>方式：kubeconfig（人类用户）、ServiceAccount（应用身份）</li>
+<li><strong>RBAC 授权模型</strong>：Role / ClusterRole 定义权限，RoleBinding / ClusterRoleBinding 将权限绑定到 Subject</li>
+<li>实战创建了<strong>只读用户</strong>和<strong>应用专用 ServiceAccount</strong>，走通了完整的认证授权流程</li>
+<li><strong>最小权限原则</strong>是生产安全的基本准则，结合 <code>kubectl auth can-i</code> 可以随时验证权限</li>
+</ul>
+<p>安全是 K8s 生产化道路上不可绕过的基石。掌握了 RBAC，你就拥有了精细控制谁能做什么的能力。下一篇文章我们将进入可观测性领域，学习如何监控集群和采集日志。</p>
+<hr>
+<h2 id="系列文章">系列文章</h2>
+<ul>
+<li><a href="/posts/k8s%E4%B8%80%E4%BB%8E%E9%9B%B6%E8%AE%A4%E8%AF%86-kubernetes-%E6%9E%B6%E6%9E%84%E4%B8%8E%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5/">K8s（一）：从零认识 Kubernetes — 架构与核心概念</a></li>
+<li><a href="/posts/k8s%E4%BA%8C%E4%BD%BF%E7%94%A8-kubeadm-%E6%90%AD%E5%BB%BA-k8s-%E9%9B%86%E7%BE%A4%E5%AE%9E%E6%88%98/">K8s（二）：使用 kubeadm 搭建 K8s 集群实战</a></li>
+<li><a href="/posts/k8s%E4%B8%89pod-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%E4%B8%8E%E5%AE%B9%E5%99%A8%E7%BC%96%E6%8E%92%E5%9F%BA%E7%A1%80/">K8s（三）：Pod 核心概念与容器编排基础</a></li>
+<li><a href="/posts/k8s%E5%9B%9Bdeployment-%E4%B8%8E-replicaset-%E5%BA%94%E7%94%A8%E9%83%A8%E7%BD%B2%E4%B8%8E%E6%89%A9%E7%BC%A9%E5%AE%B9/">K8s（四）：Deployment 与 ReplicaSet — 应用部署与扩缩容</a></li>
+<li><a href="/posts/k8s%E4%BA%94service-%E4%B8%8E%E9%9B%86%E7%BE%A4%E5%86%85%E6%9C%8D%E5%8A%A1%E5%8F%91%E7%8E%B0/">K8s（五）：Service 与集群内服务发现</a></li>
+<li><a href="/posts/k8s%E5%85%ADingress-%E4%B8%8E%E9%9B%86%E7%BE%A4%E5%A4%96%E9%83%A8%E6%B5%81%E9%87%8F%E6%8E%A5%E5%85%A5/">K8s（六）：Ingress 与集群外部流量接入</a></li>
+<li><a href="/posts/k8s%E4%B8%83configmap-%E4%B8%8E-secret-%E9%85%8D%E7%BD%AE%E7%AE%A1%E7%90%86/">K8s（七）：ConfigMap 与 Secret — 配置管理</a></li>
+<li><a href="/posts/k8s%E5%85%ABvolume-%E4%B8%8E%E6%8C%81%E4%B9%85%E5%8C%96%E5%AD%98%E5%82%A8/">K8s（八）：Volume 与持久化存储</a></li>
+<li><a href="/posts/k8s%E4%B9%9Dstatefulset-%E4%B8%8E%E6%9C%89%E7%8A%B6%E6%80%81%E5%BA%94%E7%94%A8/">K8s（九）：StatefulSet 与有状态应用</a></li>
+<li><a href="/posts/k8s%E5%8D%81helm-%E5%8C%85%E7%AE%A1%E7%90%86%E5%99%A8%E5%85%A5%E9%97%A8/">K8s（十）：Helm 包管理器入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%BA%8C%E7%9B%91%E6%8E%A7%E4%B8%8E%E6%97%A5%E5%BF%97-%E5%8F%AF%E8%A7%82%E6%B5%8B%E6%80%A7%E5%85%A5%E9%97%A8/">K8s（十二）：监控与日志 — 可观测性入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%B8%89%E7%94%9F%E4%BA%A7%E5%AE%9E%E8%B7%B5%E4%B8%8E%E7%B3%BB%E5%88%97%E6%80%BB%E7%BB%93/">K8s（十三）：生产实践与系列总结</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

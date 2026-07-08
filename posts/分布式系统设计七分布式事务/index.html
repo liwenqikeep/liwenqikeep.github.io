@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -103,7 +100,7 @@
 <p>在单体应用中，事务由数据库保证 ACID。在微服务架构中，一个业务操作可能跨多个服务、多个数据库，传统的本地事务无法满足需求。</p>
 <p><strong>没有万能的分布式事务方案</strong>，只有针对具体场景的权衡选择。</p>
 <h2 id="一分布式事务的场景">一、分布式事务的场景</h2>
-<pre tabindex="0"><code>下单业务示例（跨三个服务）：
+<pre><code>下单业务示例（跨三个服务）：
 
 订单服务（Order Service）— 创建订单
   │
@@ -113,7 +110,8 @@
 
 任何一个环节失败，都需要回滚之前的操作。
 这就是分布式事务要解决的问题。
-</code></pre><hr>
+</code></pre>
+<hr>
 <h2 id="二常见方案">二、常见方案</h2>
 <h3 id="21-方案对比">2.1 方案对比</h3>
 <table>
@@ -165,7 +163,7 @@
 	</tbody>
 </table>
 <h3 id="22-两阶段提交2pc">2.2 两阶段提交（2PC）</h3>
-<pre tabindex="0"><code>协调者（Coordinator）负责协调所有参与者。
+<pre><code>协调者（Coordinator）负责协调所有参与者。
 
 第一阶段：准备（Prepare）
   Coordinator → 所有 Participant：预备提交？
@@ -179,9 +177,10 @@
 - 同步阻塞：第二阶段完成前，参与者锁定资源
 - 单点问题：Coordinator 宕机
 - 数据不一致：部分参与者收不到 Commit/Rollback
-</code></pre><h3 id="23-tcctry-confirm-cancel">2.3 TCC（Try-Confirm-Cancel）</h3>
+</code></pre>
+<h3 id="23-tcctry-confirm-cancel">2.3 TCC（Try-Confirm-Cancel）</h3>
 <p>TCC 将事务的每个操作拆分为三个阶段：</p>
-<pre tabindex="0"><code>Try（预留）：
+<pre><code>Try（预留）：
   检查资源是否足够，预留资源
   如：冻结库存、冻结余额
 
@@ -208,14 +207,15 @@ Cancel：
   订单：取消订单
   库存：释放冻结 10 件
   支付：解冻金额 100元
-</code></pre><p><strong>TCC 的挑战：</strong></p>
+</code></pre>
+<p><strong>TCC 的挑战：</strong></p>
 <ul>
 <li>业务侵入性强：每个操作都需要实现 Try/Confirm/Cancel</li>
 <li>需要考虑空回滚和悬挂问题</li>
 </ul>
 <h3 id="24-saga-模式">2.4 Saga 模式</h3>
 <p>Saga 将一个长事务拆分为多个本地事务，每个本地事务都有对应的补偿事务。</p>
-<pre tabindex="0"><code>正常流程：
+<pre><code>正常流程：
   订单创建 → 扣减库存 → 扣减余额 → 订单完成
     T1          T2         T3         T4
 
@@ -223,8 +223,9 @@ Cancel：
   订单创建失败 → 结束
   扣减库存成功 → 创建订单失败 → 补偿：释放库存
   扣减余额成功 → 扣库存失败 → 补偿：释放库存 + 退款
-</code></pre><p><strong>Saga 的两种实现方式：</strong></p>
-<pre tabindex="0"><code>编排模式（Choreography）：
+</code></pre>
+<p><strong>Saga 的两种实现方式：</strong></p>
+<pre><code>编排模式（Choreography）：
   每个服务完成后发消息触发下一个服务
   失败时发消息触发补偿
   优点：去中心化
@@ -235,41 +236,43 @@ Cancel：
   失败时协调者调用补偿
   优点：流程可控
   缺点：协调者是单点
-</code></pre><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 协调模式示例</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">CreateOrderSaga</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">OrderService</span><span class="w"> </span><span class="n">orderService</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">InventoryService</span><span class="w"> </span><span class="n">inventoryService</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">PaymentService</span><span class="w"> </span><span class="n">paymentService</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="n">CreateOrderRequest</span><span class="w"> </span><span class="n">request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 1. 创建订单</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orderService</span><span class="p">.</span><span class="na">create</span><span class="p">(</span><span class="n">request</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 2. 扣减库存</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">inventoryService</span><span class="p">.</span><span class="na">deduct</span><span class="p">(</span><span class="n">request</span><span class="p">.</span><span class="na">getSkuId</span><span class="p">(),</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getCount</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 3. 扣减余额</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">paymentService</span><span class="p">.</span><span class="na">debit</span><span class="p">(</span><span class="n">request</span><span class="p">.</span><span class="na">getUserId</span><span class="p">(),</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getAmount</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 补偿：按逆序取消已成功的操作</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">paymentService</span><span class="p">.</span><span class="na">compensateDebit</span><span class="p">(</span><span class="n">request</span><span class="p">.</span><span class="na">getUserId</span><span class="p">(),</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getAmount</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">inventoryService</span><span class="p">.</span><span class="na">compensateDeduct</span><span class="p">(</span><span class="n">request</span><span class="p">.</span><span class="na">getSkuId</span><span class="p">(),</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getCount</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">orderService</span><span class="p">.</span><span class="na">cancel</span><span class="p">(</span><span class="n">orderId</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SagaException</span><span class="p">(</span><span class="s">&#34;下单失败&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="25-本地消息表">2.5 本地消息表</h3>
-<pre tabindex="0"><code>核心思想：将分布式事务转换为本地事务 + 消息重试。
+</code></pre>
+<pre><code class="language-java">// 协调模式示例
+@Component
+public class CreateOrderSaga {
+
+    @Autowired
+    private OrderService orderService;
+    @Autowired
+    private InventoryService inventoryService;
+    @Autowired
+    private PaymentService paymentService;
+
+    @Transactional
+    public void execute(CreateOrderRequest request) {
+        try {
+            // 1. 创建订单
+            Long orderId = orderService.create(request);
+            
+            // 2. 扣减库存
+            inventoryService.deduct(request.getSkuId(), request.getCount());
+            
+            // 3. 扣减余额
+            paymentService.debit(request.getUserId(), request.getAmount());
+            
+        } catch (Exception e) {
+            // 补偿：按逆序取消已成功的操作
+            paymentService.compensateDebit(request.getUserId(), request.getAmount());
+            inventoryService.compensateDeduct(request.getSkuId(), request.getCount());
+            orderService.cancel(orderId);
+            
+            throw new SagaException(&quot;下单失败&quot;, e);
+        }
+    }
+}
+</code></pre>
+<h3 id="25-本地消息表">2.5 本地消息表</h3>
+<pre><code>核心思想：将分布式事务转换为本地事务 + 消息重试。
 
 步骤：
 1. 在业务数据库中创建消息表
@@ -283,35 +286,38 @@ Cancel：
 │ 消息表    │──本地事务──▶ │          │──发送──▶ │          │
 │ 同一事务  │   轮询发送   │          │           │          │
 └──────────┘              └──────────┘           └──────────┘
-</code></pre><hr>
+</code></pre>
+<hr>
 <h2 id="三幂等性分布式事务的基础">三、幂等性——分布式事务的基础</h2>
 <p>所有涉及补偿或重试的操作都必须是幂等的。</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 幂等的支付回调处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handlePayCallback</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">orderNo</span><span class="p">,</span><span class="w"> </span><span class="n">BigDecimal</span><span class="w"> </span><span class="n">amount</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;paid:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">orderNo</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 幂等性检查（Redis 去重）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Boolean</span><span class="w"> </span><span class="n">first</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setIfAbsent</span><span class="p">(</span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;1&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">Duration</span><span class="p">.</span><span class="na">ofDays</span><span class="p">(</span><span class="n">3</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">Boolean</span><span class="p">.</span><span class="na">TRUE</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">first</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;订单 {} 已处理，重复回调忽略&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">orderNo</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 业务处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">orderService</span><span class="p">.</span><span class="na">markPaid</span><span class="p">(</span><span class="n">orderNo</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// 幂等的支付回调处理
+public void handlePayCallback(String orderNo, BigDecimal amount) {
+    String key = &quot;paid:&quot; + orderNo;
+    
+    // 1. 幂等性检查（Redis 去重）
+    Boolean first = redisTemplate.opsForValue()
+            .setIfAbsent(key, &quot;1&quot;, Duration.ofDays(3));
+    if (!Boolean.TRUE.equals(first)) {
+        log.info(&quot;订单 {} 已处理，重复回调忽略&quot;, orderNo);
+        return;
+    }
+    
+    // 2. 业务处理
+    orderService.markPaid(orderNo);
+}
+</code></pre>
+<hr>
 <h2 id="四方案选型">四、方案选型</h2>
 <h3 id="41-选型决策树">4.1 选型决策树</h3>
-<pre tabindex="0"><code>业务是否需要强一致性？
+<pre><code>业务是否需要强一致性？
   ├── 是 → 数据量小？→ 2PC / TCC
   │       └── 数据量大？→ TCC（性能更好）
   │
   └── 否 → 允许回滚？
         ├── 是 → Saga
         └── 否 → 事务消息 / 本地消息表
-</code></pre><h3 id="42-场景推荐">4.2 场景推荐</h3>
+</code></pre>
+<h3 id="42-场景推荐">4.2 场景推荐</h3>
 <table>
 	<thead>
 			<tr>
@@ -388,14 +394,15 @@ Cancel：
 	</tbody>
 </table>
 <h3 id="设计建议">设计建议</h3>
-<pre tabindex="0"><code>能用最终一致解决的问题，不要用强一致性方案。
+<pre><code>能用最终一致解决的问题，不要用强一致性方案。
 
 1. 尽量减少跨服务事务的调用次数
 2. 先考虑是否真的需要分布式事务
 3. 优先选择 Saga 或事务消息（最终一致）
 4. TCC 适合资金等强一致场景
 5. 所有操作做好幂等性
-</code></pre><p><strong>相关阅读：</strong></p>
+</code></pre>
+<p><strong>相关阅读：</strong></p>
 <ul>
 <li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E5%85%AD%E5%BE%AE%E6%9C%8D%E5%8A%A1%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/">分布式系统设计（六）：微服务架构设计</a></li>
 <li><a href="/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E5%85%AB%E4%BA%8B%E4%BB%B6%E9%A9%B1%E5%8A%A8%E4%B8%8E-cqrs/">分布式系统设计（八）：事件驱动与 CQRS</a></li>
@@ -437,6 +444,9 @@ Cancel：
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>K8s（六）：Ingress 与集群外部流量接入 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    <link rel="stylesheet" href="/fonts/fonts.css">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一ingress-架构概览">一、Ingress 架构概览</a></li>
+    <li><a href="#二安装-nginx-ingress-controller">二、安装 Nginx Ingress Controller</a></li>
+    <li><a href="#三ingress-资源详解">三、Ingress 资源详解</a>
+      <ul>
+        <li><a href="#31-基本-ingress-资源">3.1 基本 Ingress 资源</a></li>
+        <li><a href="#32-pathtype-说明">3.2 pathType 说明</a></li>
+        <li><a href="#33-多路由规则">3.3 多路由规则</a></li>
+      </ul>
+    </li>
+    <li><a href="#四实战一基于域名的路由">四、实战一：基于域名的路由</a>
+      <ul>
+        <li><a href="#41-准备两个服务">4.1 准备两个服务</a></li>
+        <li><a href="#42-创建-ingress">4.2 创建 Ingress</a></li>
+        <li><a href="#43-验证路由">4.3 验证路由</a></li>
+      </ul>
+    </li>
+    <li><a href="#五实战二基于路径的路由">五、实战二：基于路径的路由</a></li>
+    <li><a href="#六tls-配置">六、TLS 配置</a>
+      <ul>
+        <li><a href="#61-生成自签名证书">6.1 生成自签名证书</a></li>
+        <li><a href="#62-创建-tls-secret">6.2 创建 TLS Secret</a></li>
+        <li><a href="#63-配置-ingress-使用-tls">6.3 配置 Ingress 使用 TLS</a></li>
+      </ul>
+    </li>
+    <li><a href="#七ingress-常用注解">七、Ingress 常用注解</a></li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#系列文章">系列文章</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">K8s（六）：Ingress 与集群外部流量接入</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>上一篇文章我们介绍了 Service，它提供了 Pod 间的服务发现和负载均衡。当需要将服务暴露到集群外部时，我们提到了 NodePort 和 LoadBalancer。但这两种方式都存在一些局限性：</p>
+<table>
+	<thead>
+			<tr>
+					<th>方式</th>
+					<th>问题</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>NodePort</strong></td>
+					<td>端口范围有限（30000-32767）；每个服务一个端口，难以管理；只能做四层（TCP/UDP）转发</td>
+			</tr>
+			<tr>
+					<td><strong>LoadBalancer</strong></td>
+					<td>需要云平台支持；每个服务一个 LB，成本高昂</td>
+			</tr>
+	</tbody>
+</table>
+<p>试想一个场景：你有三个 Web 服务（<code>blog.example.com</code>、<code>shop.example.com</code>、<code>api.example.com</code>），如果使用 NodePort 或 LoadBalancer，每个服务都需要一个独立端口或 LB，既不优雅也不经济。</p>
+<p><strong>Ingress</strong> 就是来解决这个问题的——作为集群的&quot;智能网关&quot;，它支持七层（HTTP/HTTPS）路由，可以根据域名、路径等规则将流量转发到不同的 Service。</p>
+<h2 id="一ingress-架构概览">一、Ingress 架构概览</h2>
+<p>Ingress 实际上包含两个部分：</p>
+<ol>
+<li><strong>Ingress Controller</strong>：实际处理流量的反向代理/负载均衡器（如 Nginx、Traefik）</li>
+<li><strong>Ingress 资源</strong>：描述路由规则的 Kubernetes API 对象</li>
+</ol>
+<pre><code class="language-text">  ┌──────────┐
+  │  客户端    │
+  └─────┬────┘
+        │ http://blog.example.com/api
+        ▼
+  ┌─────────────────────┐
+  │  Ingress Controller  │  ← 实际的代理（Nginx/Traefik）
+  │  (运行在集群中)       │
+  └──┬──────────┬───────┘
+     │          │
+     ▼          ▼
+  ┌──────┐  ┌──────┐
+  │Service│  │Service│
+  │ blog │  │ api  │
+  └──────┘  └──────┘
+</code></pre>
+<p><strong>关键理解</strong>：</p>
+<ul>
+<li>Ingress <strong>不是</strong>一种 Service 类型，而是一组路由规则的集合</li>
+<li>Ingress <strong>必须配合 Ingress Controller</strong> 才能工作——仅仅创建 Ingress 资源不会产生任何效果</li>
+<li>Ingress Controller 本身通常以 Deployment 形式运行，并对外暴露（如 NodePort 或 LoadBalancer Service）</li>
+</ul>
+<hr>
+<h2 id="二安装-nginx-ingress-controller">二、安装 Nginx Ingress Controller</h2>
+<p>目前社区最流行的是 <strong>Nginx Ingress Controller</strong>（注意：这不是 Nginx 官方，而是 Kubernetes 社区的实现）。</p>
+<p>使用 Helm 安装是最简洁的方式：</p>
+<pre><code class="language-bash"># 添加 Helm 仓库
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+# 安装到 ingress-nginx 命名空间
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx --create-namespace
+</code></pre>
+<p>验证安装：</p>
+<pre><code class="language-bash">kubectl get pods -n ingress-nginx
+</code></pre>
+<pre><code class="language-text">NAME                                        READY   STATUS    RESTARTS   AGE
+ingress-nginx-controller-7c5c7c7b6f-abcde   1/1     Running   0          2m
+</code></pre>
+<p>查看 Ingress Controller 对外暴露的方式：</p>
+<pre><code class="language-bash">kubectl get svc -n ingress-nginx
+</code></pre>
+<pre><code class="language-text">NAME                                 TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)
+ingress-nginx-controller             LoadBalancer   10.96.100.100   localhost     80:30080/TCP,443:30443/TCP
+ingress-nginx-controller-admission   ClusterIP      10.96.100.101   &lt;none&gt;        443/TCP
+</code></pre>
+<p>在本地 Minikube 或 kind 环境中，<code>EXTERNAL-IP</code> 通常显示为 <code>localhost</code>。在生产环境中，它会自动配置云平台的负载均衡器。</p>
+<hr>
+<h2 id="三ingress-资源详解">三、Ingress 资源详解</h2>
+<h3 id="31-基本-ingress-资源">3.1 基本 Ingress 资源</h3>
+<pre><code class="language-yaml"># basic-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minimal-ingress
+spec:
+  ingressClassName: nginx     # 指定 Ingress Controller（K8s 1.18+）
+  rules:
+    - host: blog.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: blog-service
+                port:
+                  number: 80
+</code></pre>
+<h3 id="32-pathtype-说明">3.2 pathType 说明</h3>
+<table>
+	<thead>
+			<tr>
+					<th>pathType</th>
+					<th>行为</th>
+					<th>示例</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>Prefix</code></td>
+					<td>前缀匹配</td>
+					<td><code>/api</code> 匹配 <code>/api</code>、<code>/api/v1</code>、<code>/api/v2/users</code></td>
+			</tr>
+			<tr>
+					<td><code>Exact</code></td>
+					<td>精确匹配</td>
+					<td><code>/api</code> 只匹配 <code>/api</code>，不匹配 <code>/api/</code></td>
+			</tr>
+			<tr>
+					<td><code>ImplementationSpecific</code></td>
+					<td>由 Ingress Controller 自行决定（Nginx 行为等同 Prefix）</td>
+					<td></td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="33-多路由规则">3.3 多路由规则</h3>
+<p>一个 Ingress 可以定义多个 host 和 path：</p>
+<pre><code class="language-yaml"># multi-route-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: multi-route-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: blog.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: blog-service
+                port:
+                  number: 80
+    - host: api.example.com
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: api-v1-service
+                port:
+                  number: 8080
+          - path: /v2
+            pathType: Prefix
+            backend:
+              service:
+                name: api-v2-service
+                port:
+                  number: 8080
+</code></pre>
+<hr>
+<h2 id="四实战一基于域名的路由">四、实战一：基于域名的路由</h2>
+<h3 id="41-准备两个服务">4.1 准备两个服务</h3>
+<pre><code class="language-yaml"># demo-services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: coffee-service
+spec:
+  selector:
+    app: coffee
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tea-service
+spec:
+  selector:
+    app: tea
+  ports:
+    - port: 80
+      targetPort: 80
+</code></pre>
+<pre><code class="language-yaml"># demo-deployments.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coffee
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coffee
+  template:
+    metadata:
+      labels:
+        app: coffee
+    spec:
+      containers:
+        - name: coffee
+          image: nginx:1.21-alpine
+          ports:
+            - containerPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tea
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tea
+  template:
+    metadata:
+      labels:
+        app: tea
+    spec:
+      containers:
+        - name: tea
+          image: nginx:1.21-alpine
+          ports:
+            - containerPort: 80
+</code></pre>
+<pre><code class="language-bash">kubectl apply -f demo-services.yaml
+kubectl apply -f demo-deployments.yaml
+</code></pre>
+<h3 id="42-创建-ingress">4.2 创建 Ingress</h3>
+<pre><code class="language-yaml"># cafe-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cafe-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: coffee.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: coffee-service
+                port:
+                  number: 80
+    - host: tea.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tea-service
+                port:
+                  number: 80
+</code></pre>
+<pre><code class="language-bash">kubectl apply -f cafe-ingress.yaml
+</code></pre>
+<h3 id="43-验证路由">4.3 验证路由</h3>
+<pre><code class="language-bash"># 查看 Ingress
+kubectl get ingress
+</code></pre>
+<pre><code class="language-text">NAME           CLASS   HOSTS                            ADDRESS        PORTS   AGE
+cafe-ingress   nginx   coffee.example.com,tea.example.com   localhost   80      1m
+</code></pre>
+<p>在本地测试（需要配置 hosts 或使用 <code>--resolve</code>）：</p>
+<pre><code class="language-bash"># 测试 coffee 路由
+curl -H &quot;Host: coffee.example.com&quot; http://localhost
+
+# 测试 tea 路由
+curl -H &quot;Host: tea.example.com&quot; http://localhost
+</code></pre>
+<p>两个请求会被分别路由到不同的后端 Service。</p>
+<hr>
+<h2 id="五实战二基于路径的路由">五、实战二：基于路径的路由</h2>
+<p>同一域名下，根据路径转发到不同服务：</p>
+<pre><code class="language-yaml"># blog-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: blog-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: www.example.com
+      http:
+        paths:
+          - path: /blog
+            pathType: Prefix
+            backend:
+              service:
+                name: blog-service
+                port:
+                  number: 80
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api-service
+                port:
+                  number: 8080
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: static-service
+                port:
+                  number: 80
+</code></pre>
+<p>访问规则：</p>
+<table>
+	<thead>
+			<tr>
+					<th>请求 URL</th>
+					<th>目标 Service</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>http://www.example.com/blog</code></td>
+					<td>blog-service:80</td>
+			</tr>
+			<tr>
+					<td><code>http://www.example.com/api/users</code></td>
+					<td>api-service:8080</td>
+			</tr>
+			<tr>
+					<td><code>http://www.example.com/static/logo.png</code></td>
+					<td>static-service:80</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="六tls-配置">六、TLS 配置</h2>
+<p>Ingress 原生支持 HTTPS。我们需要先创建一个包含证书和私钥的 Secret。</p>
+<h3 id="61-生成自签名证书">6.1 生成自签名证书</h3>
+<pre><code class="language-bash"># 生成私钥
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout tls.key -out tls.crt \
+  -subj &quot;/CN=example.com/O=example&quot;
+</code></pre>
+<h3 id="62-创建-tls-secret">6.2 创建 TLS Secret</h3>
+<pre><code class="language-bash">kubectl create secret tls example-tls \
+  --key tls.key \
+  --cert tls.crt
+</code></pre>
+<h3 id="63-配置-ingress-使用-tls">6.3 配置 Ingress 使用 TLS</h3>
+<pre><code class="language-yaml"># tls-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tls-ingress
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - www.example.com
+      secretName: example-tls    # 引用上面创建的 Secret
+  rules:
+    - host: www.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: blog-service
+                port:
+                  number: 80
+</code></pre>
+<pre><code class="language-bash">kubectl apply -f tls-ingress.yaml
+</code></pre>
+<p>验证：</p>
+<pre><code class="language-bash">curl -k https://www.example.com
+# -k 忽略自签名证书警告
+</code></pre>
+<p>如果你使用的是 Let&rsquo;s Encrypt 等合法 CA 签发的证书，可以借助 <strong>cert-manager</strong> 实现证书的自动申请和续期，这是生产环境的推荐做法。</p>
+<hr>
+<h2 id="七ingress-常用注解">七、Ingress 常用注解</h2>
+<p>Ingress Controller 支持通过 annotation 自定义行为：</p>
+<pre><code class="language-yaml">apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: annotated-ingress
+  annotations:
+    # 限制请求体大小
+    nginx.ingress.kubernetes.io/proxy-body-size: &quot;10m&quot;
+    # 启用 CORS
+    nginx.ingress.kubernetes.io/enable-cors: &quot;true&quot;
+    # URL 重写（将 /api/v1/xxx 重写为 /xxx）
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.example.com
+      http:
+        paths:
+          - path: /api/v1(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: api-service
+                port:
+                  number: 8080
+</code></pre>
+<p>常用注解一览：</p>
+<table>
+	<thead>
+			<tr>
+					<th>注解</th>
+					<th>作用</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>nginx.ingress.kubernetes.io/rewrite-target</code></td>
+					<td>URL 重写</td>
+			</tr>
+			<tr>
+					<td><code>nginx.ingress.kubernetes.io/proxy-body-size</code></td>
+					<td>限制请求体大小</td>
+			</tr>
+			<tr>
+					<td><code>nginx.ingress.kubernetes.io/enable-cors</code></td>
+					<td>跨域支持</td>
+			</tr>
+			<tr>
+					<td><code>nginx.ingress.kubernetes.io/ssl-redirect</code></td>
+					<td>HTTP → HTTPS 重定向</td>
+			</tr>
+			<tr>
+					<td><code>nginx.ingress.kubernetes.io/limit-rps</code></td>
+					<td>限制每秒请求数</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="总结">总结</h2>
+<p>Ingress 是 Kubernetes 集群对外暴露服务的标准方案，它解决了 NodePort 和 LoadBalancer 的诸多局限。</p>
+<table>
+	<thead>
+			<tr>
+					<th>概念</th>
+					<th>一句话</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>Ingress Controller</strong></td>
+					<td>实际处理流量的反向代理（Nginx、Traefik 等）</td>
+			</tr>
+			<tr>
+					<td><strong>Ingress 资源</strong></td>
+					<td>描述路由规则的 YAML 定义</td>
+			</tr>
+			<tr>
+					<td><strong>pathType</strong></td>
+					<td>Prefix（前缀匹配）、Exact（精确匹配）</td>
+			</tr>
+			<tr>
+					<td><strong>TLS</strong></td>
+					<td>通过 Secret 绑定证书，启用 HTTPS</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>核心命令</strong>：</p>
+<pre><code class="language-bash"># 查看 Ingress
+kubectl get ingress
+kubectl describe ingress &lt;name&gt;
+
+# 创建 TLS Secret
+kubectl create secret tls &lt;name&gt; --key tls.key --cert tls.crt
+</code></pre>
+<p><strong>何时选择哪种方案</strong>？</p>
+<table>
+	<thead>
+			<tr>
+					<th>场景</th>
+					<th>推荐方案</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>开发调试、快速暴露一个服务</td>
+					<td>NodePort</td>
+			</tr>
+			<tr>
+					<td>公有云、单个服务对外暴露</td>
+					<td>LoadBalancer</td>
+			</tr>
+			<tr>
+					<td>多个域名/路径、需要 TLS 终结</td>
+					<td>Ingress</td>
+			</tr>
+			<tr>
+					<td>精细化流量管理（限流、重写、认证）</td>
+					<td>Ingress + 注解</td>
+			</tr>
+	</tbody>
+</table>
+<p>下一篇文章将介绍 <strong>ConfigMap 与 Secret</strong>——Kubernetes 中管理配置和敏感信息的必备工具。</p>
+<hr>
+<h2 id="系列文章">系列文章</h2>
+<ul>
+<li><a href="/posts/k8s%E4%B8%80%E4%BB%8E%E9%9B%B6%E8%AE%A4%E8%AF%86-kubernetes-%E6%9E%B6%E6%9E%84%E4%B8%8E%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5/">K8s（一）：从零认识 Kubernetes — 架构与核心概念</a></li>
+<li><a href="/posts/k8s%E4%BA%8C%E4%BD%BF%E7%94%A8-kubeadm-%E6%90%AD%E5%BB%BA-k8s-%E9%9B%86%E7%BE%A4%E5%AE%9E%E6%88%98/">K8s（二）：使用 kubeadm 搭建 K8s 集群实战</a></li>
+<li><a href="/posts/k8s%E4%B8%89pod-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%E4%B8%8E%E5%AE%B9%E5%99%A8%E7%BC%96%E6%8E%92%E5%9F%BA%E7%A1%80/">K8s（三）：Pod 核心概念与容器编排基础</a></li>
+<li><a href="/posts/k8s%E5%9B%9Bdeployment-%E4%B8%8E-replicaset-%E5%BA%94%E7%94%A8%E9%83%A8%E7%BD%B2%E4%B8%8E%E6%89%A9%E7%BC%A9%E5%AE%B9/">K8s（四）：Deployment 与 ReplicaSet — 应用部署与扩缩容</a></li>
+<li><a href="/posts/k8s%E4%BA%94service-%E4%B8%8E%E9%9B%86%E7%BE%A4%E5%86%85%E6%9C%8D%E5%8A%A1%E5%8F%91%E7%8E%B0/">K8s（五）：Service 与集群内服务发现</a></li>
+<li><a href="/posts/k8s%E4%B8%83configmap-%E4%B8%8E-secret-%E9%85%8D%E7%BD%AE%E7%AE%A1%E7%90%86/">K8s（七）：ConfigMap 与 Secret — 配置管理</a></li>
+<li><a href="/posts/k8s%E5%85%ABvolume-%E4%B8%8E%E6%8C%81%E4%B9%85%E5%8C%96%E5%AD%98%E5%82%A8/">K8s（八）：Volume 与持久化存储</a></li>
+<li><a href="/posts/k8s%E4%B9%9Dstatefulset-%E4%B8%8E%E6%9C%89%E7%8A%B6%E6%80%81%E5%BA%94%E7%94%A8/">K8s（九）：StatefulSet 与有状态应用</a></li>
+<li><a href="/posts/k8s%E5%8D%81helm-%E5%8C%85%E7%AE%A1%E7%90%86%E5%99%A8%E5%85%A5%E9%97%A8/">K8s（十）：Helm 包管理器入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%B8%80%E9%9B%86%E7%BE%A4%E5%AE%89%E5%85%A8%E5%9F%BA%E7%A1%80-rbac-%E4%B8%8E-serviceaccount/">K8s（十一）：集群安全基础 — RBAC 与 ServiceAccount</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%BA%8C%E7%9B%91%E6%8E%A7%E4%B8%8E%E6%97%A5%E5%BF%97-%E5%8F%AF%E8%A7%82%E6%B5%8B%E6%80%A7%E5%85%A5%E9%97%A8/">K8s（十二）：监控与日志 — 可观测性入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%B8%89%E7%94%9F%E4%BA%A7%E5%AE%9E%E8%B7%B5%E4%B8%8E%E7%B3%BB%E5%88%97%E6%80%BB%E7%BB%93/">K8s（十三）：生产实践与系列总结</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

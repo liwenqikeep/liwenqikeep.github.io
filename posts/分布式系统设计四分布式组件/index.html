@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -112,10 +109,11 @@
 <p>在分布式系统中，有一些通用的基础组件需要自行设计或选型：<strong>分布式 ID</strong>、<strong>分布式锁</strong>、<strong>服务发现</strong>、<strong>分布式配置</strong>。这些组件看似简单，但涉及一致性和高可用的权衡。</p>
 <h2 id="一分布式-id">一、分布式 ID</h2>
 <h3 id="11-需求">1.1 需求</h3>
-<pre tabindex="0"><code>全局唯一        — 不能重复
+<pre><code>全局唯一        — 不能重复
 趋势递增       — MySQL B+ 树插入性能好
 高可用低延迟   — 生成 ID 不能成为瓶颈
-</code></pre><h3 id="12-常见方案">1.2 常见方案</h3>
+</code></pre>
+<h3 id="12-常见方案">1.2 常见方案</h3>
 <table>
 	<thead>
 			<tr>
@@ -153,99 +151,102 @@
 	</tbody>
 </table>
 <h3 id="13-雪花算法">1.3 雪花算法</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SnowflakeIdGenerator</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 位数分配：1bit(符号) + 41bit(时间戳) + 10bit(机器ID) + 12bit(序列号)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 总共 64 位，正好一个 long</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">workerId</span><span class="p">;</span><span class="w">        </span><span class="c1">// 机器ID（0-1023）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">datacenterId</span><span class="p">;</span><span class="w">    </span><span class="c1">// 数据中心ID（0-31）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">sequence</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0L</span><span class="p">;</span><span class="w">         </span><span class="c1">// 序列号</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">lastTimestamp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">1L</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">synchronized</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="nf">nextId</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">long</span><span class="w"> </span><span class="n">timestamp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">timestamp</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">lastTimestamp</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 时钟回拨问题处理：等待或抛异常</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RuntimeException</span><span class="p">(</span><span class="s">&#34;Clock moved backwards&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">timestamp</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">lastTimestamp</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">sequence</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">sequence</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">1</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">4095</span><span class="p">;</span><span class="w">  </span><span class="c1">// 同一毫秒内序列号递增</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">sequence</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 当前毫秒序列号用完，等待下一毫秒</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">timestamp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">waitNextMillis</span><span class="p">(</span><span class="n">lastTimestamp</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">sequence</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0L</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">lastTimestamp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">timestamp</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="p">((</span><span class="n">timestamp</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">1288834974657L</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">22</span><span class="p">)</span><span class="w">   </span><span class="c1">// 时间戳部分</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">             </span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="n">datacenterId</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">17</span><span class="p">)</span><span class="w">                     </span><span class="c1">// 数据中心</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">             </span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="n">workerId</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">12</span><span class="p">)</span><span class="w">                         </span><span class="c1">// 机器ID</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">             </span><span class="o">|</span><span class="w"> </span><span class="n">sequence</span><span class="p">;</span><span class="w">                                </span><span class="c1">// 序列号</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">public class SnowflakeIdGenerator {
+    
+    // 位数分配：1bit(符号) + 41bit(时间戳) + 10bit(机器ID) + 12bit(序列号)
+    // 总共 64 位，正好一个 long
+    
+    private final long workerId;        // 机器ID（0-1023）
+    private final long datacenterId;    // 数据中心ID（0-31）
+    private long sequence = 0L;         // 序列号
+    private long lastTimestamp = -1L;
+    
+    public synchronized long nextId() {
+        long timestamp = System.currentTimeMillis();
+        
+        if (timestamp &lt; lastTimestamp) {
+            // 时钟回拨问题处理：等待或抛异常
+            throw new RuntimeException(&quot;Clock moved backwards&quot;);
+        }
+        
+        if (timestamp == lastTimestamp) {
+            sequence = (sequence + 1) &amp; 4095;  // 同一毫秒内序列号递增
+            if (sequence == 0) {
+                // 当前毫秒序列号用完，等待下一毫秒
+                timestamp = waitNextMillis(lastTimestamp);
+            }
+        } else {
+            sequence = 0L;
+        }
+        
+        lastTimestamp = timestamp;
+        
+        return ((timestamp - 1288834974657L) &lt;&lt; 22)   // 时间戳部分
+             | (datacenterId &lt;&lt; 17)                     // 数据中心
+             | (workerId &lt;&lt; 12)                         // 机器ID
+             | sequence;                                // 序列号
+    }
+}
+</code></pre>
+<hr>
 <h2 id="二分布式锁">二、分布式锁</h2>
 <h3 id="21-基于-redis-的分布式锁">2.1 基于 Redis 的分布式锁</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 加锁</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">tryLock</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">expireSeconds</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setIfAbsent</span><span class="p">(</span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="n">expireSeconds</span><span class="p">,</span><span class="w"> </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">SECONDS</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 解锁（使用 Lua 保证原子性）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">unlock</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">value</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="n">script</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;if redis.call(&#39;get&#39;, KEYS[1]) == ARGV[1] &#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="s">&#34;then return redis.call(&#39;del&#39;, KEYS[1]) &#34;</span><span class="w"> </span><span class="o">+</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="s">&#34;else return 0 end&#34;</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">execute</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">DefaultRedisScript</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">script</span><span class="p">,</span><span class="w"> </span><span class="n">Long</span><span class="p">.</span><span class="na">class</span><span class="p">),</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="n">key</span><span class="p">),</span><span class="w"> </span><span class="n">value</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="22-基于-zookeeper-的分布式锁">2.2 基于 ZooKeeper 的分布式锁</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ZooKeeper 的临时顺序节点实现锁</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 优点：无超时问题，客户端断开后自动释放</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ZkDistributedLock</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ZooKeeper</span><span class="w"> </span><span class="n">zk</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">lockPath</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">currentPath</span><span class="p">;</span><span class="w">  </span><span class="c1">// 当前节点路径</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">tryLock</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 创建临时顺序节点</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">currentPath</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">zk</span><span class="p">.</span><span class="na">create</span><span class="p">(</span><span class="n">lockPath</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;/lock-&#34;</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">new</span><span class="w"> </span><span class="kt">byte</span><span class="o">[</span><span class="n">0</span><span class="o">]</span><span class="p">,</span><span class="w"> </span><span class="n">ZooDefs</span><span class="p">.</span><span class="na">Ids</span><span class="p">.</span><span class="na">OPEN_ACL_UNSAFE</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">CreateMode</span><span class="p">.</span><span class="na">EPHEMERAL_SEQUENTIAL</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 获取所有子节点</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">children</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">zk</span><span class="p">.</span><span class="na">getChildren</span><span class="p">(</span><span class="n">lockPath</span><span class="p">,</span><span class="w"> </span><span class="kc">false</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Collections</span><span class="p">.</span><span class="na">sort</span><span class="p">(</span><span class="n">children</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果自己的节点是最小的，获得锁</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">currentNode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">currentPath</span><span class="p">.</span><span class="na">substring</span><span class="p">(</span><span class="n">currentPath</span><span class="p">.</span><span class="na">lastIndexOf</span><span class="p">(</span><span class="s">&#34;/&#34;</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">1</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">currentNode</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">children</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">0</span><span class="p">)))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 监听前一个节点</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">prevNode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">children</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">children</span><span class="p">.</span><span class="na">indexOf</span><span class="p">(</span><span class="n">currentNode</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">1</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">CountDownLatch</span><span class="w"> </span><span class="n">latch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CountDownLatch</span><span class="p">(</span><span class="n">1</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">zk</span><span class="p">.</span><span class="na">exists</span><span class="p">(</span><span class="n">lockPath</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;/&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">prevNode</span><span class="p">,</span><span class="w"> </span><span class="n">event</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">latch</span><span class="p">.</span><span class="na">countDown</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">latch</span><span class="p">.</span><span class="na">await</span><span class="p">();</span><span class="w">  </span><span class="c1">// 等待前一个节点释放</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">unlock</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">zk</span><span class="p">.</span><span class="na">delete</span><span class="p">(</span><span class="n">currentPath</span><span class="p">,</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="23-redis-vs-zookeeper-锁">2.3 Redis vs ZooKeeper 锁</h3>
+<pre><code class="language-java">// 加锁
+public boolean tryLock(String key, String value, long expireSeconds) {
+    return redisTemplate.opsForValue()
+            .setIfAbsent(key, value, expireSeconds, TimeUnit.SECONDS);
+}
+
+// 解锁（使用 Lua 保证原子性）
+public boolean unlock(String key, String value) {
+    String script = &quot;if redis.call('get', KEYS[1]) == ARGV[1] &quot; +
+                    &quot;then return redis.call('del', KEYS[1]) &quot; +
+                    &quot;else return 0 end&quot;;
+    return redisTemplate.execute(
+            new DefaultRedisScript&lt;&gt;(script, Long.class),
+            List.of(key), value) &gt; 0;
+}
+</code></pre>
+<h3 id="22-基于-zookeeper-的分布式锁">2.2 基于 ZooKeeper 的分布式锁</h3>
+<pre><code class="language-java">// ZooKeeper 的临时顺序节点实现锁
+// 优点：无超时问题，客户端断开后自动释放
+public class ZkDistributedLock {
+    
+    private final ZooKeeper zk;
+    private final String lockPath;
+    private String currentPath;  // 当前节点路径
+    
+    public boolean tryLock() {
+        // 创建临时顺序节点
+        currentPath = zk.create(lockPath + &quot;/lock-&quot;, 
+                new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                CreateMode.EPHEMERAL_SEQUENTIAL);
+        
+        // 获取所有子节点
+        List&lt;String&gt; children = zk.getChildren(lockPath, false);
+        Collections.sort(children);
+        
+        // 如果自己的节点是最小的，获得锁
+        String currentNode = currentPath.substring(currentPath.lastIndexOf(&quot;/&quot;) + 1);
+        if (currentNode.equals(children.get(0))) {
+            return true;
+        }
+        
+        // 监听前一个节点
+        String prevNode = children.get(children.indexOf(currentNode) - 1);
+        CountDownLatch latch = new CountDownLatch(1);
+        zk.exists(lockPath + &quot;/&quot; + prevNode, event -&gt; latch.countDown());
+        latch.await();  // 等待前一个节点释放
+        
+        return true;
+    }
+    
+    public void unlock() {
+        zk.delete(currentPath, -1);
+    }
+}
+</code></pre>
+<h3 id="23-redis-vs-zookeeper-锁">2.3 Redis vs ZooKeeper 锁</h3>
 <table>
 	<thead>
 			<tr>
@@ -280,7 +281,7 @@
 <hr>
 <h2 id="三服务发现">三、服务发现</h2>
 <h3 id="31-客户端发现-vs-服务端发现">3.1 客户端发现 vs 服务端发现</h3>
-<pre tabindex="0"><code>客户端发现（Client-Side Discovery）：
+<pre><code>客户端发现（Client-Side Discovery）：
   客户端直接从注册中心获取服务地址列表
   代表：Eureka、Consul、ZooKeeper
   优点：架构简单，无需额外代理
@@ -291,7 +292,8 @@
   代表：Kubernetes Service + kube-proxy
   优点：客户端无需感知服务地址
   缺点：需要额外的代理组件
-</code></pre><h3 id="32-注册中心对比">3.2 注册中心对比</h3>
+</code></pre>
+<h3 id="32-注册中心对比">3.2 注册中心对比</h3>
 <table>
 	<thead>
 			<tr>
@@ -343,7 +345,7 @@
 <hr>
 <h2 id="四分布式配置">四、分布式配置</h2>
 <h3 id="41-配置中心的功能">4.1 配置中心的功能</h3>
-<pre tabindex="0"><code>1. 配置集中管理
+<pre><code>1. 配置集中管理
    所有环境的配置在一个地方管理
 
 2. 配置动态刷新
@@ -354,7 +356,8 @@
 
 4. 权限控制
    不同环境、不同应用的配置隔离
-</code></pre><h3 id="42-常用配置中心">4.2 常用配置中心</h3>
+</code></pre>
+<h3 id="42-常用配置中心">4.2 常用配置中心</h3>
 <table>
 	<thead>
 			<tr>
@@ -392,7 +395,7 @@
 	</tbody>
 </table>
 <h3 id="43-apollo-配置模型">4.3 Apollo 配置模型</h3>
-<pre tabindex="0"><code>应用配置的结构：
+<pre><code>应用配置的结构：
 AppId → Namespace → Key-Value
 
 Namespace：
@@ -406,7 +409,8 @@ Namespace：
 3. 配置变更时推送通知
 4. 应用收到通知后拉取最新配置
 5. 通过 Spring 的 Environment 刷新机制生效
-</code></pre><hr>
+</code></pre>
+<hr>
 <h2 id="五总结">五、总结</h2>
 <h3 id="组件选型速查">组件选型速查</h3>
 <table>
@@ -482,6 +486,9 @@ Namespace：
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

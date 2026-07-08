@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -128,16 +125,17 @@
 <p>从 <code>ApplicationListener</code> 接口到 <code>@EventListener</code> 注解的演进，再到 <code>@TransactionalEventListener</code> 的事务绑定事件，Spring 事件机制越来越灵活。本文将覆盖它的使用方式和进阶技巧。</p>
 <h2 id="一事件机制核心概念">一、事件机制核心概念</h2>
 <h3 id="11-三个核心角色">1.1 三个核心角色</h3>
-<pre tabindex="0"><code>事件：ApplicationEvent
-  └── 代表&#34;发生了什么&#34;，是一个普通的 Java 对象
+<pre><code>事件：ApplicationEvent
+  └── 代表&quot;发生了什么&quot;，是一个普通的 Java 对象
         
 发布者：ApplicationEventPublisher
   └── 负责发布事件，任何组件都可以注入并调用 publishEvent()
         
 监听者：@EventListener / ApplicationListener
   └── 监听并处理事件，与发布者完全解耦
-</code></pre><h3 id="12-执行流程">1.2 执行流程</h3>
-<pre tabindex="0"><code>【同步执行（默认）】
+</code></pre>
+<h3 id="12-执行流程">1.2 执行流程</h3>
+<pre><code>【同步执行（默认）】
 发布者.publishEvent(event)
     │
     ▼
@@ -164,237 +162,249 @@ ApplicationEventMulticaster.multicastEvent(event)
     │
     ▼
 发布者立即返回（不等待监听器执行完）
-</code></pre><h2 id="二自定义事件">二、自定义事件</h2>
+</code></pre>
+<h2 id="二自定义事件">二、自定义事件</h2>
 <h3 id="21-创建事件类">2.1 创建事件类</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. 继承 ApplicationEvent（旧方式）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderCreatedEvent</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">ApplicationEvent</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">orderNo</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">OrderCreatedEvent</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">source</span><span class="p">,</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">orderNo</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">super</span><span class="p">(</span><span class="n">source</span><span class="p">);</span><span class="w">  </span><span class="c1">// source 通常是发布者对象</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">orderId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orderId</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">orderNo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orderNo</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// getter 方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 不继承 ApplicationEvent（推荐，Spring 4.2+）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// Spring 会自动包装为 PayloadApplicationEvent</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderCreatedEvent</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">orderNo</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">OrderCreatedEvent</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">orderNo</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">orderId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orderId</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">orderNo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orderNo</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// getter 方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="22-发布事件">2.2 发布事件</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">ApplicationEventPublisher</span><span class="w"> </span><span class="n">eventPublisher</span><span class="p">;</span><span class="w">  </span><span class="c1">// 注入发布器</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Order</span><span class="w"> </span><span class="nf">createOrder</span><span class="p">(</span><span class="n">OrderRequest</span><span class="w"> </span><span class="n">request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 业务逻辑</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Order</span><span class="w"> </span><span class="n">order</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">saveOrder</span><span class="p">(</span><span class="n">request</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. ★ 发布事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">eventPublisher</span><span class="p">.</span><span class="na">publishEvent</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">OrderCreatedEvent</span><span class="p">(</span><span class="n">order</span><span class="p">.</span><span class="na">getId</span><span class="p">(),</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="na">getOrderNo</span><span class="p">()));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">order</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="23-监听事件eventlistener">2.3 监听事件——@EventListener</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderEventListener</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Logger</span><span class="w"> </span><span class="n">log</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LoggerFactory</span><span class="p">.</span><span class="na">getLogger</span><span class="p">(</span><span class="n">getClass</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 监听 OrderCreatedEvent</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleOrderCreated</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;订单创建事件: orderId={}, orderNo={}&#34;</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                 </span><span class="n">event</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">(),</span><span class="w"> </span><span class="n">event</span><span class="p">.</span><span class="na">getOrderNo</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 处理逻辑：发送通知、更新统计等</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 同时监听多个事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="p">({</span><span class="n">OrderCreatedEvent</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">OrderPaidEvent</span><span class="p">.</span><span class="na">class</span><span class="p">})</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleOrderEvents</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 两种事件的通用处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="三eventlistener-详解">三、@EventListener 详解</h2>
+<pre><code class="language-java">// 1. 继承 ApplicationEvent（旧方式）
+public class OrderCreatedEvent extends ApplicationEvent {
+    
+    private final Long orderId;
+    private final String orderNo;
+    
+    public OrderCreatedEvent(Object source, Long orderId, String orderNo) {
+        super(source);  // source 通常是发布者对象
+        this.orderId = orderId;
+        this.orderNo = orderNo;
+    }
+    
+    // getter 方法
+}
+
+
+// 2. 不继承 ApplicationEvent（推荐，Spring 4.2+）
+// Spring 会自动包装为 PayloadApplicationEvent
+public class OrderCreatedEvent {
+    
+    private final Long orderId;
+    private final String orderNo;
+    
+    public OrderCreatedEvent(Long orderId, String orderNo) {
+        this.orderId = orderId;
+        this.orderNo = orderNo;
+    }
+    
+    // getter 方法
+}
+</code></pre>
+<h3 id="22-发布事件">2.2 发布事件</h3>
+<pre><code class="language-java">@Service
+public class OrderService {
+    
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;  // 注入发布器
+    
+    public Order createOrder(OrderRequest request) {
+        // 1. 业务逻辑
+        Order order = saveOrder(request);
+        
+        // 2. ★ 发布事件
+        eventPublisher.publishEvent(new OrderCreatedEvent(order.getId(), order.getOrderNo()));
+        
+        return order;
+    }
+}
+</code></pre>
+<h3 id="23-监听事件eventlistener">2.3 监听事件——@EventListener</h3>
+<pre><code class="language-java">@Component
+public class OrderEventListener {
+    
+    private final Logger log = LoggerFactory.getLogger(getClass());
+    
+    // 监听 OrderCreatedEvent
+    @EventListener
+    public void handleOrderCreated(OrderCreatedEvent event) {
+        log.info(&quot;订单创建事件: orderId={}, orderNo={}&quot;, 
+                 event.getOrderId(), event.getOrderNo());
+        // 处理逻辑：发送通知、更新统计等
+    }
+    
+    // 同时监听多个事件
+    @EventListener({OrderCreatedEvent.class, OrderPaidEvent.class})
+    public void handleOrderEvents(Object event) {
+        // 两种事件的通用处理
+    }
+}
+</code></pre>
+<h2 id="三eventlistener-详解">三、@EventListener 详解</h2>
 <h3 id="31-spel-条件过滤">3.1 SpEL 条件过滤</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderEventListener</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 只处理订单金额大于 1000 的事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="p">(</span><span class="n">condition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;#event.totalAmount &gt; 1000&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleLargeOrder</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 大额订单特殊处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 使用 SpEL 表达式判断事件来源</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="p">(</span><span class="n">condition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;#event.source == &#39;import&#39;&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleImportedOrder</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 只处理导入的订单</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="32-监听多个事件类型">3.2 监听多个事件类型</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderLifecycleListener</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 监听所有 ApplicationEvent 子类（不推荐，会收到大量无关事件）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleAllEvents</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 任何事件都会被调用</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 监听特定的多个事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleOrderStatusChange</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 订单创建</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleOrderStatusChange</span><span class="p">(</span><span class="n">OrderPaidEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 订单支付</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleOrderStatusChange</span><span class="p">(</span><span class="n">OrderShippedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 订单发货</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="33-监听器的执行顺序">3.3 监听器的执行顺序</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">EmailNotificationListener</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Order</span><span class="p">(</span><span class="n">1</span><span class="p">)</span><span class="w">  </span><span class="c1">// 值越小，优先级越高</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">sendEmail</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 第一个执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SmsNotificationListener</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Order</span><span class="p">(</span><span class="n">2</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">sendSms</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 第二个执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="四transactionaleventlistener事务绑定事件">四、@TransactionalEventListener——事务绑定事件</h2>
+<pre><code class="language-java">@Component
+public class OrderEventListener {
+    
+    // 只处理订单金额大于 1000 的事件
+    @EventListener(condition = &quot;#event.totalAmount &gt; 1000&quot;)
+    public void handleLargeOrder(OrderCreatedEvent event) {
+        // 大额订单特殊处理
+    }
+    
+    // 使用 SpEL 表达式判断事件来源
+    @EventListener(condition = &quot;#event.source == 'import'&quot;)
+    public void handleImportedOrder(OrderCreatedEvent event) {
+        // 只处理导入的订单
+    }
+}
+</code></pre>
+<h3 id="32-监听多个事件类型">3.2 监听多个事件类型</h3>
+<pre><code class="language-java">@Component
+public class OrderLifecycleListener {
+    
+    // 监听所有 ApplicationEvent 子类（不推荐，会收到大量无关事件）
+    @EventListener
+    public void handleAllEvents(Object event) {
+        // 任何事件都会被调用
+    }
+    
+    // 监听特定的多个事件
+    @EventListener
+    public void handleOrderStatusChange(OrderCreatedEvent event) {
+        // 订单创建
+    }
+    
+    @EventListener
+    public void handleOrderStatusChange(OrderPaidEvent event) {
+        // 订单支付
+    }
+    
+    @EventListener
+    public void handleOrderStatusChange(OrderShippedEvent event) {
+        // 订单发货
+    }
+}
+</code></pre>
+<h3 id="33-监听器的执行顺序">3.3 监听器的执行顺序</h3>
+<pre><code class="language-java">@Component
+public class EmailNotificationListener {
+    
+    @EventListener
+    @Order(1)  // 值越小，优先级越高
+    public void sendEmail(OrderCreatedEvent event) {
+        // 第一个执行
+    }
+}
+
+@Component
+public class SmsNotificationListener {
+    
+    @EventListener
+    @Order(2)
+    public void sendSms(OrderCreatedEvent event) {
+        // 第二个执行
+    }
+}
+</code></pre>
+<h2 id="四transactionaleventlistener事务绑定事件">四、@TransactionalEventListener——事务绑定事件</h2>
 <h3 id="41-问题场景">4.1 问题场景</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Order</span><span class="w"> </span><span class="nf">createOrder</span><span class="p">(</span><span class="n">OrderRequest</span><span class="w"> </span><span class="n">request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Order</span><span class="w"> </span><span class="n">order</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orderRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="n">request</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 发布事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">eventPublisher</span><span class="p">.</span><span class="na">publishEvent</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">OrderCreatedEvent</span><span class="p">(</span><span class="n">order</span><span class="p">.</span><span class="na">getId</span><span class="p">(),</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="na">getOrderNo</span><span class="p">()));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">order</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">EmailListener</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handle</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 问题：此时事务可能还没提交！</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果这里查数据库，可能查不到刚刚插入的数据</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果这里抛异常，事务会回滚（同步监听时）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="42-transactionaleventlistener-解决">4.2 @TransactionalEventListener 解决</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SafeEventListener</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 默认：事务提交后才执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@TransactionalEventListener</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleAfterCommit</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 此时事务已经提交，数据已持久化</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 安全地发送邮件、MQ 消息等</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 指定事务阶段</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@TransactionalEventListener</span><span class="p">(</span><span class="n">phase</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TransactionPhase</span><span class="p">.</span><span class="na">AFTER_COMMIT</span><span class="p">)</span><span class="w">     </span><span class="c1">// 提交后（默认）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@TransactionalEventListener</span><span class="p">(</span><span class="n">phase</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TransactionPhase</span><span class="p">.</span><span class="na">AFTER_ROLLBACK</span><span class="p">)</span><span class="w">    </span><span class="c1">// 回滚后</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@TransactionalEventListener</span><span class="p">(</span><span class="n">phase</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TransactionPhase</span><span class="p">.</span><span class="na">AFTER_COMPLETION</span><span class="p">)</span><span class="w">  </span><span class="c1">// 完成后（提交或回滚）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@TransactionalEventListener</span><span class="p">(</span><span class="n">phase</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TransactionPhase</span><span class="p">.</span><span class="na">BEFORE_COMMIT</span><span class="p">)</span><span class="w">     </span><span class="c1">// 提交前</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 也可以加条件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@TransactionalEventListener</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">phase</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TransactionPhase</span><span class="p">.</span><span class="na">AFTER_COMMIT</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">condition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;#event.totalAmount &gt; 1000&#34;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleLargeOrderAfterCommit</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 大额订单事务提交后的处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p><strong>注意：</strong> <code>@TransactionalEventListener</code> 要求发布事件的方法必须在事务中执行，否则默认不执行。可以通过设置 <code>fallbackExecution = true</code> 让没有事务时也执行：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@TransactionalEventListener</span><span class="p">(</span><span class="n">fallbackExecution</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">)</span><span class="w">  </span><span class="c1">// 没有事务时也执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleWithFallback</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ...</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="五异步事件">五、异步事件</h2>
+<pre><code class="language-java">@Service
+public class OrderService {
+    
+    @Transactional
+    public Order createOrder(OrderRequest request) {
+        Order order = orderRepository.save(request);
+        
+        // 发布事件
+        eventPublisher.publishEvent(new OrderCreatedEvent(order.getId(), order.getOrderNo()));
+        
+        return order;
+    }
+}
+
+@Component
+public class EmailListener {
+    
+    @EventListener
+    public void handle(OrderCreatedEvent event) {
+        // 问题：此时事务可能还没提交！
+        // 如果这里查数据库，可能查不到刚刚插入的数据
+        // 如果这里抛异常，事务会回滚（同步监听时）
+    }
+}
+</code></pre>
+<h3 id="42-transactionaleventlistener-解决">4.2 @TransactionalEventListener 解决</h3>
+<pre><code class="language-java">@Component
+public class SafeEventListener {
+    
+    // 默认：事务提交后才执行
+    @TransactionalEventListener
+    public void handleAfterCommit(OrderCreatedEvent event) {
+        // ★ 此时事务已经提交，数据已持久化
+        // 安全地发送邮件、MQ 消息等
+    }
+    
+    // 指定事务阶段
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)     // 提交后（默认）
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_ROLLBACK)    // 回滚后
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMPLETION)  // 完成后（提交或回滚）
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)     // 提交前
+    
+    // 也可以加条件
+    @TransactionalEventListener(
+        phase = TransactionPhase.AFTER_COMMIT,
+        condition = &quot;#event.totalAmount &gt; 1000&quot;
+    )
+    public void handleLargeOrderAfterCommit(OrderCreatedEvent event) {
+        // 大额订单事务提交后的处理
+    }
+}
+</code></pre>
+<p><strong>注意：</strong> <code>@TransactionalEventListener</code> 要求发布事件的方法必须在事务中执行，否则默认不执行。可以通过设置 <code>fallbackExecution = true</code> 让没有事务时也执行：</p>
+<pre><code class="language-java">@TransactionalEventListener(fallbackExecution = true)  // 没有事务时也执行
+public void handleWithFallback(OrderCreatedEvent event) {
+    // ...
+}
+</code></pre>
+<h2 id="五异步事件">五、异步事件</h2>
 <h3 id="51-async--eventlistener">5.1 @Async + @EventListener</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableAsync</span><span class="w">  </span><span class="c1">// 需要在配置类或启动类上开启异步支持</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AsyncEventListener</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Async</span><span class="w">          </span><span class="c1">// ★ 异步执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@EventListener</span><span class="w">  </span><span class="c1">// 监听事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleAsync</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 这个方法在单独的线程中执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 发布者不会等待此方法执行完</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Thread</span><span class="w"> </span><span class="n">currentThread</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Thread</span><span class="p">.</span><span class="na">currentThread</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;异步处理: &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">currentThread</span><span class="p">.</span><span class="na">getName</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 发送邮件、推送通知等耗时操作</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="52-异步事件与事务">5.2 异步事件与事务</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">createOrder</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 事务内发布事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">eventPublisher</span><span class="p">.</span><span class="na">publishEvent</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">OrderCreatedEvent</span><span class="p">(...));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 事件监听如果是 @Async + @TransactionalEventListener</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 注意：异步后不再受原事务管理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderListener</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Async</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@TransactionalEventListener</span><span class="p">(</span><span class="n">phase</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TransactionPhase</span><span class="p">.</span><span class="na">AFTER_COMMIT</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handle</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 在独立的线程中执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 此时原始事务已提交</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果这里也有 @Transactional，会开启新事务</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="六事件机制的最佳实践">六、事件机制的最佳实践</h2>
+<pre><code class="language-java">@Component
+@EnableAsync  // 需要在配置类或启动类上开启异步支持
+public class AsyncEventListener {
+    
+    @Async          // ★ 异步执行
+    @EventListener  // 监听事件
+    public void handleAsync(OrderCreatedEvent event) {
+        // 这个方法在单独的线程中执行
+        // 发布者不会等待此方法执行完
+        Thread currentThread = Thread.currentThread();
+        System.out.println(&quot;异步处理: &quot; + currentThread.getName());
+        
+        // 发送邮件、推送通知等耗时操作
+    }
+}
+</code></pre>
+<h3 id="52-异步事件与事务">5.2 异步事件与事务</h3>
+<pre><code class="language-java">@Service
+public class OrderService {
+    
+    @Transactional
+    public void createOrder() {
+        // 事务内发布事件
+        eventPublisher.publishEvent(new OrderCreatedEvent(...));
+        // 事件监听如果是 @Async + @TransactionalEventListener
+        // 注意：异步后不再受原事务管理
+    }
+}
+
+@Component
+public class OrderListener {
+    
+    @Async
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handle(OrderCreatedEvent event) {
+        // 在独立的线程中执行
+        // 此时原始事务已提交
+        // 如果这里也有 @Transactional，会开启新事务
+    }
+}
+</code></pre>
+<h2 id="六事件机制的最佳实践">六、事件机制的最佳实践</h2>
 <h3 id="61-事件-vs-消息队列">6.1 事件 vs 消息队列</h3>
 <table>
 	<thead>
@@ -433,44 +443,47 @@ ApplicationEventMulticaster.multicastEvent(event)
 	</tbody>
 </table>
 <h3 id="62-事件类设计">6.2 事件类设计</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ✅ 推荐：POJO 类，不继承 ApplicationEvent</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OrderCreatedEvent</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">orderNo</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">LocalDateTime</span><span class="w"> </span><span class="n">createdAt</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">OrderCreatedEvent</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">orderNo</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">orderId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orderId</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">orderNo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orderNo</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">createdAt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LocalDateTime</span><span class="p">.</span><span class="na">now</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// getter</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// ❌ 旧方式：继承 ApplicationEvent</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 需要传 source 参数，序列化不方便</span><span class="w">
-</span></span></span></code></pre></div><h3 id="63-不要过度使用事件">6.3 不要过度使用事件</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ✅ 适合用事件的场景：跨模块、跨组件、不需要返回结果</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 订单创建 → 发邮件、发短信、记录审计日志</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// ❌ 不适合用事件的场景：需要返回结果、强依赖</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 用户注册 → 需要知道是否发送成功（用接口调用）</span><span class="w">
-</span></span></span></code></pre></div><h3 id="64-事件监听注意事项">6.4 事件监听注意事项</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@EventListener</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handle</span><span class="p">(</span><span class="n">OrderCreatedEvent</span><span class="w"> </span><span class="n">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 在监听器中抛异常会影响发布者</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果同步监听，异常会传播到发布者</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果有事务，会导致事务回滚</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">doSomething</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 建议：在监听器内部 catch 异常</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 或者使用 @Async 异步执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">error</span><span class="p">(</span><span class="s">&#34;事件处理异常&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">e</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="七总结">七、总结</h2>
+<pre><code class="language-java">// ✅ 推荐：POJO 类，不继承 ApplicationEvent
+public class OrderCreatedEvent {
+    private final Long orderId;
+    private final String orderNo;
+    private final LocalDateTime createdAt;
+    
+    public OrderCreatedEvent(Long orderId, String orderNo) {
+        this.orderId = orderId;
+        this.orderNo = orderNo;
+        this.createdAt = LocalDateTime.now();
+    }
+    
+    // getter
+}
+
+// ❌ 旧方式：继承 ApplicationEvent
+// 需要传 source 参数，序列化不方便
+</code></pre>
+<h3 id="63-不要过度使用事件">6.3 不要过度使用事件</h3>
+<pre><code class="language-java">// ✅ 适合用事件的场景：跨模块、跨组件、不需要返回结果
+// 订单创建 → 发邮件、发短信、记录审计日志
+
+// ❌ 不适合用事件的场景：需要返回结果、强依赖
+// 用户注册 → 需要知道是否发送成功（用接口调用）
+</code></pre>
+<h3 id="64-事件监听注意事项">6.4 事件监听注意事项</h3>
+<pre><code class="language-java">@EventListener
+public void handle(OrderCreatedEvent event) {
+    try {
+        // ★ 在监听器中抛异常会影响发布者
+        // 如果同步监听，异常会传播到发布者
+        // 如果有事务，会导致事务回滚
+        doSomething();
+    } catch (Exception e) {
+        // ★ 建议：在监听器内部 catch 异常
+        // 或者使用 @Async 异步执行
+        log.error(&quot;事件处理异常&quot;, e);
+    }
+}
+</code></pre>
+<h2 id="七总结">七、总结</h2>
 <h3 id="核心注解速查">核心注解速查</h3>
 <table>
 	<thead>
@@ -572,6 +585,9 @@ ApplicationEventMulticaster.multicastEvent(event)
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

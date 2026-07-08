@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>K8s（七）：ConfigMap 与 Secret — 配置管理 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    <link rel="stylesheet" href="/fonts/fonts.css">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一configmap-概述">一、ConfigMap 概述</a>
+      <ul>
+        <li><a href="#11-什么是-configmap">1.1 什么是 ConfigMap？</a></li>
+        <li><a href="#12-configmap-的创建方式">1.2 ConfigMap 的创建方式</a></li>
+      </ul>
+    </li>
+    <li><a href="#二configmap-的使用方式">二、ConfigMap 的使用方式</a>
+      <ul>
+        <li><a href="#21-环境变量方式">2.1 环境变量方式</a></li>
+        <li><a href="#22-volume-挂载方式">2.2 Volume 挂载方式</a></li>
+      </ul>
+    </li>
+    <li><a href="#三secret-概述">三、Secret 概述</a>
+      <ul>
+        <li><a href="#31-什么是-secret">3.1 什么是 Secret？</a></li>
+        <li><a href="#32-secret-的类型">3.2 Secret 的类型</a></li>
+        <li><a href="#33-创建-secret">3.3 创建 Secret</a></li>
+      </ul>
+    </li>
+    <li><a href="#四secret-的使用方式">四、Secret 的使用方式</a>
+      <ul>
+        <li><a href="#41-环境变量方式">4.1 环境变量方式</a></li>
+        <li><a href="#42-volume-挂载方式">4.2 Volume 挂载方式</a></li>
+      </ul>
+    </li>
+    <li><a href="#五不可变配置immutable">五、不可变配置（Immutable）</a></li>
+    <li><a href="#六最佳实践">六、最佳实践</a>
+      <ul>
+        <li><a href="#61-configmap-使用建议">6.1 ConfigMap 使用建议</a></li>
+        <li><a href="#62-secret-使用建议">6.2 Secret 使用建议</a></li>
+        <li><a href="#63-配置更新策略">6.3 配置更新策略</a></li>
+      </ul>
+    </li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#系列文章">系列文章</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">K8s（七）：ConfigMap 与 Secret — 配置管理</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>在传统部署方式中，应用程序的配置通常以配置文件、环境变量或命令行参数的形式存在。但在 Kubernetes 中，我们面临几个新挑战：</p>
+<ol>
+<li><strong>环境差异</strong>：开发、测试、生产环境使用不同的配置（数据库地址、日志级别等）</li>
+<li><strong>配置更新</strong>：修改配置后需要重启 Pod，但不想重建镜像</li>
+<li><strong>敏感信息</strong>：数据库密码、API Key 等不应硬编码在镜像中</li>
+</ol>
+<p>Kubernetes 提供了两个专用资源来解决这些问题：</p>
+<ul>
+<li><strong>ConfigMap</strong>：存储非敏感的配置数据（配置文件、环境变量等）</li>
+<li><strong>Secret</strong>：存储敏感数据（密码、密钥、证书等），使用 Base64 编码，并支持加密存储</li>
+</ul>
+<h2 id="一configmap-概述">一、ConfigMap 概述</h2>
+<h3 id="11-什么是-configmap">1.1 什么是 ConfigMap？</h3>
+<p>ConfigMap 是一个键值对（key-value）存储对象，用于保存非敏感的配置数据。它的核心思想是<strong>将配置与镜像解耦</strong>——同一份镜像可以通过不同的 ConfigMap 适配不同环境。</p>
+<pre><code class="language-text">   ┌─────────────┐          ┌──────────┐
+   │ ConfigMap   │          │  镜像     │
+   │ dev 环境配置  │          │  app:1.0 │
+   │ DB=dev-db   │          └────┬─────┘
+   │ LOG=debug   │               │
+   └──────┬──────┘               │
+          │ 挂载/注入             │
+          └──────────┬───────────┘
+                     ▼
+              ┌────────────┐
+              │ Pod (dev)  │
+              │ DB=dev-db  │
+              │ LOG=debug  │
+              └────────────┘
+</code></pre>
+<h3 id="12-configmap-的创建方式">1.2 ConfigMap 的创建方式</h3>
+<p><strong>方式一：字面值创建</strong></p>
+<pre><code class="language-bash">kubectl create configmap app-config --from-literal=APP_ENV=production --from-literal=LOG_LEVEL=info
+</code></pre>
+<p><strong>方式二：从文件创建</strong></p>
+<pre><code class="language-bash"># 将文件内容作为键值对
+kubectl create configmap app-config --from-file=application.properties
+
+# 指定键名
+kubectl create configmap app-config --from-file=my-config=application.properties
+</code></pre>
+<p><strong>方式三：从目录创建</strong></p>
+<pre><code class="language-bash">kubectl create configmap app-config --from-file=./config-dir/
+</code></pre>
+<p>目录下的每个文件名成为 key，文件内容成为 value。</p>
+<p><strong>方式四：通过 YAML 声明式创建</strong></p>
+<pre><code class="language-yaml"># configmap-demo.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  APP_ENV: production
+  LOG_LEVEL: info
+  # 多行配置
+  nginx.conf: |
+    server {
+      listen 80;
+      server_name example.com;
+    }
+</code></pre>
+<pre><code class="language-bash">kubectl apply -f configmap-demo.yaml
+</code></pre>
+<hr>
+<h2 id="二configmap-的使用方式">二、ConfigMap 的使用方式</h2>
+<p>Pod 可以通过两种方式使用 ConfigMap 中的数据。</p>
+<h3 id="21-环境变量方式">2.1 环境变量方式</h3>
+<p>将 ConfigMap 中的键值对注入为 Pod 的环境变量：</p>
+<pre><code class="language-yaml"># pod-env.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: configmap-env-pod
+spec:
+  containers:
+    - name: app
+      image: busybox
+      command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;env | grep APP&quot;]
+      env:
+        # 方式一：直接引用单个键
+        - name: APP_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: APP_ENV
+        # 方式二：注入所有键值对
+        # envFrom:
+        #   - configMapRef:
+        #       name: app-config
+</code></pre>
+<p><strong>推荐使用 <code>envFrom</code></strong> 注入所有键值对：</p>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Pod
+metadata:
+  name: configmap-env-pod
+spec:
+  containers:
+    - name: app
+      image: busybox
+      command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;env | grep APP&quot;]
+      envFrom:
+        - configMapRef:
+            name: app-config
+</code></pre>
+<h3 id="22-volume-挂载方式">2.2 Volume 挂载方式</h3>
+<p>将 ConfigMap 挂载为容器内的文件系统，适合挂载配置文件：</p>
+<pre><code class="language-yaml"># pod-volume.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: configmap-volume-pod
+spec:
+  containers:
+    - name: app
+      image: nginx:1.21-alpine
+      volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/conf.d   # 挂载到目录
+          readOnly: true
+  volumes:
+    - name: config
+      configMap:
+        name: app-config                 # 引用 ConfigMap
+</code></pre>
+<p>Volume 挂载后，ConfigMap 中的每个 key 会成为一个文件，value 为文件内容：</p>
+<pre><code class="language-text">/etc/nginx/conf.d/
+├── APP_ENV        # 内容: production
+├── LOG_LEVEL      # 内容: info
+└── nginx.conf     # 内容: server { listen 80; ... }
+</code></pre>
+<p><strong>Volume 挂载 vs 环境变量</strong></p>
+<pre><code class="language-text">| 对比维度 | 环境变量方式 | Volume 挂载方式 |
+|---------|------------|---------------|
+| 使用场景 | 简单的键值对（URL、端口等） | 完整的配置文件 |
+| 自动更新 | ❌ 不会更新（Pod 生命周期内固定） | ✅ 支持（定期同步，需应用重新加载） |
+| 支持大小 | 适合小数据 | 无限制 |
+| 配置复杂度 | 简单 | 灵活 |
+</code></pre>
+<hr>
+<h2 id="三secret-概述">三、Secret 概述</h2>
+<h3 id="31-什么是-secret">3.1 什么是 Secret？</h3>
+<p>Secret 与 ConfigMap 非常相似，但专门用于存储敏感信息。它使用 Base64 编码存储数据，并且在 Kubernetes 1.13+ 中支持<strong>静态加密</strong>（etcd 中的加密存储）。</p>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>ConfigMap</th>
+					<th>Secret</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>数据类型</td>
+					<td>非敏感的配置</td>
+					<td>敏感信息</td>
+			</tr>
+			<tr>
+					<td>存储编码</td>
+					<td>明文</td>
+					<td>Base64</td>
+			</tr>
+			<tr>
+					<td>etcd 加密</td>
+					<td>❌</td>
+					<td>✅ 可配置</td>
+			</tr>
+			<tr>
+					<td>RBAC 控制</td>
+					<td>标准</td>
+					<td>可额外设置细粒度权限</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="32-secret-的类型">3.2 Secret 的类型</h3>
+<p>Kubernetes 支持多种 Secret 类型：</p>
+<table>
+	<thead>
+			<tr>
+					<th>类型</th>
+					<th>用途</th>
+					<th>data 字段</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>Opaque</code></td>
+					<td>通用（任意键值对）</td>
+					<td>自定义</td>
+			</tr>
+			<tr>
+					<td><code>kubernetes.io/dockerconfigjson</code></td>
+					<td>Docker 私有仓库认证</td>
+					<td><code>.dockerconfigjson</code></td>
+			</tr>
+			<tr>
+					<td><code>kubernetes.io/tls</code></td>
+					<td>TLS 证书</td>
+					<td><code>tls.crt</code>、<code>tls.key</code></td>
+			</tr>
+			<tr>
+					<td><code>kubernetes.io/service-account-token</code></td>
+					<td>ServiceAccount 令牌（自动创建）</td>
+					<td><code>token</code></td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="33-创建-secret">3.3 创建 Secret</h3>
+<p><strong>方式一：命令行创建</strong></p>
+<pre><code class="language-bash"># Opaque Secret
+kubectl create secret generic db-secret \
+  --from-literal=username=admin \
+  --from-literal=password=SuperSecret123
+
+# TLS Secret
+kubectl create secret tls my-tls \
+  --key=tls.key \
+  --cert=tls.crt
+
+# Docker 仓库认证
+kubectl create secret docker-registry registry-secret \
+  --docker-server=https://index.docker.io/v1/ \
+  --docker-username=myuser \
+  --docker-password=mypassword
+</code></pre>
+<p><strong>方式二：YAML 声明式创建</strong></p>
+<pre><code class="language-yaml"># secret-demo.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secret
+type: Opaque
+data:
+  username: YWRtaW4=          # admin 的 Base64
+  password: U3VwZXJTZWNyZXQxMjM=  # SuperSecret123 的 Base64
+</code></pre>
+<p>生成 Base64：</p>
+<pre><code class="language-bash">echo -n &quot;admin&quot; | base64
+# 输出: YWRtaW4=
+
+echo -n &quot;SuperSecret123&quot; | base64
+# 输出: U3VwZXJTZWNyZXQxMjM=
+</code></pre>
+<blockquote>
+<p>使用 <code>stringData</code> 字段可以直接写明文，Kubernetes 会在创建时自动编码：</p>
+</blockquote>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secret
+type: Opaque
+stringData:          # 明文写入，自动编码
+  username: admin
+  password: SuperSecret123
+</code></pre>
+<hr>
+<h2 id="四secret-的使用方式">四、Secret 的使用方式</h2>
+<h3 id="41-环境变量方式">4.1 环境变量方式</h3>
+<pre><code class="language-yaml"># pod-secret-env.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secret-env-pod
+spec:
+  containers:
+    - name: app
+      image: busybox
+      command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;env | grep DB&quot;]
+      env:
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: password
+</code></pre>
+<h3 id="42-volume-挂载方式">4.2 Volume 挂载方式</h3>
+<pre><code class="language-yaml"># pod-secret-volume.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secret-volume-pod
+spec:
+  containers:
+    - name: app
+      image: nginx:1.21-alpine
+      volumeMounts:
+        - name: secret-volume
+          mountPath: /etc/db-credentials
+          readOnly: true
+  volumes:
+    - name: secret-volume
+      secret:
+        secretName: db-secret
+</code></pre>
+<p>挂载后，每个 key 成为一个文件，内容为<strong>解码后的原始值</strong>（不是 Base64）：</p>
+<pre><code class="language-text">/etc/db-credentials/
+├── username    # 内容: admin（解码后）
+└── password    # 内容: SuperSecret123（解码后）
+</code></pre>
+<hr>
+<h2 id="五不可变配置immutable">五、不可变配置（Immutable）</h2>
+<p>Kubernetes 1.21+ 支持将 ConfigMap 和 Secret 标记为不可变（immutable）：</p>
+<pre><code class="language-yaml">apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+immutable: true   # 设置为不可变
+data:
+  APP_ENV: production
+  LOG_LEVEL: info
+</code></pre>
+<p><strong>优点</strong>：</p>
+<ul>
+<li>提高性能：不可变的 ConfigMap/Secret 不会被 watch，减轻 API Server 负担</li>
+<li>增强安全性：防止配置被意外修改</li>
+</ul>
+<p><strong>注意事项</strong>：</p>
+<ul>
+<li>一旦设置 <code>immutable: true</code>，<strong>只能删除重建</strong>，不能修改</li>
+<li>如果 Pod 引用了不可变的 ConfigMap，必须更新 Pod 模板才能使用新配置</li>
+<li>适用于<strong>确定不变</strong>的配置（如日志格式、框架初始化参数等）</li>
+</ul>
+<hr>
+<h2 id="六最佳实践">六、最佳实践</h2>
+<h3 id="61-configmap-使用建议">6.1 ConfigMap 使用建议</h3>
+<ol>
+<li><strong>不要将敏感信息放入 ConfigMap</strong>——使用 Secret</li>
+<li><strong>命名规范</strong>：使用有意义的命名，如 <code>app-config</code>、<code>nginx-config</code></li>
+<li><strong>版本管理</strong>：ConfigMap 的 YAML 应纳入 Git 仓库管理</li>
+<li><strong>按环境拆分</strong>：不同环境使用不同的 ConfigMap</li>
+<li><strong>Volume 挂载的自动更新</strong>：ConfigMap 更新后，挂载的文件会同步更新（数分钟延迟），但应用需要自行检测文件变化并重新加载</li>
+</ol>
+<h3 id="62-secret-使用建议">6.2 Secret 使用建议</h3>
+<ol>
+<li><strong>不要提交明文 Secret 到 Git</strong>——使用外部密钥管理工具（如 HashiCorp Vault、AWS Secrets Manager）</li>
+<li><strong>开启 etcd 加密</strong>：配置 <code>--encryption-provider-config</code> 加密 etcd 中的 Secret 数据</li>
+<li><strong>最小权限原则</strong>：通过 RBAC 限制 Secret 的访问权限</li>
+<li><strong>使用 External Secrets Operator</strong>：通过 CRD 从外部密钥管理系统同步 Secret，避免明文 YAML 存储</li>
+<li><strong>Secret 大小限制</strong>：单个 Secret 最大 1MB（etcd 限制）</li>
+</ol>
+<h3 id="63-配置更新策略">6.3 配置更新策略</h3>
+<table>
+	<thead>
+			<tr>
+					<th>使用方式</th>
+					<th>更新后 Pod 行为</th>
+					<th>推荐做法</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>环境变量</td>
+					<td>Pod 不感知，需重建</td>
+					<td>用于启动时确定不变的配置</td>
+			</tr>
+			<tr>
+					<td>Volume 挂载</td>
+					<td>文件自动更新，需应用热加载</td>
+					<td>用于运行时动态更新的配置</td>
+			</tr>
+			<tr>
+					<td>immutable</td>
+					<td>永远不变，需重建 Pod</td>
+					<td>用于真正的不可变配置</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="总结">总结</h2>
+<p>ConfigMap 和 Secret 是 Kubernetes 配置管理的基石，它们将配置与镜像解耦，使应用可以灵活适配不同环境。</p>
+<table>
+	<thead>
+			<tr>
+					<th>概念</th>
+					<th>一句话</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>ConfigMap</strong></td>
+					<td>存储非敏感配置，支持环境变量和 Volume 挂载</td>
+			</tr>
+			<tr>
+					<td><strong>Secret</strong></td>
+					<td>存储敏感信息，Base64 编码，支持 etcd 加密</td>
+			</tr>
+			<tr>
+					<td><strong>immutable</strong></td>
+					<td>不可变标记，提高性能和安全性</td>
+			</tr>
+			<tr>
+					<td><strong>envFrom</strong></td>
+					<td>批量注入 ConfigMap/Secret 的所有键值对</td>
+			</tr>
+			<tr>
+					<td><strong>Volume 挂载</strong></td>
+					<td>将配置以文件形式挂载到容器，支持自动更新</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>核心命令</strong>：</p>
+<pre><code class="language-bash"># ConfigMap
+kubectl create configmap &lt;name&gt; --from-literal=key=value
+kubectl create configmap &lt;name&gt; --from-file=&lt;path&gt;
+
+# Secret
+kubectl create secret generic &lt;name&gt; --from-literal=key=value
+kubectl create secret tls &lt;name&gt; --key=tls.key --cert=tls.crt
+
+# 查看
+kubectl get configmap
+kubectl get secret
+kubectl describe configmap &lt;name&gt;
+</code></pre>
+<p>在下一篇文章中，我们将学习 Kubernetes 的存储体系——<strong>Volume、PV、PVC</strong>，理解如何为容器提供持久化存储。</p>
+<hr>
+<h2 id="系列文章">系列文章</h2>
+<ul>
+<li><a href="/posts/k8s%E4%B8%80%E4%BB%8E%E9%9B%B6%E8%AE%A4%E8%AF%86-kubernetes-%E6%9E%B6%E6%9E%84%E4%B8%8E%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5/">K8s（一）：从零认识 Kubernetes — 架构与核心概念</a></li>
+<li><a href="/posts/k8s%E4%BA%8C%E4%BD%BF%E7%94%A8-kubeadm-%E6%90%AD%E5%BB%BA-k8s-%E9%9B%86%E7%BE%A4%E5%AE%9E%E6%88%98/">K8s（二）：使用 kubeadm 搭建 K8s 集群实战</a></li>
+<li><a href="/posts/k8s%E4%B8%89pod-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%E4%B8%8E%E5%AE%B9%E5%99%A8%E7%BC%96%E6%8E%92%E5%9F%BA%E7%A1%80/">K8s（三）：Pod 核心概念与容器编排基础</a></li>
+<li><a href="/posts/k8s%E5%9B%9Bdeployment-%E4%B8%8E-replicaset-%E5%BA%94%E7%94%A8%E9%83%A8%E7%BD%B2%E4%B8%8E%E6%89%A9%E7%BC%A9%E5%AE%B9/">K8s（四）：Deployment 与 ReplicaSet — 应用部署与扩缩容</a></li>
+<li><a href="/posts/k8s%E4%BA%94service-%E4%B8%8E%E9%9B%86%E7%BE%A4%E5%86%85%E6%9C%8D%E5%8A%A1%E5%8F%91%E7%8E%B0/">K8s（五）：Service 与集群内服务发现</a></li>
+<li><a href="/posts/k8s%E5%85%ADingress-%E4%B8%8E%E9%9B%86%E7%BE%A4%E5%A4%96%E9%83%A8%E6%B5%81%E9%87%8F%E6%8E%A5%E5%85%A5/">K8s（六）：Ingress 与集群外部流量接入</a></li>
+<li><a href="/posts/k8s%E5%85%ABvolume-%E4%B8%8E%E6%8C%81%E4%B9%85%E5%8C%96%E5%AD%98%E5%82%A8/">K8s（八）：Volume 与持久化存储</a></li>
+<li><a href="/posts/k8s%E4%B9%9Dstatefulset-%E4%B8%8E%E6%9C%89%E7%8A%B6%E6%80%81%E5%BA%94%E7%94%A8/">K8s（九）：StatefulSet 与有状态应用</a></li>
+<li><a href="/posts/k8s%E5%8D%81helm-%E5%8C%85%E7%AE%A1%E7%90%86%E5%99%A8%E5%85%A5%E9%97%A8/">K8s（十）：Helm 包管理器入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%B8%80%E9%9B%86%E7%BE%A4%E5%AE%89%E5%85%A8%E5%9F%BA%E7%A1%80-rbac-%E4%B8%8E-serviceaccount/">K8s（十一）：集群安全基础 — RBAC 与 ServiceAccount</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%BA%8C%E7%9B%91%E6%8E%A7%E4%B8%8E%E6%97%A5%E5%BF%97-%E5%8F%AF%E8%A7%82%E6%B5%8B%E6%80%A7%E5%85%A5%E9%97%A8/">K8s（十二）：监控与日志 — 可观测性入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%B8%89%E7%94%9F%E4%BA%A7%E5%AE%9E%E8%B7%B5%E4%B8%8E%E7%B3%BB%E5%88%97%E6%80%BB%E7%BB%93/">K8s（十三）：生产实践与系列总结</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

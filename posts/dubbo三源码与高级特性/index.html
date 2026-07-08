@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -111,87 +108,90 @@
 <p>本文从源码层面深入 Dubbo 的核心机制：<strong>SPI 扩展机制的实现</strong>、<strong>服务导出的完整链路</strong>、<strong>Filter 链的构建和执行</strong>，以及<strong>隐式参数</strong>和<strong>回声测试</strong>等高级特性。</p>
 <h2 id="一spi-扩展机制源码">一、SPI 扩展机制源码</h2>
 <h3 id="11-extensionloader">1.1 ExtensionLoader</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ExtensionLoader 是 Dubbo SPI 的核心类</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 类似于 Java SPI 的 ServiceLoader</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ExtensionLoader</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 缓存：扩展点实现类</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Holder</span><span class="o">&lt;</span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;?&gt;&gt;&gt;</span><span class="w"> </span><span class="n">cachedClasses</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Holder</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 缓存：扩展点实例</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ConcurrentMap</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Holder</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">cachedInstances</span><span class="w"> </span><span class="o">=</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">ConcurrentHashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 获取某个扩展点的实现</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">ExtensionLoader</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">getExtensionLoader</span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">type</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 检查是否为接口</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 检查是否有 @SPI 注解</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 从缓存获取或创建 ExtensionLoader</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 获取实现类名称</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;?&gt;&gt;</span><span class="w"> </span><span class="nf">getExtensionClasses</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 从 META-INF/services/、META-INF/dubbo/、META-INF/dubbo/internal/ 加载</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 格式：key=value（如 dubbo=org.apache.dubbo.rpc.protocol.dubbo.DubboProtocol）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="12-自适应扩展点">1.2 自适应扩展点</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// @Adaptive 的作用：根据 URL 参数动态选择实现</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 例如：Protocol 接口</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@SPI</span><span class="p">(</span><span class="s">&#34;dubbo&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">Protocol</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Adaptive</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Exporter</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">export</span><span class="p">(</span><span class="n">Invoker</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">invoker</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Adaptive</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Invoker</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">refer</span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">type</span><span class="p">,</span><span class="w"> </span><span class="n">URL</span><span class="w"> </span><span class="n">url</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 当调用 protocol.refer() 时：</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 1. 从 URL 中获取 protocol 参数（默认 dubbo）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 根据参数值获取对应的 Protocol 实现</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. 调用该实现的方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// ExtensionLoader 会在运行时生成自适应代理类</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 类似以下代码：</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Protocol$Adaptive</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Protocol</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Invoker</span><span class="w"> </span><span class="nf">refer</span><span class="p">(</span><span class="n">Class</span><span class="w"> </span><span class="n">type</span><span class="p">,</span><span class="w"> </span><span class="n">URL</span><span class="w"> </span><span class="n">url</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">extName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">url</span><span class="p">.</span><span class="na">getParameter</span><span class="p">(</span><span class="s">&#34;protocol&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;dubbo&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Protocol</span><span class="w"> </span><span class="n">extension</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ExtensionLoader</span><span class="p">.</span><span class="na">getExtensionLoader</span><span class="p">(</span><span class="n">Protocol</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">getExtension</span><span class="p">(</span><span class="n">extName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">extension</span><span class="p">.</span><span class="na">refer</span><span class="p">(</span><span class="n">type</span><span class="p">,</span><span class="w"> </span><span class="n">url</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// ExtensionLoader 是 Dubbo SPI 的核心类
+// 类似于 Java SPI 的 ServiceLoader
+
+public class ExtensionLoader&lt;T&gt; {
+    
+    // 缓存：扩展点实现类
+    private final Holder&lt;Map&lt;String, Class&lt;?&gt;&gt;&gt; cachedClasses = new Holder&lt;&gt;();
+    
+    // 缓存：扩展点实例
+    private final ConcurrentMap&lt;String, Holder&lt;Object&gt;&gt; cachedInstances = 
+            new ConcurrentHashMap&lt;&gt;();
+    
+    // 获取某个扩展点的实现
+    public static &lt;T&gt; ExtensionLoader&lt;T&gt; getExtensionLoader(Class&lt;T&gt; type) {
+        // 检查是否为接口
+        // 检查是否有 @SPI 注解
+        // 从缓存获取或创建 ExtensionLoader
+    }
+    
+    // 获取实现类名称
+    private Map&lt;String, Class&lt;?&gt;&gt; getExtensionClasses() {
+        // 从 META-INF/services/、META-INF/dubbo/、META-INF/dubbo/internal/ 加载
+        // 格式：key=value（如 dubbo=org.apache.dubbo.rpc.protocol.dubbo.DubboProtocol）
+    }
+}
+</code></pre>
+<h3 id="12-自适应扩展点">1.2 自适应扩展点</h3>
+<pre><code class="language-java">// @Adaptive 的作用：根据 URL 参数动态选择实现
+
+// 例如：Protocol 接口
+@SPI(&quot;dubbo&quot;)
+public interface Protocol {
+    @Adaptive
+    &lt;T&gt; Exporter&lt;T&gt; export(Invoker&lt;T&gt; invoker);
+    
+    @Adaptive
+    &lt;T&gt; Invoker&lt;T&gt; refer(Class&lt;T&gt; type, URL url);
+}
+
+// 当调用 protocol.refer() 时：
+// 1. 从 URL 中获取 protocol 参数（默认 dubbo）
+// 2. 根据参数值获取对应的 Protocol 实现
+// 3. 调用该实现的方法
+
+// ExtensionLoader 会在运行时生成自适应代理类
+// 类似以下代码：
+public class Protocol$Adaptive implements Protocol {
+    public Invoker refer(Class type, URL url) {
+        String extName = url.getParameter(&quot;protocol&quot;, &quot;dubbo&quot;);
+        Protocol extension = ExtensionLoader.getExtensionLoader(Protocol.class)
+                .getExtension(extName);
+        return extension.refer(type, url);
+    }
+}
+</code></pre>
+<hr>
 <h2 id="二服务导出源码">二、服务导出源码</h2>
 <p>当 Spring 容器启动时，Dubbo 扫描到 <code>@DubboService</code> 注解后执行服务导出。</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 服务导出的核心流程</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 1. ServiceBean.afterPropertiesSet() — Spring 初始化回调</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    将 @DubboService 的配置转换为 ServiceConfig</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. ServiceConfig.export()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    检查配置，调用 doExportUrls()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. ServiceConfig.doExportUrls()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    遍历注册中心列表，为每个注册中心导出服务</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 4. ServiceConfig.doExportUrlsFor1Protocol(protocolConfig, registryURLs)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    a. 将服务配置转为 URL</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    b. 通过 ProxyFactory 创建 Invoker</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    c. 通过 Protocol.export() 导出</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 5. DubboProtocol.export()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    a. 启动 Netty Server（如果未启动）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    b. 将 Invoker 注册到 exporterMap</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    c. 返回 Exporter</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 6. RegistryProtocol.export()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    将 URL 注册到注册中心（Nacos/ZooKeeper）</span><span class="w">
-</span></span></span></code></pre></div><h3 id="流程图">流程图</h3>
-<pre tabindex="0"><code>@DubboService
+<pre><code class="language-java">// 服务导出的核心流程
+
+// 1. ServiceBean.afterPropertiesSet() — Spring 初始化回调
+//    将 @DubboService 的配置转换为 ServiceConfig
+
+// 2. ServiceConfig.export()
+//    检查配置，调用 doExportUrls()
+
+// 3. ServiceConfig.doExportUrls()
+//    遍历注册中心列表，为每个注册中心导出服务
+
+// 4. ServiceConfig.doExportUrlsFor1Protocol(protocolConfig, registryURLs)
+//    a. 将服务配置转为 URL
+//    b. 通过 ProxyFactory 创建 Invoker
+//    c. 通过 Protocol.export() 导出
+
+// 5. DubboProtocol.export()
+//    a. 启动 Netty Server（如果未启动）
+//    b. 将 Invoker 注册到 exporterMap
+//    c. 返回 Exporter
+
+// 6. RegistryProtocol.export()
+//    将 URL 注册到注册中心（Nacos/ZooKeeper）
+</code></pre>
+<h3 id="流程图">流程图</h3>
+<pre><code>@DubboService
     │
     ▼
 ServiceConfig.export()
@@ -204,152 +204,161 @@ ServiceConfig.export()
     │
     └── RegistryProtocol.export()
           └── registry.register(url) → 向 Nacos 注册
-</code></pre><hr>
+</code></pre>
+<hr>
 <h2 id="三服务引用源码">三、服务引用源码</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// @DubboReference 注解 — 从远程生成代理对象</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 1. ReferenceBean.afterPropertiesSet()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    将 @DubboReference 配置转换为 ReferenceConfig</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. ReferenceConfig.createProxy(map)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    a. 从注册中心获取服务 URL</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    b. 通过 Protocol.refer() 创建 Invoker</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    c. 通过 ProxyFactory.getProxy() 创建代理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. 代理对象的方法调用流程</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">//    代理 → Invoker.invoke() → RPC 通信 → Provider</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// @DubboReference 注解 — 从远程生成代理对象
+
+// 1. ReferenceBean.afterPropertiesSet()
+//    将 @DubboReference 配置转换为 ReferenceConfig
+
+// 2. ReferenceConfig.createProxy(map)
+//    a. 从注册中心获取服务 URL
+//    b. 通过 Protocol.refer() 创建 Invoker
+//    c. 通过 ProxyFactory.getProxy() 创建代理
+
+// 3. 代理对象的方法调用流程
+//    代理 → Invoker.invoke() → RPC 通信 → Provider
+</code></pre>
+<hr>
 <h2 id="四filter-链">四、Filter 链</h2>
 <p>Dubbo 的 Filter 机制类似于 Servlet 的 Filter 链，用于在 RPC 调用的前后插入通用逻辑。</p>
 <h3 id="41-filter-接口">4.1 Filter 接口</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@SPI</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">Filter</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Result</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">Invoker</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">invoker</span><span class="p">,</span><span class="w"> </span><span class="n">Invocation</span><span class="w"> </span><span class="n">invocation</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 生命周期回调</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">default</span><span class="w"> </span><span class="n">Result</span><span class="w"> </span><span class="nf">onResponse</span><span class="p">(</span><span class="n">Result</span><span class="w"> </span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">Invoker</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">invoker</span><span class="p">,</span><span class="w"> </span><span class="n">Invocation</span><span class="w"> </span><span class="n">invocation</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="42-内置-filter">4.2 内置 Filter</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Consumer 端</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Activate</span><span class="p">(</span><span class="n">group</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CONSUMER</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ConsumerContextFilter</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Filter</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 设置调用上下文（RpcContext）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Activate</span><span class="p">(</span><span class="n">group</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CONSUMER</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">FutureFilter</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Filter</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 异步回调处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// Provider 端</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Activate</span><span class="p">(</span><span class="n">group</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">PROVIDER</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ContextFilter</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Filter</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 恢复调用上下文</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Activate</span><span class="p">(</span><span class="n">group</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">PROVIDER</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ExceptionFilter</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Filter</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 异常处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 通用</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Activate</span><span class="p">(</span><span class="n">group</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="n">CONSUMER</span><span class="p">,</span><span class="w"> </span><span class="n">PROVIDER</span><span class="p">})</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">TimeoutFilter</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Filter</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 超时控制</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="43-filter-链构建">4.3 Filter 链构建</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ProtocolFilterWrapper 负责构建 Filter 链</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ProtocolFilterWrapper</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Protocol</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Protocol</span><span class="w"> </span><span class="n">protocol</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Exporter</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">export</span><span class="p">(</span><span class="n">Invoker</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">invoker</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">REGISTRY_PROTOCOL</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">invoker</span><span class="p">.</span><span class="na">getUrl</span><span class="p">().</span><span class="na">getProtocol</span><span class="p">()))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">protocol</span><span class="p">.</span><span class="na">export</span><span class="p">(</span><span class="n">invoker</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 构建过滤器链</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">protocol</span><span class="p">.</span><span class="na">export</span><span class="p">(</span><span class="n">buildInvokerChain</span><span class="p">(</span><span class="n">invoker</span><span class="p">,</span><span class="w"> </span><span class="n">SERVICE_FILTER_KEY</span><span class="p">,</span><span class="w"> </span><span class="n">CommonConstants</span><span class="p">.</span><span class="na">PROVIDER</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Invoker</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">buildInvokerChain</span><span class="p">(</span><span class="n">Invoker</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">invoker</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                                                      </span><span class="n">String</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">group</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 通过 SPI 获取所有 Filter</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 按 @Activate 的条件和 group 过滤</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 按 @Activate 的 order 排序</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 构建 Filter 链（责任链模式）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Invoker</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">last</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">invoker</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Filter</span><span class="o">&gt;</span><span class="w"> </span><span class="n">filters</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ExtensionLoader</span><span class="p">.</span><span class="na">getExtensionLoader</span><span class="p">(</span><span class="n">Filter</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">getActivateExtension</span><span class="p">(</span><span class="n">invoker</span><span class="p">.</span><span class="na">getUrl</span><span class="p">(),</span><span class="w"> </span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">group</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">filters</span><span class="p">.</span><span class="na">size</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">1</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">--</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Filter</span><span class="w"> </span><span class="n">filter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">filters</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">i</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Invoker</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">next</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">last</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">last</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FilterInvoker</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">filter</span><span class="p">,</span><span class="w"> </span><span class="n">next</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">last</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="44-自定义-filter">4.4 自定义 Filter</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Activate</span><span class="p">(</span><span class="n">group</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="n">CONSUMER</span><span class="p">,</span><span class="w"> </span><span class="n">PROVIDER</span><span class="p">},</span><span class="w"> </span><span class="n">order</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">10000</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">CustomLogFilter</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Filter</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Result</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">Invoker</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">invoker</span><span class="p">,</span><span class="w"> </span><span class="n">Invocation</span><span class="w"> </span><span class="n">invocation</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">long</span><span class="w"> </span><span class="n">start</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 调用前</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;调用: &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">getMethodName</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Result</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">invoker</span><span class="p">.</span><span class="na">invoke</span><span class="p">(</span><span class="n">invocation</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 调用后</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kt">long</span><span class="w"> </span><span class="n">elapsed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">start</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;耗时: &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">elapsed</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;ms&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 注册自定义 Filter --&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;dubbo:provider</span> <span class="na">filter=</span><span class="s">&#34;customLog&#34;</span><span class="nt">/&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;dubbo:consumer</span> <span class="na">filter=</span><span class="s">&#34;customLog&#34;</span><span class="nt">/&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="c">&lt;!-- 或者 application.yml --&gt;</span>
-</span></span><span class="line"><span class="cl">dubbo:
-</span></span><span class="line"><span class="cl">  provider:
-</span></span><span class="line"><span class="cl">    filter: customLog
-</span></span></code></pre></div><hr>
+<pre><code class="language-java">@SPI
+public interface Filter {
+    
+    Result invoke(Invoker&lt;?&gt; invoker, Invocation invocation);
+    
+    // 生命周期回调
+    default Result onResponse(Result result, Invoker&lt;?&gt; invoker, Invocation invocation) {
+        return result;
+    }
+}
+</code></pre>
+<h3 id="42-内置-filter">4.2 内置 Filter</h3>
+<pre><code class="language-java">// Consumer 端
+@Activate(group = CONSUMER)
+public class ConsumerContextFilter implements Filter {
+    // 设置调用上下文（RpcContext）
+}
+
+@Activate(group = CONSUMER)
+public class FutureFilter implements Filter {
+    // 异步回调处理
+}
+
+// Provider 端
+@Activate(group = PROVIDER)
+public class ContextFilter implements Filter {
+    // 恢复调用上下文
+}
+
+@Activate(group = PROVIDER)
+public class ExceptionFilter implements Filter {
+    // 异常处理
+}
+
+// 通用
+@Activate(group = {CONSUMER, PROVIDER})
+public class TimeoutFilter implements Filter {
+    // 超时控制
+}
+</code></pre>
+<h3 id="43-filter-链构建">4.3 Filter 链构建</h3>
+<pre><code class="language-java">// ProtocolFilterWrapper 负责构建 Filter 链
+
+public class ProtocolFilterWrapper implements Protocol {
+    
+    private final Protocol protocol;
+    
+    public &lt;T&gt; Exporter&lt;T&gt; export(Invoker&lt;T&gt; invoker) {
+        if (REGISTRY_PROTOCOL.equals(invoker.getUrl().getProtocol())) {
+            return protocol.export(invoker);
+        }
+        // 构建过滤器链
+        return protocol.export(buildInvokerChain(invoker, SERVICE_FILTER_KEY, CommonConstants.PROVIDER));
+    }
+    
+    private static &lt;T&gt; Invoker&lt;T&gt; buildInvokerChain(Invoker&lt;T&gt; invoker, 
+                                                      String key, String group) {
+        // 1. 通过 SPI 获取所有 Filter
+        // 2. 按 @Activate 的条件和 group 过滤
+        // 3. 按 @Activate 的 order 排序
+        // 4. 构建 Filter 链（责任链模式）
+        
+        Invoker&lt;T&gt; last = invoker;
+        List&lt;Filter&gt; filters = ExtensionLoader.getExtensionLoader(Filter.class)
+                .getActivateExtension(invoker.getUrl(), key, group);
+        
+        for (int i = filters.size() - 1; i &gt;= 0; i--) {
+            Filter filter = filters.get(i);
+            Invoker&lt;T&gt; next = last;
+            last = new FilterInvoker&lt;&gt;(filter, next);
+        }
+        return last;
+    }
+}
+</code></pre>
+<h3 id="44-自定义-filter">4.4 自定义 Filter</h3>
+<pre><code class="language-java">@Activate(group = {CONSUMER, PROVIDER}, order = 10000)
+public class CustomLogFilter implements Filter {
+    
+    @Override
+    public Result invoke(Invoker&lt;?&gt; invoker, Invocation invocation) {
+        long start = System.currentTimeMillis();
+        
+        // 调用前
+        System.out.println(&quot;调用: &quot; + invocation.getMethodName());
+        
+        try {
+            Result result = invoker.invoke(invocation);
+            return result;
+        } finally {
+            // 调用后
+            long elapsed = System.currentTimeMillis() - start;
+            System.out.println(&quot;耗时: &quot; + elapsed + &quot;ms&quot;);
+        }
+    }
+}
+</code></pre>
+<pre><code class="language-xml">&lt;!-- 注册自定义 Filter --&gt;
+&lt;dubbo:provider filter=&quot;customLog&quot;/&gt;
+&lt;dubbo:consumer filter=&quot;customLog&quot;/&gt;
+&lt;!-- 或者 application.yml --&gt;
+dubbo:
+  provider:
+    filter: customLog
+</code></pre>
+<hr>
 <h2 id="五隐式参数">五、隐式参数</h2>
 <h3 id="51-传递隐式参数">5.1 传递隐式参数</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Consumer 端设置（通过 RpcContext）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@DubboReference</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="n">UserService</span><span class="w"> </span><span class="n">userService</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">call</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 设置隐式参数（只对下一次调用有效）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">RpcContext</span><span class="p">.</span><span class="na">getClientAttachment</span><span class="p">()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">.</span><span class="na">setAttachment</span><span class="p">(</span><span class="s">&#34;trace-id&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;abc123&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 远程调用时，Provider 端可以获取这些参数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">userService</span><span class="p">.</span><span class="na">getUser</span><span class="p">(</span><span class="n">1L</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// Provider 端获取</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">RpcContext</span><span class="p">.</span><span class="na">getServerAttachment</span><span class="p">().</span><span class="na">getAttachment</span><span class="p">(</span><span class="s">&#34;trace-id&#34;</span><span class="p">);</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// Consumer 端设置（通过 RpcContext）
+@DubboReference
+private UserService userService;
+
+public void call() {
+    // 设置隐式参数（只对下一次调用有效）
+    RpcContext.getClientAttachment()
+            .setAttachment(&quot;trace-id&quot;, &quot;abc123&quot;);
+    
+    // 远程调用时，Provider 端可以获取这些参数
+    userService.getUser(1L);
+}
+
+// Provider 端获取
+RpcContext.getServerAttachment().getAttachment(&quot;trace-id&quot;);
+</code></pre>
+<hr>
 <h2 id="六回声测试">六、回声测试</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 不引入服务接口，直接通过 Dubbo 协议测试服务是否可用</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 通过服务名和版本直接调用</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">EchoService</span><span class="w"> </span><span class="n">echoService</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">EchoService</span><span class="p">)</span><span class="w"> </span><span class="n">applicationContext</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">.</span><span class="na">getBean</span><span class="p">(</span><span class="s">&#34;echoService&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">Object</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">echoService</span><span class="p">.</span><span class="na">$echo</span><span class="p">(</span><span class="s">&#34;test&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 返回 test 说明服务正常</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// 不引入服务接口，直接通过 Dubbo 协议测试服务是否可用
+
+// 通过服务名和版本直接调用
+EchoService echoService = (EchoService) applicationContext
+        .getBean(&quot;echoService&quot;);
+Object status = echoService.$echo(&quot;test&quot;);
+// 返回 test 说明服务正常
+</code></pre>
+<hr>
 <h2 id="七总结">七、总结</h2>
 <h3 id="核心源码速查">核心源码速查</h3>
 <table>
@@ -425,6 +434,9 @@ ServiceConfig.export()
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

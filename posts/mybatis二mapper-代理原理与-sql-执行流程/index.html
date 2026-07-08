@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -122,205 +119,212 @@
 <h2 id="一mapper-代理原理">一、Mapper 代理原理</h2>
 <h3 id="11-注册-mapper-接口">1.1 注册 Mapper 接口</h3>
 <p>在配置解析阶段，MyBatis 通过 <code>&lt;mappers&gt;</code> 或 <code>@MapperScan</code> 注册 Mapper 接口到 <code>MapperRegistry</code>：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Configuration.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">addMapper</span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">type</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 将 Mapper 接口注册到 mapperRegistry</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">mapperRegistry</span><span class="p">.</span><span class="na">addMapper</span><span class="p">(</span><span class="n">type</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// MapperRegistry.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">MapperRegistry</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Configuration</span><span class="w"> </span><span class="n">config</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 存储 Mapper 接口 → MapperProxyFactory 的映射</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">MapperProxyFactory</span><span class="o">&lt;?&gt;&gt;</span><span class="w"> </span><span class="n">knownMappers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">addMapper</span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">type</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">type</span><span class="p">.</span><span class="na">isInterface</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hasMapper</span><span class="p">(</span><span class="n">type</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">BindingException</span><span class="p">(</span><span class="s">&#34;...&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kt">boolean</span><span class="w"> </span><span class="n">loadCompleted</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 为每个 Mapper 接口创建对应的 MapperProxyFactory</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">knownMappers</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">type</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MapperProxyFactory</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">type</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 解析 Mapper 接口上的注解（如 @Select、@Insert）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">XMLMapperBuilder</span><span class="w"> </span><span class="n">mapperParser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">XMLMapperBuilder</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">type</span><span class="p">.</span><span class="na">getResource</span><span class="p">(),</span><span class="w"> </span><span class="n">config</span><span class="p">,</span><span class="w"> </span><span class="n">type</span><span class="p">.</span><span class="na">getName</span><span class="p">(),</span><span class="w"> </span><span class="n">config</span><span class="p">.</span><span class="na">getSqlFragments</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">mapperParser</span><span class="p">.</span><span class="na">parse</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">loadCompleted</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">loadCompleted</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">knownMappers</span><span class="p">.</span><span class="na">remove</span><span class="p">(</span><span class="n">type</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@SuppressWarnings</span><span class="p">(</span><span class="s">&#34;unchecked&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="nf">getMapper</span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">type</span><span class="p">,</span><span class="w"> </span><span class="n">SqlSession</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 从 knownMappers 获取工厂，创建代理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">final</span><span class="w"> </span><span class="n">MapperProxyFactory</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">mapperProxyFactory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">MapperProxyFactory</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="n">knownMappers</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">type</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">mapperProxyFactory</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">BindingException</span><span class="p">(</span><span class="s">&#34;...&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">mapperProxyFactory</span><span class="p">.</span><span class="na">newInstance</span><span class="p">(</span><span class="n">sqlSession</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="12-mapperproxyfactory创建代理">1.2 MapperProxyFactory——创建代理</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// MapperProxyFactory.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">MapperProxyFactory</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">mapperInterface</span><span class="p">;</span><span class="w">       </span><span class="c1">// Mapper 接口</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Method</span><span class="p">,</span><span class="w"> </span><span class="n">MapperMethodInvoker</span><span class="o">&gt;</span><span class="w"> </span><span class="n">methodCache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ConcurrentHashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">MapperProxyFactory</span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">mapperInterface</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">mapperInterface</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mapperInterface</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="nf">newInstance</span><span class="p">(</span><span class="n">SqlSession</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 创建 MapperProxy（InvocationHandler）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MapperProxy</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">mapperProxy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MapperProxy</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">sqlSession</span><span class="p">,</span><span class="w"> </span><span class="n">mapperInterface</span><span class="p">,</span><span class="w"> </span><span class="n">methodCache</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ JDK 动态代理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">Proxy</span><span class="p">.</span><span class="na">newProxyInstance</span><span class="p">(</span><span class="n">mapperInterface</span><span class="p">.</span><span class="na">getClassLoader</span><span class="p">(),</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                                       </span><span class="k">new</span><span class="w"> </span><span class="n">Class</span><span class="o">[]</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">mapperInterface</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="n">mapperProxy</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="13-mapperproxyinvocationhandler">1.3 MapperProxy——InvocationHandler</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// MapperProxy.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">MapperProxy</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">InvocationHandler</span><span class="p">,</span><span class="w"> </span><span class="n">Serializable</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">SqlSession</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">mapperInterface</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Method</span><span class="p">,</span><span class="w"> </span><span class="n">MapperMethodInvoker</span><span class="o">&gt;</span><span class="w"> </span><span class="n">methodCache</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">proxy</span><span class="p">,</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 1. 处理 Object 中的方法（toString、hashCode 等）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">Object</span><span class="p">.</span><span class="na">class</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">method</span><span class="p">.</span><span class="na">getDeclaringClass</span><span class="p">()))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="n">method</span><span class="p">.</span><span class="na">invoke</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 2. 处理默认方法（JDK 8+ 接口中的 default 方法）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">method</span><span class="p">.</span><span class="na">isDefault</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="n">invokeDefaultMethod</span><span class="p">(</span><span class="n">proxy</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Throwable</span><span class="w"> </span><span class="n">t</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="n">ExceptionUtil</span><span class="p">.</span><span class="na">unwrapThrowable</span><span class="p">(</span><span class="n">t</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 3. 从缓存获取或创建 MapperMethod</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MapperMethodInvoker</span><span class="w"> </span><span class="n">invoker</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cachedInvoker</span><span class="p">(</span><span class="n">method</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 4. 执行 SQL</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">invoker</span><span class="p">.</span><span class="na">invoke</span><span class="p">(</span><span class="n">proxy</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">,</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">MapperMethodInvoker</span><span class="w"> </span><span class="nf">cachedInvoker</span><span class="p">(</span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">methodCache</span><span class="p">.</span><span class="na">computeIfAbsent</span><span class="p">(</span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">m</span><span class="p">.</span><span class="na">isDefault</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DefaultMethodInvoker</span><span class="p">(</span><span class="n">getMethodHandleJava8</span><span class="p">(</span><span class="n">method</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 创建 MapperMethod，封装 SQL 执行逻辑</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">PlainMethodInvoker</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">MapperMethod</span><span class="p">(</span><span class="n">mapperInterface</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">.</span><span class="na">getConfiguration</span><span class="p">()));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">});</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="14-mappermethod方法调用">1.4 MapperMethod——方法调用</h3>
+<pre><code class="language-java">// Configuration.java
+public &lt;T&gt; void addMapper(Class&lt;T&gt; type) {
+    // ★ 将 Mapper 接口注册到 mapperRegistry
+    mapperRegistry.addMapper(type);
+}
+</code></pre>
+<pre><code class="language-java">// MapperRegistry.java
+public class MapperRegistry {
+    
+    private final Configuration config;
+    // ★ 存储 Mapper 接口 → MapperProxyFactory 的映射
+    private final Map&lt;Class&lt;?&gt;, MapperProxyFactory&lt;?&gt;&gt; knownMappers = new HashMap&lt;&gt;();
+    
+    public &lt;T&gt; void addMapper(Class&lt;T&gt; type) {
+        if (type.isInterface()) {
+            if (hasMapper(type)) {
+                throw new BindingException(&quot;...&quot;);
+            }
+            boolean loadCompleted = false;
+            try {
+                // ★ 为每个 Mapper 接口创建对应的 MapperProxyFactory
+                knownMappers.put(type, new MapperProxyFactory&lt;&gt;(type));
+                
+                // 解析 Mapper 接口上的注解（如 @Select、@Insert）
+                XMLMapperBuilder mapperParser = new XMLMapperBuilder(
+                        type.getResource(), config, type.getName(), config.getSqlFragments());
+                mapperParser.parse();
+                loadCompleted = true;
+            } finally {
+                if (!loadCompleted) {
+                    knownMappers.remove(type);
+                }
+            }
+        }
+    }
+    
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public &lt;T&gt; T getMapper(Class&lt;T&gt; type, SqlSession sqlSession) {
+        // ★ 从 knownMappers 获取工厂，创建代理
+        final MapperProxyFactory&lt;T&gt; mapperProxyFactory = (MapperProxyFactory&lt;T&gt;) knownMappers.get(type);
+        if (mapperProxyFactory == null) {
+            throw new BindingException(&quot;...&quot;);
+        }
+        return mapperProxyFactory.newInstance(sqlSession);
+    }
+}
+</code></pre>
+<h3 id="12-mapperproxyfactory创建代理">1.2 MapperProxyFactory——创建代理</h3>
+<pre><code class="language-java">// MapperProxyFactory.java
+public class MapperProxyFactory&lt;T&gt; {
+    
+    private final Class&lt;T&gt; mapperInterface;       // Mapper 接口
+    private final Map&lt;Method, MapperMethodInvoker&gt; methodCache = new ConcurrentHashMap&lt;&gt;();
+    
+    public MapperProxyFactory(Class&lt;T&gt; mapperInterface) {
+        this.mapperInterface = mapperInterface;
+    }
+    
+    public T newInstance(SqlSession sqlSession) {
+        // ★ 创建 MapperProxy（InvocationHandler）
+        MapperProxy&lt;T&gt; mapperProxy = new MapperProxy&lt;&gt;(sqlSession, mapperInterface, methodCache);
+        // ★ JDK 动态代理
+        return Proxy.newProxyInstance(mapperInterface.getClassLoader(), 
+                                       new Class[] { mapperInterface }, mapperProxy);
+    }
+}
+</code></pre>
+<h3 id="13-mapperproxyinvocationhandler">1.3 MapperProxy——InvocationHandler</h3>
+<pre><code class="language-java">// MapperProxy.java
+public class MapperProxy&lt;T&gt; implements InvocationHandler, Serializable {
+    
+    private final SqlSession sqlSession;
+    private final Class&lt;T&gt; mapperInterface;
+    private final Map&lt;Method, MapperMethodInvoker&gt; methodCache;
+    
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+        try {
+            // 1. 处理 Object 中的方法（toString、hashCode 等）
+            if (Object.class.equals(method.getDeclaringClass())) {
+                return method.invoke(this, args);
+            }
+            
+            // 2. 处理默认方法（JDK 8+ 接口中的 default 方法）
+            if (method.isDefault()) {
+                return invokeDefaultMethod(proxy, method, args);
+            }
+            
+        } catch (Throwable t) {
+            throw ExceptionUtil.unwrapThrowable(t);
+        }
+        
+        // ★ 3. 从缓存获取或创建 MapperMethod
+        MapperMethodInvoker invoker = cachedInvoker(method);
+        // ★ 4. 执行 SQL
+        return invoker.invoke(proxy, method, args, sqlSession);
+    }
+    
+    private MapperMethodInvoker cachedInvoker(Method method) {
+        return methodCache.computeIfAbsent(method, m -&gt; {
+            if (m.isDefault()) {
+                return new DefaultMethodInvoker(getMethodHandleJava8(method));
+            }
+            // ★ 创建 MapperMethod，封装 SQL 执行逻辑
+            return new PlainMethodInvoker(new MapperMethod(mapperInterface, method, sqlSession.getConfiguration()));
+        });
+    }
+}
+</code></pre>
+<h3 id="14-mappermethod方法调用">1.4 MapperMethod——方法调用</h3>
 <p><code>MapperMethod</code> 是映射方法调用与 SQL 执行的关键桥梁：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// MapperMethod.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">MapperMethod</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">SqlCommand</span><span class="w"> </span><span class="n">command</span><span class="p">;</span><span class="w">   </span><span class="c1">// SQL 命令（statementId + 类型）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">MethodSignature</span><span class="w"> </span><span class="n">method</span><span class="p">;</span><span class="w"> </span><span class="c1">// 方法签名（返回值类型、参数等）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">MapperMethod</span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">mapperInterface</span><span class="p">,</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Configuration</span><span class="w"> </span><span class="n">config</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 解析 SQL 命令：从 Configuration 中查找对应的 MappedStatement</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SqlCommand</span><span class="p">(</span><span class="n">config</span><span class="p">,</span><span class="w"> </span><span class="n">mapperInterface</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 解析方法签名：参数名、返回值类型等</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MethodSignature</span><span class="p">(</span><span class="n">config</span><span class="p">,</span><span class="w"> </span><span class="n">mapperInterface</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="n">SqlSession</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">command</span><span class="p">.</span><span class="na">getType</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">INSERT</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 参数转换（多个参数 → Map）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">Object</span><span class="w"> </span><span class="n">param</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">method</span><span class="p">.</span><span class="na">convertArgsToSqlCommandParam</span><span class="p">(</span><span class="n">args</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">.</span><span class="na">insert</span><span class="p">(</span><span class="n">command</span><span class="p">.</span><span class="na">getName</span><span class="p">(),</span><span class="w"> </span><span class="n">param</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">break</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">UPDATE</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">Object</span><span class="w"> </span><span class="n">param</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">method</span><span class="p">.</span><span class="na">convertArgsToSqlCommandParam</span><span class="p">(</span><span class="n">args</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">.</span><span class="na">update</span><span class="p">(</span><span class="n">command</span><span class="p">.</span><span class="na">getName</span><span class="p">(),</span><span class="w"> </span><span class="n">param</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">break</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">DELETE</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">Object</span><span class="w"> </span><span class="n">param</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">method</span><span class="p">.</span><span class="na">convertArgsToSqlCommandParam</span><span class="p">(</span><span class="n">args</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">.</span><span class="na">delete</span><span class="p">(</span><span class="n">command</span><span class="p">.</span><span class="na">getName</span><span class="p">(),</span><span class="w"> </span><span class="n">param</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">break</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">SELECT</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 根据返回值类型选择不同的查询方式</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">method</span><span class="p">.</span><span class="na">returnsVoid</span><span class="p">()</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">method</span><span class="p">.</span><span class="na">hasResultHandler</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">executeWithResultHandler</span><span class="p">(</span><span class="n">sqlSession</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">method</span><span class="p">.</span><span class="na">returnsMany</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">.</span><span class="na">selectList</span><span class="p">(</span><span class="n">command</span><span class="p">.</span><span class="na">getName</span><span class="p">(),</span><span class="w"> </span><span class="n">getParams</span><span class="p">(</span><span class="n">args</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">method</span><span class="p">.</span><span class="na">returnsMap</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">.</span><span class="na">selectMap</span><span class="p">(</span><span class="n">command</span><span class="p">.</span><span class="na">getName</span><span class="p">(),</span><span class="w"> </span><span class="n">getParams</span><span class="p">(</span><span class="n">args</span><span class="p">),</span><span class="w"> </span><span class="n">method</span><span class="p">.</span><span class="na">getMapKey</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">method</span><span class="p">.</span><span class="na">returnsCursor</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">.</span><span class="na">selectCursor</span><span class="p">(</span><span class="n">command</span><span class="p">.</span><span class="na">getName</span><span class="p">(),</span><span class="w"> </span><span class="n">getParams</span><span class="p">(</span><span class="n">args</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sqlSession</span><span class="p">.</span><span class="na">selectOne</span><span class="p">(</span><span class="n">command</span><span class="p">.</span><span class="na">getName</span><span class="p">(),</span><span class="w"> </span><span class="n">getParams</span><span class="p">(</span><span class="n">args</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">method</span><span class="p">.</span><span class="na">returnsOptional</span><span class="p">()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                            </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="o">!</span><span class="n">method</span><span class="p">.</span><span class="na">getReturnType</span><span class="p">().</span><span class="na">equals</span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="na">getClass</span><span class="p">())))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Optional</span><span class="p">.</span><span class="na">ofNullable</span><span class="p">(</span><span class="n">result</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">break</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">default</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">BindingException</span><span class="p">(</span><span class="s">&#34;Unknown execution method for: &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">command</span><span class="p">.</span><span class="na">getName</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// MapperMethod.java
+public class MapperMethod {
+    
+    private final SqlCommand command;   // SQL 命令（statementId + 类型）
+    private final MethodSignature method; // 方法签名（返回值类型、参数等）
+    
+    public MapperMethod(Class&lt;?&gt; mapperInterface, Method method, Configuration config) {
+        // 1. 解析 SQL 命令：从 Configuration 中查找对应的 MappedStatement
+        this.command = new SqlCommand(config, mapperInterface, method);
+        // 2. 解析方法签名：参数名、返回值类型等
+        this.method = new MethodSignature(config, mapperInterface, method);
+    }
+    
+    public Object execute(SqlSession sqlSession, Object[] args) {
+        Object result;
+        switch (command.getType()) {
+            case INSERT: {
+                // ★ 参数转换（多个参数 → Map）
+                Object param = method.convertArgsToSqlCommandParam(args);
+                result = sqlSession.insert(command.getName(), param);
+                break;
+            }
+            case UPDATE: {
+                Object param = method.convertArgsToSqlCommandParam(args);
+                result = sqlSession.update(command.getName(), param);
+                break;
+            }
+            case DELETE: {
+                Object param = method.convertArgsToSqlCommandParam(args);
+                result = sqlSession.delete(command.getName(), param);
+                break;
+            }
+            case SELECT: {
+                // ★ 根据返回值类型选择不同的查询方式
+                if (method.returnsVoid() &amp;&amp; method.hasResultHandler()) {
+                    executeWithResultHandler(sqlSession, args);
+                    result = null;
+                } else if (method.returnsMany()) {
+                    result = sqlSession.selectList(command.getName(), getParams(args));
+                } else if (method.returnsMap()) {
+                    result = sqlSession.selectMap(command.getName(), getParams(args), method.getMapKey());
+                } else if (method.returnsCursor()) {
+                    result = sqlSession.selectCursor(command.getName(), getParams(args));
+                } else {
+                    result = sqlSession.selectOne(command.getName(), getParams(args));
+                    if (method.returnsOptional()
+                            &amp;&amp; (result == null || !method.getReturnType().equals(result.getClass()))) {
+                        result = Optional.ofNullable(result);
+                    }
+                }
+                break;
+            }
+            default:
+                throw new BindingException(&quot;Unknown execution method for: &quot; + command.getName());
+        }
+        return result;
+    }
+}
+</code></pre>
+<hr>
 <h2 id="二参数转换">二、参数转换</h2>
 <h3 id="21-多参数处理">2.1 多参数处理</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Mapper 接口方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">User</span><span class="w"> </span><span class="nf">findByNameAndEmail</span><span class="p">(</span><span class="nd">@Param</span><span class="p">(</span><span class="s">&#34;name&#34;</span><span class="p">)</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="nd">@Param</span><span class="p">(</span><span class="s">&#34;email&#34;</span><span class="p">)</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">email</span><span class="p">);</span><span class="w">
-</span></span></span></code></pre></div><p>MyBatis 将多个参数包装为一个 Map：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ParamNameResolver.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">getNamedParams</span><span class="p">(</span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">paramCount</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">names</span><span class="p">.</span><span class="na">size</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">args</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">paramCount</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">paramCount</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 只有一个参数 → 直接返回参数值</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">args</span><span class="o">[</span><span class="n">names</span><span class="p">.</span><span class="na">firstKey</span><span class="p">()</span><span class="o">]</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">names</span><span class="p">.</span><span class="na">hasDefaultParamName</span><span class="p">()</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="p">(</span><span class="n">value</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">value</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// @Param 或 -parameters 编译选项存在 → 包装为 Map</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 多个参数 → 包装为 Map（key 为 @Param 值或 param1/param2）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">param</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ParamMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Map</span><span class="p">.</span><span class="na">Entry</span><span class="o">&lt;</span><span class="n">Integer</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">entry</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">names</span><span class="p">.</span><span class="na">entrySet</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">param</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">entry</span><span class="p">.</span><span class="na">getValue</span><span class="p">(),</span><span class="w"> </span><span class="n">args</span><span class="o">[</span><span class="n">entry</span><span class="p">.</span><span class="na">getKey</span><span class="p">()</span><span class="o">]</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 同时保留 param1, param2 兼容性</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">param</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="s">&#34;param&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">entry</span><span class="p">.</span><span class="na">getKey</span><span class="p">(),</span><span class="w"> </span><span class="n">args</span><span class="o">[</span><span class="n">entry</span><span class="p">.</span><span class="na">getKey</span><span class="p">()</span><span class="o">]</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">param</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// Mapper 接口方法
+User findByNameAndEmail(@Param(&quot;name&quot;) String name, @Param(&quot;email&quot;) String email);
+</code></pre>
+<p>MyBatis 将多个参数包装为一个 Map：</p>
+<pre><code class="language-java">// ParamNameResolver.java
+public Object getNamedParams(Object[] args) {
+    final int paramCount = names.size();
+    if (args == null || paramCount == 0) {
+        return null;
+    }
+    if (paramCount == 1) {
+        // ★ 只有一个参数 → 直接返回参数值
+        Object value = args[names.firstKey()];
+        if (!names.hasDefaultParamName() || (value == null)) {
+            return value;
+        }
+        // @Param 或 -parameters 编译选项存在 → 包装为 Map
+    }
+    
+    // ★ 多个参数 → 包装为 Map（key 为 @Param 值或 param1/param2）
+    final Map&lt;String, Object&gt; param = new ParamMap&lt;&gt;();
+    for (Map.Entry&lt;Integer, String&gt; entry : names.entrySet()) {
+        param.put(entry.getValue(), args[entry.getKey()]);
+        // 同时保留 param1, param2 兼容性
+        param.put(&quot;param&quot; + entry.getKey(), args[entry.getKey()]);
+    }
+    return param;
+}
+</code></pre>
+<hr>
 <h2 id="三sql-执行流程">三、SQL 执行流程</h2>
 <h3 id="31-总体链路">3.1 总体链路</h3>
-<pre tabindex="0"><code>MapperProxy.invoke()
+<pre><code>MapperProxy.invoke()
     │
     ▼
 MapperMethod.execute()
@@ -341,24 +345,26 @@ Executor.doQuery()
     ├── StatementHandler.parameterize() → ParameterHandler.setParameters()
     ├── StatementHandler.query()        → Statement.execute()
     └── ResultSetHandler.handleResultSets() → 封装结果
-</code></pre><h3 id="32-executor-接口">3.2 Executor 接口</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">Executor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 查询</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">query</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                      </span><span class="n">RowBounds</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">ResultHandler</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 更新（也处理 insert/delete）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 事务</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">commit</span><span class="p">(</span><span class="kt">boolean</span><span class="w"> </span><span class="n">required</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">rollback</span><span class="p">(</span><span class="kt">boolean</span><span class="w"> </span><span class="n">required</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 清理一级缓存</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">clearLocalCache</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p><strong>三种 Executor 类型：</strong></p>
+</code></pre>
+<h3 id="32-executor-接口">3.2 Executor 接口</h3>
+<pre><code class="language-java">public interface Executor {
+    
+    // 查询
+    &lt;E&gt; List&lt;E&gt; query(MappedStatement ms, Object parameter, 
+                      RowBounds rowBounds, ResultHandler resultHandler);
+    
+    // 更新（也处理 insert/delete）
+    int update(MappedStatement ms, Object parameter);
+    
+    // 事务
+    void commit(boolean required);
+    void rollback(boolean required);
+    
+    // 清理一级缓存
+    void clearLocalCache();
+}
+</code></pre>
+<p><strong>三种 Executor 类型：</strong></p>
 <table>
 	<thead>
 			<tr>
@@ -386,280 +392,288 @@ Executor.doQuery()
 	</tbody>
 </table>
 <h3 id="33-创建-executor">3.3 创建 Executor</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Configuration.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Executor</span><span class="w"> </span><span class="nf">newExecutor</span><span class="p">(</span><span class="n">Transaction</span><span class="w"> </span><span class="n">transaction</span><span class="p">,</span><span class="w"> </span><span class="n">ExecutorType</span><span class="w"> </span><span class="n">executorType</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executorType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">executorType</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">defaultExecutorType</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">executorType</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executorType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">executorType</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">ExecutorType</span><span class="p">.</span><span class="na">SIMPLE</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">executorType</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Executor</span><span class="w"> </span><span class="n">executor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ExecutorType</span><span class="p">.</span><span class="na">BATCH</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">executorType</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">BatchExecutor</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">transaction</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ExecutorType</span><span class="p">.</span><span class="na">REUSE</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">executorType</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ReuseExecutor</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">transaction</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SimpleExecutor</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">transaction</span><span class="p">);</span><span class="w">  </span><span class="c1">// ★ 默认</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 如果开启了二级缓存（cacheEnabled=true），用 CachingExecutor 装饰</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">cacheEnabled</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CachingExecutor</span><span class="p">(</span><span class="n">executor</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 应用插件（Interceptor）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">Executor</span><span class="p">)</span><span class="w"> </span><span class="n">interceptorChain</span><span class="p">.</span><span class="na">pluginAll</span><span class="p">(</span><span class="n">executor</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">executor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="34-simpleexecutordoquery">3.4 SimpleExecutor.doQuery()</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// SimpleExecutor.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SimpleExecutor</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">BaseExecutor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">doQuery</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                </span><span class="n">RowBounds</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">ResultHandler</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Statement</span><span class="w"> </span><span class="n">stmt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 1. 获取配置</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Configuration</span><span class="w"> </span><span class="n">configuration</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">getConfiguration</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 2. ★ 创建 StatementHandler（RoutingStatementHandler 包装具体实现）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">StatementHandler</span><span class="w"> </span><span class="n">handler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">configuration</span><span class="p">.</span><span class="na">newStatementHandler</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 3. ★ prepare：创建 JDBC Statement 并设置参数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">stmt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">prepareStatement</span><span class="p">(</span><span class="n">handler</span><span class="p">,</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">getStatementLog</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 4. ★ query：执行 SQL 并处理结果</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">handler</span><span class="p">.</span><span class="na">query</span><span class="p">(</span><span class="n">stmt</span><span class="p">,</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">closeStatement</span><span class="p">(</span><span class="n">stmt</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Statement</span><span class="w"> </span><span class="nf">prepareStatement</span><span class="p">(</span><span class="n">StatementHandler</span><span class="w"> </span><span class="n">handler</span><span class="p">,</span><span class="w"> </span><span class="n">Log</span><span class="w"> </span><span class="n">statementLog</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Connection</span><span class="w"> </span><span class="n">connection</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getConnection</span><span class="p">(</span><span class="n">statementLog</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 创建 Statement（PreparedStatement 或普通 Statement）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Statement</span><span class="w"> </span><span class="n">stmt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">handler</span><span class="p">.</span><span class="na">prepare</span><span class="p">(</span><span class="n">connection</span><span class="p">,</span><span class="w"> </span><span class="n">transaction</span><span class="p">.</span><span class="na">getTimeout</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 设置参数（将 Java 参数设置到 PreparedStatement 中）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">handler</span><span class="p">.</span><span class="na">parameterize</span><span class="p">(</span><span class="n">stmt</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">stmt</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="35-statementhandler-体系">3.5 StatementHandler 体系</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">StatementHandler</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 创建 Statement（JDBC Connection.createStatement / prepareStatement）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Statement</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span><span class="n">Connection</span><span class="w"> </span><span class="n">connection</span><span class="p">,</span><span class="w"> </span><span class="n">Integer</span><span class="w"> </span><span class="n">transactionTimeout</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 设置参数（委托给 ParameterHandler）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">parameterize</span><span class="p">(</span><span class="n">Statement</span><span class="w"> </span><span class="n">statement</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 执行查询（ResultSet 委托给 ResultSetHandler 处理）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">query</span><span class="p">(</span><span class="n">Statement</span><span class="w"> </span><span class="n">statement</span><span class="p">,</span><span class="w"> </span><span class="n">ResultHandler</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 执行更新</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="n">Statement</span><span class="w"> </span><span class="n">statement</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 获取 BoundSql</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">BoundSql</span><span class="w"> </span><span class="nf">getBoundSql</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 获取 ParameterHandler</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ParameterHandler</span><span class="w"> </span><span class="nf">getParameterHandler</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p><strong>RoutingStatementHandler——路由到具体实现：</strong></p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">RoutingStatementHandler</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">StatementHandler</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">StatementHandler</span><span class="w"> </span><span class="n">delegate</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">RoutingStatementHandler</span><span class="p">(</span><span class="n">Executor</span><span class="w"> </span><span class="n">executor</span><span class="p">,</span><span class="w"> </span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                    </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">RowBounds</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                    </span><span class="n">ResultHandler</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">ms</span><span class="p">.</span><span class="na">getStatementType</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">STATEMENT</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">delegate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SimpleStatementHandler</span><span class="p">(</span><span class="n">executor</span><span class="p">,</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">break</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">PREPARED</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 默认使用 PreparedStatement</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">delegate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">PreparedStatementHandler</span><span class="p">(</span><span class="n">executor</span><span class="p">,</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">break</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">CALLABLE</span><span class="p">:</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">delegate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CallableStatementHandler</span><span class="p">(</span><span class="n">executor</span><span class="p">,</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">break</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 委托给具体的 delegate</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">Statement</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(...)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">delegate</span><span class="p">.</span><span class="na">prepare</span><span class="p">(</span><span class="n">connection</span><span class="p">,</span><span class="w"> </span><span class="n">timeout</span><span class="p">);</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">parameterize</span><span class="p">(...)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">delegate</span><span class="p">.</span><span class="na">parameterize</span><span class="p">(</span><span class="n">stmt</span><span class="p">);</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">query</span><span class="p">(...)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">delegate</span><span class="p">.</span><span class="na">query</span><span class="p">(</span><span class="n">stmt</span><span class="p">,</span><span class="w"> </span><span class="n">rh</span><span class="p">);</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="36-preparedstatementhandler">3.6 PreparedStatementHandler</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// PreparedStatementHandler.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PreparedStatementHandler</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">BaseStatementHandler</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Statement</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span><span class="n">Connection</span><span class="w"> </span><span class="n">connection</span><span class="p">,</span><span class="w"> </span><span class="n">Integer</span><span class="w"> </span><span class="n">transactionTimeout</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 创建 PreparedStatement（含 SQL）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">connection</span><span class="p">.</span><span class="na">prepareStatement</span><span class="p">(</span><span class="n">boundSql</span><span class="p">.</span><span class="na">getSql</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">parameterize</span><span class="p">(</span><span class="n">Statement</span><span class="w"> </span><span class="n">statement</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 委托给 ParameterHandler 设置参数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">parameterHandler</span><span class="p">.</span><span class="na">setParameters</span><span class="p">((</span><span class="n">PreparedStatement</span><span class="p">)</span><span class="w"> </span><span class="n">statement</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">query</span><span class="p">(</span><span class="n">Statement</span><span class="w"> </span><span class="n">statement</span><span class="p">,</span><span class="w"> </span><span class="n">ResultHandler</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 执行 SQL</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">PreparedStatement</span><span class="w"> </span><span class="n">ps</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">PreparedStatement</span><span class="p">)</span><span class="w"> </span><span class="n">statement</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ps</span><span class="p">.</span><span class="na">execute</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 委托给 ResultSetHandler 处理结果</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">resultSetHandler</span><span class="p">.</span><span class="na">handleResultSets</span><span class="p">(</span><span class="n">ps</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="n">Statement</span><span class="w"> </span><span class="n">statement</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">PreparedStatement</span><span class="w"> </span><span class="n">ps</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">PreparedStatement</span><span class="p">)</span><span class="w"> </span><span class="n">statement</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ps</span><span class="p">.</span><span class="na">execute</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">ps</span><span class="p">.</span><span class="na">getUpdateCount</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// Configuration.java
+public Executor newExecutor(Transaction transaction, ExecutorType executorType) {
+    executorType = executorType == null ? defaultExecutorType : executorType;
+    executorType = executorType == null ? ExecutorType.SIMPLE : executorType;
+    
+    Executor executor;
+    if (ExecutorType.BATCH == executorType) {
+        executor = new BatchExecutor(this, transaction);
+    } else if (ExecutorType.REUSE == executorType) {
+        executor = new ReuseExecutor(this, transaction);
+    } else {
+        executor = new SimpleExecutor(this, transaction);  // ★ 默认
+    }
+    
+    // ★ 如果开启了二级缓存（cacheEnabled=true），用 CachingExecutor 装饰
+    if (cacheEnabled) {
+        executor = new CachingExecutor(executor);
+    }
+    
+    // ★ 应用插件（Interceptor）
+    executor = (Executor) interceptorChain.pluginAll(executor);
+    
+    return executor;
+}
+</code></pre>
+<h3 id="34-simpleexecutordoquery">3.4 SimpleExecutor.doQuery()</h3>
+<pre><code class="language-java">// SimpleExecutor.java
+public class SimpleExecutor extends BaseExecutor {
+    
+    @Override
+    public &lt;E&gt; List&lt;E&gt; doQuery(MappedStatement ms, Object parameter,
+                                RowBounds rowBounds, ResultHandler resultHandler,
+                                BoundSql boundSql) {
+        Statement stmt = null;
+        try {
+            // 1. 获取配置
+            Configuration configuration = ms.getConfiguration();
+            
+            // 2. ★ 创建 StatementHandler（RoutingStatementHandler 包装具体实现）
+            StatementHandler handler = configuration.newStatementHandler(
+                    this, ms, parameter, rowBounds, resultHandler, boundSql);
+            
+            // 3. ★ prepare：创建 JDBC Statement 并设置参数
+            stmt = prepareStatement(handler, ms.getStatementLog());
+            
+            // 4. ★ query：执行 SQL 并处理结果
+            return handler.query(stmt, resultHandler);
+        } finally {
+            closeStatement(stmt);
+        }
+    }
+    
+    private Statement prepareStatement(StatementHandler handler, Log statementLog) {
+        Connection connection = getConnection(statementLog);
+        // ★ 创建 Statement（PreparedStatement 或普通 Statement）
+        Statement stmt = handler.prepare(connection, transaction.getTimeout());
+        // ★ 设置参数（将 Java 参数设置到 PreparedStatement 中）
+        handler.parameterize(stmt);
+        return stmt;
+    }
+}
+</code></pre>
+<h3 id="35-statementhandler-体系">3.5 StatementHandler 体系</h3>
+<pre><code class="language-java">public interface StatementHandler {
+    
+    // ★ 创建 Statement（JDBC Connection.createStatement / prepareStatement）
+    Statement prepare(Connection connection, Integer transactionTimeout);
+    
+    // ★ 设置参数（委托给 ParameterHandler）
+    void parameterize(Statement statement);
+    
+    // ★ 执行查询（ResultSet 委托给 ResultSetHandler 处理）
+    &lt;E&gt; List&lt;E&gt; query(Statement statement, ResultHandler resultHandler);
+    
+    // 执行更新
+    int update(Statement statement);
+    
+    // 获取 BoundSql
+    BoundSql getBoundSql();
+    
+    // 获取 ParameterHandler
+    ParameterHandler getParameterHandler();
+}
+</code></pre>
+<p><strong>RoutingStatementHandler——路由到具体实现：</strong></p>
+<pre><code class="language-java">public class RoutingStatementHandler implements StatementHandler {
+    
+    private final StatementHandler delegate;
+    
+    public RoutingStatementHandler(Executor executor, MappedStatement ms,
+                                    Object parameter, RowBounds rowBounds,
+                                    ResultHandler resultHandler, BoundSql boundSql) {
+        switch (ms.getStatementType()) {
+            case STATEMENT:
+                delegate = new SimpleStatementHandler(executor, ms, parameter, rowBounds, resultHandler, boundSql);
+                break;
+            case PREPARED:
+                // ★ 默认使用 PreparedStatement
+                delegate = new PreparedStatementHandler(executor, ms, parameter, rowBounds, resultHandler, boundSql);
+                break;
+            case CALLABLE:
+                delegate = new CallableStatementHandler(executor, ms, parameter, rowBounds, resultHandler, boundSql);
+                break;
+        }
+    }
+    
+    // 委托给具体的 delegate
+    @Override public Statement prepare(...) { return delegate.prepare(connection, timeout); }
+    @Override public void parameterize(...) { delegate.parameterize(stmt); }
+    @Override public &lt;E&gt; List&lt;E&gt; query(...) { return delegate.query(stmt, rh); }
+}
+</code></pre>
+<h3 id="36-preparedstatementhandler">3.6 PreparedStatementHandler</h3>
+<pre><code class="language-java">// PreparedStatementHandler.java
+public class PreparedStatementHandler extends BaseStatementHandler {
+    
+    @Override
+    public Statement prepare(Connection connection, Integer transactionTimeout) {
+        // ★ 创建 PreparedStatement（含 SQL）
+        return connection.prepareStatement(boundSql.getSql());
+    }
+    
+    @Override
+    public void parameterize(Statement statement) {
+        // ★ 委托给 ParameterHandler 设置参数
+        parameterHandler.setParameters((PreparedStatement) statement);
+    }
+    
+    @Override
+    public &lt;E&gt; List&lt;E&gt; query(Statement statement, ResultHandler resultHandler) {
+        // ★ 执行 SQL
+        PreparedStatement ps = (PreparedStatement) statement;
+        ps.execute();
+        // ★ 委托给 ResultSetHandler 处理结果
+        return resultSetHandler.handleResultSets(ps);
+    }
+    
+    @Override
+    public int update(Statement statement) {
+        PreparedStatement ps = (PreparedStatement) statement;
+        ps.execute();
+        return ps.getUpdateCount();
+    }
+}
+</code></pre>
+<hr>
 <h2 id="四parameterhandler">四、ParameterHandler</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultParameterHandler.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DefaultParameterHandler</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">ParameterHandler</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">TypeHandlerRegistry</span><span class="w"> </span><span class="n">typeHandlerRegistry</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">mappedStatement</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameterObject</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">setParameters</span><span class="p">(</span><span class="n">PreparedStatement</span><span class="w"> </span><span class="n">ps</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 从 BoundSql 中获取参数映射信息</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ParameterMapping</span><span class="o">&gt;</span><span class="w"> </span><span class="n">parameterMappings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">boundSql</span><span class="p">.</span><span class="na">getParameterMappings</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">parameterMappings</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">parameterMappings</span><span class="p">.</span><span class="na">size</span><span class="p">();</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">ParameterMapping</span><span class="w"> </span><span class="n">parameterMapping</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parameterMappings</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">i</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 跳过输出参数（存储过程 OUT 参数）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">parameterMapping</span><span class="p">.</span><span class="na">getMode</span><span class="p">()</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">ParameterMode</span><span class="p">.</span><span class="na">OUT</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">Object</span><span class="w"> </span><span class="n">value</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="c1">// 获取参数值</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">String</span><span class="w"> </span><span class="n">propertyName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parameterMapping</span><span class="p">.</span><span class="na">getProperty</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">boundSql</span><span class="p">.</span><span class="na">hasAdditionalParameter</span><span class="p">(</span><span class="n">propertyName</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">boundSql</span><span class="p">.</span><span class="na">getAdditionalParameter</span><span class="p">(</span><span class="n">propertyName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">parameterObject</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">typeHandlerRegistry</span><span class="p">.</span><span class="na">hasTypeHandler</span><span class="p">(</span><span class="n">parameterObject</span><span class="p">.</span><span class="na">getClass</span><span class="p">()))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parameterObject</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="c1">// ★ 复杂对象 → 通过 MetaObject 获取属性值</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">MetaObject</span><span class="w"> </span><span class="n">metaObject</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">configuration</span><span class="p">.</span><span class="na">newMetaObject</span><span class="p">(</span><span class="n">parameterObject</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">metaObject</span><span class="p">.</span><span class="na">getValue</span><span class="p">(</span><span class="n">propertyName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="c1">// ★ 通过 TypeHandler 设置参数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">TypeHandler</span><span class="w"> </span><span class="n">typeHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parameterMapping</span><span class="p">.</span><span class="na">getTypeHandler</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">JdbcType</span><span class="w"> </span><span class="n">jdbcType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parameterMapping</span><span class="p">.</span><span class="na">getJdbcType</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">typeHandler</span><span class="p">.</span><span class="na">setParameter</span><span class="p">(</span><span class="n">ps</span><span class="p">,</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">1</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="n">jdbcType</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// DefaultParameterHandler.java
+public class DefaultParameterHandler implements ParameterHandler {
+    
+    private final TypeHandlerRegistry typeHandlerRegistry;
+    private final MappedStatement mappedStatement;
+    private final Object parameterObject;
+    private final BoundSql boundSql;
+    
+    @Override
+    public void setParameters(PreparedStatement ps) {
+        // ★ 从 BoundSql 中获取参数映射信息
+        List&lt;ParameterMapping&gt; parameterMappings = boundSql.getParameterMappings();
+        
+        if (parameterMappings != null) {
+            for (int i = 0; i &lt; parameterMappings.size(); i++) {
+                ParameterMapping parameterMapping = parameterMappings.get(i);
+                
+                // 跳过输出参数（存储过程 OUT 参数）
+                if (parameterMapping.getMode() != ParameterMode.OUT) {
+                    Object value;
+                    // 获取参数值
+                    String propertyName = parameterMapping.getProperty();
+                    if (boundSql.hasAdditionalParameter(propertyName)) {
+                        value = boundSql.getAdditionalParameter(propertyName);
+                    } else if (parameterObject == null) {
+                        value = null;
+                    } else if (typeHandlerRegistry.hasTypeHandler(parameterObject.getClass())) {
+                        value = parameterObject;
+                    } else {
+                        // ★ 复杂对象 → 通过 MetaObject 获取属性值
+                        MetaObject metaObject = configuration.newMetaObject(parameterObject);
+                        value = metaObject.getValue(propertyName);
+                    }
+                    
+                    // ★ 通过 TypeHandler 设置参数
+                    TypeHandler typeHandler = parameterMapping.getTypeHandler();
+                    JdbcType jdbcType = parameterMapping.getJdbcType();
+                    typeHandler.setParameter(ps, i + 1, value, jdbcType);
+                }
+            }
+        }
+    }
+}
+</code></pre>
+<hr>
 <h2 id="五resultsethandler">五、ResultSetHandler</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultResultSetHandler.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DefaultResultSetHandler</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">ResultSetHandler</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">handleResultSets</span><span class="p">(</span><span class="n">Statement</span><span class="w"> </span><span class="n">stmt</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">multipleResults</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">resultSetCount</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 获取第一个 ResultSet</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ResultSetWrapper</span><span class="w"> </span><span class="n">rsw</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ResultSetWrapper</span><span class="p">(</span><span class="n">stmt</span><span class="p">.</span><span class="na">getResultSet</span><span class="p">(),</span><span class="w"> </span><span class="n">configuration</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 获取 ResultMap（可能有多个 —— 多结果集）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ResultMap</span><span class="o">&gt;</span><span class="w"> </span><span class="n">resultMaps</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mappedStatement</span><span class="p">.</span><span class="na">getResultMaps</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">rsw</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">resultMaps</span><span class="p">.</span><span class="na">size</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">resultSetCount</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">ResultMap</span><span class="w"> </span><span class="n">resultMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resultMaps</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">resultSetCount</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 处理 ResultSet → Java 对象</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">handleResultSet</span><span class="p">(</span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> </span><span class="n">multipleResults</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 处理下一个 ResultSet</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">rsw</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getNextResultSet</span><span class="p">(</span><span class="n">stmt</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">resultSetCount</span><span class="o">++</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 处理多结果集合并</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">collapseSingleResultList</span><span class="p">(</span><span class="n">multipleResults</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleRowValue</span><span class="p">(</span><span class="n">ResultSetWrapper</span><span class="w"> </span><span class="n">rsw</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMap</span><span class="w"> </span><span class="n">resultMap</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                                 </span><span class="n">Object</span><span class="w"> </span><span class="n">resultObject</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">columnPrefix</span><span class="p">,</span><span class="w"> </span><span class="n">ResultMapping</span><span class="w"> </span><span class="n">parentMapping</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 获取已加载的列</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">final</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">columns</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">rsw</span><span class="p">.</span><span class="na">getColumnNames</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 遍历 ResultMapping</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">ResultMapping</span><span class="w"> </span><span class="n">resultMapping</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">resultMap</span><span class="p">.</span><span class="na">getPropertyResultMappings</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 获取 TypeHandler</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">TypeHandler</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">typeHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resultMapping</span><span class="p">.</span><span class="na">getTypeHandler</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 通过 TypeHandler 从 ResultSet 读取数据</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Object</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">typeHandler</span><span class="p">.</span><span class="na">getResult</span><span class="p">(</span><span class="n">rsw</span><span class="p">.</span><span class="na">getResultSet</span><span class="p">(),</span><span class="w"> </span><span class="n">columnName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 通过反射设置到目标对象的属性</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">metaObject</span><span class="p">.</span><span class="na">setValue</span><span class="p">(</span><span class="n">resultMapping</span><span class="p">.</span><span class="na">getProperty</span><span class="p">(),</span><span class="w"> </span><span class="n">value</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// DefaultResultSetHandler.java
+public class DefaultResultSetHandler implements ResultSetHandler {
+    
+    @Override
+    public List&lt;Object&gt; handleResultSets(Statement stmt) {
+        List&lt;Object&gt; multipleResults = new ArrayList&lt;&gt;();
+        int resultSetCount = 0;
+        
+        // 1. 获取第一个 ResultSet
+        ResultSetWrapper rsw = new ResultSetWrapper(stmt.getResultSet(), configuration);
+        
+        // 2. 获取 ResultMap（可能有多个 —— 多结果集）
+        List&lt;ResultMap&gt; resultMaps = mappedStatement.getResultMaps();
+        
+        while (rsw != null &amp;&amp; resultMaps.size() &gt; resultSetCount) {
+            ResultMap resultMap = resultMaps.get(resultSetCount);
+            
+            // ★ 处理 ResultSet → Java 对象
+            handleResultSet(rsw, resultMap, multipleResults, null);
+            
+            // 处理下一个 ResultSet
+            rsw = getNextResultSet(stmt);
+            resultSetCount++;
+        }
+        
+        // 3. 处理多结果集合并
+        return collapseSingleResultList(multipleResults);
+    }
+    
+    private void handleRowValue(ResultSetWrapper rsw, ResultMap resultMap, 
+                                 Object resultObject, String columnPrefix, ResultMapping parentMapping) {
+        // ★ 获取已加载的列
+        final List&lt;String&gt; columns = rsw.getColumnNames();
+        
+        // ★ 遍历 ResultMapping
+        for (ResultMapping resultMapping : resultMap.getPropertyResultMappings()) {
+            // 获取 TypeHandler
+            TypeHandler&lt;?&gt; typeHandler = resultMapping.getTypeHandler();
+            
+            // ★ 通过 TypeHandler 从 ResultSet 读取数据
+            Object value = typeHandler.getResult(rsw.getResultSet(), columnName);
+            
+            // ★ 通过反射设置到目标对象的属性
+            metaObject.setValue(resultMapping.getProperty(), value);
+        }
+    }
+}
+</code></pre>
+<hr>
 <h2 id="六类型转换typehandler">六、类型转换（TypeHandler）</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// TypeHandler 接口</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">TypeHandler</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// Java → JDBC（设置参数）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">setParameter</span><span class="p">(</span><span class="n">PreparedStatement</span><span class="w"> </span><span class="n">ps</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">JdbcType</span><span class="w"> </span><span class="n">jdbcType</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// JDBC → Java（读取结果）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">T</span><span class="w"> </span><span class="nf">getResult</span><span class="p">(</span><span class="n">ResultSet</span><span class="w"> </span><span class="n">rs</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">columnName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">T</span><span class="w"> </span><span class="nf">getResult</span><span class="p">(</span><span class="n">ResultSet</span><span class="w"> </span><span class="n">rs</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">columnIndex</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">T</span><span class="w"> </span><span class="nf">getResult</span><span class="p">(</span><span class="n">CallableStatement</span><span class="w"> </span><span class="n">cs</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">columnIndex</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 常用内置 TypeHandler</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// IntegerTypeHandler、StringTypeHandler、DateTypeHandler 等</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 自定义 TypeHandler：继承 BaseTypeHandler</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">JsonTypeHandler</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">BaseTypeHandler</span><span class="o">&lt;</span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ObjectMapper</span><span class="w"> </span><span class="n">MAPPER</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ObjectMapper</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">setNonNullParameter</span><span class="p">(</span><span class="n">PreparedStatement</span><span class="w"> </span><span class="n">ps</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                                     </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">JdbcType</span><span class="w"> </span><span class="n">jdbcType</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ps</span><span class="p">.</span><span class="na">setString</span><span class="p">(</span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">MAPPER</span><span class="p">.</span><span class="na">writeValueAsString</span><span class="p">(</span><span class="n">parameter</span><span class="p">));</span><span class="w">  </span><span class="c1">// Map → JSON String</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">getNullableResult</span><span class="p">(</span><span class="n">ResultSet</span><span class="w"> </span><span class="n">rs</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">columnName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">json</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">rs</span><span class="p">.</span><span class="na">getString</span><span class="p">(</span><span class="n">columnName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">MAPPER</span><span class="p">.</span><span class="na">readValue</span><span class="p">(</span><span class="n">json</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">  </span><span class="c1">// JSON String → Map</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// TypeHandler 接口
+public interface TypeHandler&lt;T&gt; {
+    
+    // Java → JDBC（设置参数）
+    void setParameter(PreparedStatement ps, int i, T parameter, JdbcType jdbcType);
+    
+    // JDBC → Java（读取结果）
+    T getResult(ResultSet rs, String columnName);
+    
+    T getResult(ResultSet rs, int columnIndex);
+    
+    T getResult(CallableStatement cs, int columnIndex);
+}
+
+// 常用内置 TypeHandler
+// IntegerTypeHandler、StringTypeHandler、DateTypeHandler 等
+// 自定义 TypeHandler：继承 BaseTypeHandler
+
+public class JsonTypeHandler extends BaseTypeHandler&lt;Map&lt;String, Object&gt;&gt; {
+    
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    
+    @Override
+    public void setNonNullParameter(PreparedStatement ps, int i, 
+                                     Map&lt;String, Object&gt; parameter, JdbcType jdbcType) {
+        ps.setString(i, MAPPER.writeValueAsString(parameter));  // Map → JSON String
+    }
+    
+    @Override
+    public Map&lt;String, Object&gt; getNullableResult(ResultSet rs, String columnName) {
+        String json = rs.getString(columnName);
+        return MAPPER.readValue(json, Map.class);  // JSON String → Map
+    }
+}
+</code></pre>
+<hr>
 <h2 id="七总结">七、总结</h2>
 <h3 id="mapper-代理完整链路">Mapper 代理完整链路</h3>
-<pre tabindex="0"><code>MyBatis 启动：MapperRegistry.addMapper(UserMapper.class)
+<pre><code>MyBatis 启动：MapperRegistry.addMapper(UserMapper.class)
     → 创建 MapperProxyFactory&lt;UserMapper&gt;
     
 运行时：@Autowired UserMapper userMapper
@@ -667,17 +681,19 @@ Executor.doQuery()
       → MapperProxyFactory.newInstance(sqlSession)
         → Proxy.newProxyInstance(MapperProxy)
         
-调用：userMapper.findByName(&#34;Tom&#34;)
+调用：userMapper.findByName(&quot;Tom&quot;)
     → MapperProxy.invoke()
       → MapperMethod.execute()
-        → sqlSession.selectList(&#34;com.example.UserMapper.findByName&#34;, params)
+        → sqlSession.selectList(&quot;com.example.UserMapper.findByName&quot;, params)
           → Executor.query()
-</code></pre><h3 id="sql-执行四大组件">SQL 执行四大组件</h3>
-<pre tabindex="0"><code>Executor        → 执行器（调度 StatementHandler、管理缓存）
+</code></pre>
+<h3 id="sql-执行四大组件">SQL 执行四大组件</h3>
+<pre><code>Executor        → 执行器（调度 StatementHandler、管理缓存）
 StatementHandler → SQL 处理器（创建 Statement、管理执行流程）
 ParameterHandler → 参数处理器（Java → JDBC 参数）
 ResultSetHandler → 结果处理器（JDBC ResultSet → Java 对象）
-</code></pre><h3 id="核心源码文件索引">核心源码文件索引</h3>
+</code></pre>
+<h3 id="核心源码文件索引">核心源码文件索引</h3>
 <table>
 	<thead>
 			<tr>
@@ -776,6 +792,9 @@ ResultSetHandler → 结果处理器（JDBC ResultSet → Java 对象）
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

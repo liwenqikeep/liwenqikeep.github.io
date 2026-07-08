@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -165,7 +162,7 @@
 	</tbody>
 </table>
 <h3 id="12-插件拦截原理">1.2 插件拦截原理</h3>
-<pre tabindex="0"><code>原始对象 (Executor/StatementHandler 等)
+<pre><code>原始对象 (Executor/StatementHandler 等)
     │
     ▼
 InterceptorChain.pluginAll(target)
@@ -181,478 +178,498 @@ target = interceptor.plugin(target)   ← 每个插件依次代理
 
 链式代理（多个插件时）：
 原始对象 → 插件3代理 → 插件2代理 → 插件1代理 → 调用
-</code></pre><hr>
+</code></pre>
+<hr>
 <h2 id="二插件开发">二、插件开发</h2>
 <h3 id="21-核心接口">2.1 核心接口</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">Interceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 拦截逻辑（在目标方法执行前后插入代码）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Object</span><span class="w"> </span><span class="nf">intercept</span><span class="p">(</span><span class="n">Invocation</span><span class="w"> </span><span class="n">invocation</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 包装目标对象（返回代理对象）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">default</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">plugin</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">Plugin</span><span class="p">.</span><span class="na">wrap</span><span class="p">(</span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 设置插件参数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">default</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">setProperties</span><span class="p">(</span><span class="n">Properties</span><span class="w"> </span><span class="n">properties</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="22-intercepts-与-signature">2.2 @Intercepts 与 @Signature</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Intercepts</span><span class="p">({</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Signature</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Executor</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w">          </span><span class="c1">// 拦截的接口</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;query&#34;</span><span class="p">,</span><span class="w">               </span><span class="c1">// 拦截的方法名</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="n">MappedStatement</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">RowBounds</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">ResultHandler</span><span class="p">.</span><span class="na">class</span><span class="p">}</span><span class="w">  </span><span class="c1">// 参数类型</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">),</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Signature</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Executor</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;update&#34;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="n">MappedStatement</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="p">.</span><span class="na">class</span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">})</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ExamplePlugin</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Interceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ...</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="23-完整插件示例">2.3 完整插件示例</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Intercepts</span><span class="p">({</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Signature</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Executor</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;query&#34;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="n">MappedStatement</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">RowBounds</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">ResultHandler</span><span class="p">.</span><span class="na">class</span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">),</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Signature</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Executor</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;update&#34;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="n">MappedStatement</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="p">.</span><span class="na">class</span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">})</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SqlLogPlugin</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Interceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Logger</span><span class="w"> </span><span class="n">log</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LoggerFactory</span><span class="p">.</span><span class="na">getLogger</span><span class="p">(</span><span class="n">getClass</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">intercept</span><span class="p">(</span><span class="n">Invocation</span><span class="w"> </span><span class="n">invocation</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 获取目标方法的参数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">MappedStatement</span><span class="p">)</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">getArgs</span><span class="p">()</span><span class="o">[</span><span class="n">0</span><span class="o">]</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">getArgs</span><span class="p">()</span><span class="o">[</span><span class="n">1</span><span class="o">]</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 获取执行的 SQL</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">getBoundSql</span><span class="p">(</span><span class="n">parameter</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">sql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">boundSql</span><span class="p">.</span><span class="na">getSql</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">long</span><span class="w"> </span><span class="n">start</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 3. 执行目标方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Object</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kt">long</span><span class="w"> </span><span class="n">elapsed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">start</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;SQL: [{}] 耗时: {}ms&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">sql</span><span class="p">,</span><span class="w"> </span><span class="n">elapsed</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">plugin</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 使用 MyBatis 提供的 Plugin 工具类生成代理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">Plugin</span><span class="p">.</span><span class="na">wrap</span><span class="p">(</span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">setProperties</span><span class="p">(</span><span class="n">Properties</span><span class="w"> </span><span class="n">properties</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 读取插件配置参数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">maxLogLength</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">properties</span><span class="p">.</span><span class="na">getProperty</span><span class="p">(</span><span class="s">&#34;maxLogLength&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;1000&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;maxLogLength = &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">maxLogLength</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="24-注册插件">2.4 注册插件</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- mybatis-config.xml --&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;plugins&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;plugin</span> <span class="na">interceptor=</span><span class="s">&#34;com.example.plugin.SqlLogPlugin&#34;</span><span class="nt">&gt;</span>
-</span></span><span class="line"><span class="cl">        <span class="nt">&lt;property</span> <span class="na">name=</span><span class="s">&#34;maxLogLength&#34;</span> <span class="na">value=</span><span class="s">&#34;500&#34;</span><span class="nt">/&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/plugin&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;plugin</span> <span class="na">interceptor=</span><span class="s">&#34;com.github.pagehelper.PageInterceptor&#34;</span><span class="nt">&gt;</span>
-</span></span><span class="line"><span class="cl">        <span class="nt">&lt;property</span> <span class="na">name=</span><span class="s">&#34;helperDialect&#34;</span> <span class="na">value=</span><span class="s">&#34;mysql&#34;</span><span class="nt">/&gt;</span>
-</span></span><span class="line"><span class="cl">        <span class="nt">&lt;property</span> <span class="na">name=</span><span class="s">&#34;reasonable&#34;</span> <span class="na">value=</span><span class="s">&#34;true&#34;</span><span class="nt">/&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/plugin&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;/plugins&gt;</span>
-</span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Spring Boot 方式</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">MyBatisConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">SqlLogPlugin</span><span class="w"> </span><span class="nf">sqlLogPlugin</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SqlLogPlugin</span><span class="w"> </span><span class="n">plugin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SqlLogPlugin</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Properties</span><span class="w"> </span><span class="n">props</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Properties</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">props</span><span class="p">.</span><span class="na">setProperty</span><span class="p">(</span><span class="s">&#34;maxLogLength&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;500&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">plugin</span><span class="p">.</span><span class="na">setProperties</span><span class="p">(</span><span class="n">props</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">plugin</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">public interface Interceptor {
+    
+    // ★ 拦截逻辑（在目标方法执行前后插入代码）
+    Object intercept(Invocation invocation) throws Throwable;
+    
+    // ★ 包装目标对象（返回代理对象）
+    default Object plugin(Object target) {
+        return Plugin.wrap(target, this);
+    }
+    
+    // 设置插件参数
+    default void setProperties(Properties properties) {}
+}
+</code></pre>
+<h3 id="22-intercepts-与-signature">2.2 @Intercepts 与 @Signature</h3>
+<pre><code class="language-java">@Intercepts({
+    @Signature(
+        type = Executor.class,          // 拦截的接口
+        method = &quot;query&quot;,               // 拦截的方法名
+        args = {MappedStatement.class, Object.class, RowBounds.class, ResultHandler.class}  // 参数类型
+    ),
+    @Signature(
+        type = Executor.class,
+        method = &quot;update&quot;,
+        args = {MappedStatement.class, Object.class}
+    )
+})
+public class ExamplePlugin implements Interceptor {
+    // ...
+}
+</code></pre>
+<h3 id="23-完整插件示例">2.3 完整插件示例</h3>
+<pre><code class="language-java">@Intercepts({
+    @Signature(
+        type = Executor.class,
+        method = &quot;query&quot;,
+        args = {MappedStatement.class, Object.class, RowBounds.class, ResultHandler.class}
+    ),
+    @Signature(
+        type = Executor.class,
+        method = &quot;update&quot;,
+        args = {MappedStatement.class, Object.class}
+    )
+})
+public class SqlLogPlugin implements Interceptor {
+    
+    private final Logger log = LoggerFactory.getLogger(getClass());
+    
+    @Override
+    public Object intercept(Invocation invocation) throws Throwable {
+        // 1. 获取目标方法的参数
+        MappedStatement ms = (MappedStatement) invocation.getArgs()[0];
+        Object parameter = invocation.getArgs()[1];
+        
+        // 2. 获取执行的 SQL
+        BoundSql boundSql = ms.getBoundSql(parameter);
+        String sql = boundSql.getSql();
+        
+        long start = System.currentTimeMillis();
+        try {
+            // ★ 3. 执行目标方法
+            Object result = invocation.proceed();
+            return result;
+        } finally {
+            long elapsed = System.currentTimeMillis() - start;
+            log.info(&quot;SQL: [{}] 耗时: {}ms&quot;, sql, elapsed);
+        }
+    }
+    
+    @Override
+    public Object plugin(Object target) {
+        // ★ 使用 MyBatis 提供的 Plugin 工具类生成代理
+        return Plugin.wrap(target, this);
+    }
+    
+    @Override
+    public void setProperties(Properties properties) {
+        // 读取插件配置参数
+        String maxLogLength = properties.getProperty(&quot;maxLogLength&quot;, &quot;1000&quot;);
+        System.out.println(&quot;maxLogLength = &quot; + maxLogLength);
+    }
+}
+</code></pre>
+<h3 id="24-注册插件">2.4 注册插件</h3>
+<pre><code class="language-xml">&lt;!-- mybatis-config.xml --&gt;
+&lt;plugins&gt;
+    &lt;plugin interceptor=&quot;com.example.plugin.SqlLogPlugin&quot;&gt;
+        &lt;property name=&quot;maxLogLength&quot; value=&quot;500&quot;/&gt;
+    &lt;/plugin&gt;
+    &lt;plugin interceptor=&quot;com.github.pagehelper.PageInterceptor&quot;&gt;
+        &lt;property name=&quot;helperDialect&quot; value=&quot;mysql&quot;/&gt;
+        &lt;property name=&quot;reasonable&quot; value=&quot;true&quot;/&gt;
+    &lt;/plugin&gt;
+&lt;/plugins&gt;
+</code></pre>
+<pre><code class="language-java">// Spring Boot 方式
+@Configuration
+public class MyBatisConfig {
+    
+    @Bean
+    public SqlLogPlugin sqlLogPlugin() {
+        SqlLogPlugin plugin = new SqlLogPlugin();
+        Properties props = new Properties();
+        props.setProperty(&quot;maxLogLength&quot;, &quot;500&quot;);
+        plugin.setProperties(props);
+        return plugin;
+    }
+}
+</code></pre>
+<hr>
 <h2 id="三pluginwrap代理生成源码">三、Plugin.wrap——代理生成源码</h2>
 <p>MyBatis 提供了 <code>Plugin</code> 工具类，通过 JDK 动态代理自动处理签名匹配。</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Plugin.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Plugin</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">InvocationHandler</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="p">;</span><span class="w">          </span><span class="c1">// 被代理的目标对象</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Interceptor</span><span class="w"> </span><span class="n">interceptor</span><span class="p">;</span><span class="w"> </span><span class="c1">// 拦截器</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Method</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">signatureMap</span><span class="p">;</span><span class="w">  </span><span class="c1">// 缓存拦截的方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="nf">Plugin</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">Interceptor</span><span class="w"> </span><span class="n">interceptor</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Method</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">signatureMap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">target</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">target</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">interceptor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">interceptor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">signatureMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">signatureMap</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 包装目标对象（静态方法）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">wrap</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">Interceptor</span><span class="w"> </span><span class="n">interceptor</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 解析 @Intercepts 注解，构建签名映射</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Method</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">signatureMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getSignatureMap</span><span class="p">(</span><span class="n">interceptor</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 获取目标对象的 Class</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">target</span><span class="p">.</span><span class="na">getClass</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 查找目标类实现了哪些可拦截的接口（Executor/StatementHandler 等）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Class</span><span class="o">&lt;?&gt;[]</span><span class="w"> </span><span class="n">interfaces</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getAllInterfaces</span><span class="p">(</span><span class="n">type</span><span class="p">,</span><span class="w"> </span><span class="n">signatureMap</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">interfaces</span><span class="p">.</span><span class="na">length</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 4. 创建 JDK 动态代理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">Proxy</span><span class="p">.</span><span class="na">newProxyInstance</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">type</span><span class="p">.</span><span class="na">getClassLoader</span><span class="p">(),</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">interfaces</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="k">new</span><span class="w"> </span><span class="n">Plugin</span><span class="p">(</span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">interceptor</span><span class="p">,</span><span class="w"> </span><span class="n">signatureMap</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">target</span><span class="p">;</span><span class="w">  </span><span class="c1">// 没有需要拦截的接口 → 直接返回原对象</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">proxy</span><span class="p">,</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ★ 检查当前方法是否需要被拦截</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Method</span><span class="o">&gt;</span><span class="w"> </span><span class="n">methods</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">signatureMap</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">method</span><span class="p">.</span><span class="na">getDeclaringClass</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">methods</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">methods</span><span class="p">.</span><span class="na">contains</span><span class="p">(</span><span class="n">method</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 调用拦截器的 intercept 方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="n">interceptor</span><span class="p">.</span><span class="na">intercept</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">Invocation</span><span class="p">(</span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 不需要拦截 → 直接调用原方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">method</span><span class="p">.</span><span class="na">invoke</span><span class="p">(</span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="n">ExceptionUtil</span><span class="p">.</span><span class="na">unwrapThrowable</span><span class="p">(</span><span class="n">e</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 解析 @Intercepts 注解</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Method</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="nf">getSignatureMap</span><span class="p">(</span><span class="n">Interceptor</span><span class="w"> </span><span class="n">interceptor</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Intercepts</span><span class="w"> </span><span class="n">interceptsAnnotation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">interceptor</span><span class="p">.</span><span class="na">getClass</span><span class="p">().</span><span class="na">getAnnotation</span><span class="p">(</span><span class="n">Intercepts</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">interceptsAnnotation</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">PluginException</span><span class="p">(</span><span class="s">&#34;...&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Signature</span><span class="o">[]</span><span class="w"> </span><span class="n">sigs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">interceptsAnnotation</span><span class="p">.</span><span class="na">value</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Method</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">signatureMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashMap</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Signature</span><span class="w"> </span><span class="n">sig</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">sigs</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 根据 @Signature 中的 type、method、args 找到对应的方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Method</span><span class="o">&gt;</span><span class="w"> </span><span class="n">methods</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">signatureMap</span><span class="p">.</span><span class="na">computeIfAbsent</span><span class="p">(</span><span class="n">sig</span><span class="p">.</span><span class="na">type</span><span class="p">(),</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashSet</span><span class="o">&lt;&gt;</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sig</span><span class="p">.</span><span class="na">type</span><span class="p">().</span><span class="na">getMethod</span><span class="p">(</span><span class="n">sig</span><span class="p">.</span><span class="na">method</span><span class="p">(),</span><span class="w"> </span><span class="n">sig</span><span class="p">.</span><span class="na">args</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">methods</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">method</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">NoSuchMethodException</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">PluginException</span><span class="p">(</span><span class="s">&#34;...&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">signatureMap</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 查找目标对象实现了哪些可拦截的接口</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;?&gt;[]</span><span class="w"> </span><span class="nf">getAllInterfaces</span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">type</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Method</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">signatureMap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Class</span><span class="o">&lt;?&gt;&gt;</span><span class="w"> </span><span class="n">interfaces</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HashSet</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">type</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">type</span><span class="p">.</span><span class="na">getInterfaces</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">signatureMap</span><span class="p">.</span><span class="na">containsKey</span><span class="p">(</span><span class="n">c</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">interfaces</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">c</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">type</span><span class="p">.</span><span class="na">getSuperclass</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">interfaces</span><span class="p">.</span><span class="na">toArray</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;?&gt;[</span><span class="n">0</span><span class="o">]</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="invocation-对象">Invocation 对象</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Invocation.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Invocation</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="p">;</span><span class="w">      </span><span class="c1">// 目标对象</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">;</span><span class="w">      </span><span class="c1">// 被拦截的方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">;</span><span class="w">      </span><span class="c1">// 方法参数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">Invocation</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">target</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">target</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">method</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">args</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">getTarget</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">target</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="nf">getMethod</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">method</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="nf">getArgs</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">args</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 执行目标方法（在拦截器中调用）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">proceed</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">InvocationTargetException</span><span class="p">,</span><span class="w"> </span><span class="n">IllegalAccessException</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">method</span><span class="p">.</span><span class="na">invoke</span><span class="p">(</span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// Plugin.java
+public class Plugin implements InvocationHandler {
+    
+    private final Object target;          // 被代理的目标对象
+    private final Interceptor interceptor; // 拦截器
+    private final Map&lt;Class&lt;?&gt;, Set&lt;Method&gt;&gt; signatureMap;  // 缓存拦截的方法
+    
+    private Plugin(Object target, Interceptor interceptor, Map&lt;Class&lt;?&gt;, Set&lt;Method&gt;&gt; signatureMap) {
+        this.target = target;
+        this.interceptor = interceptor;
+        this.signatureMap = signatureMap;
+    }
+    
+    // ★ 包装目标对象（静态方法）
+    public static Object wrap(Object target, Interceptor interceptor) {
+        // 1. 解析 @Intercepts 注解，构建签名映射
+        Map&lt;Class&lt;?&gt;, Set&lt;Method&gt;&gt; signatureMap = getSignatureMap(interceptor);
+        
+        // 2. 获取目标对象的 Class
+        Class&lt;?&gt; type = target.getClass();
+        
+        // 3. 查找目标类实现了哪些可拦截的接口（Executor/StatementHandler 等）
+        Class&lt;?&gt;[] interfaces = getAllInterfaces(type, signatureMap);
+        
+        if (interfaces.length &gt; 0) {
+            // ★ 4. 创建 JDK 动态代理
+            return Proxy.newProxyInstance(
+                    type.getClassLoader(),
+                    interfaces,
+                    new Plugin(target, interceptor, signatureMap));
+        }
+        
+        return target;  // 没有需要拦截的接口 → 直接返回原对象
+    }
+    
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+        try {
+            // ★ 检查当前方法是否需要被拦截
+            Set&lt;Method&gt; methods = signatureMap.get(method.getDeclaringClass());
+            if (methods != null &amp;&amp; methods.contains(method)) {
+                // ★ 调用拦截器的 intercept 方法
+                return interceptor.intercept(new Invocation(target, method, args));
+            }
+            // 不需要拦截 → 直接调用原方法
+            return method.invoke(target, args);
+        } catch (Exception e) {
+            throw ExceptionUtil.unwrapThrowable(e);
+        }
+    }
+    
+    // 解析 @Intercepts 注解
+    private static Map&lt;Class&lt;?&gt;, Set&lt;Method&gt;&gt; getSignatureMap(Interceptor interceptor) {
+        Intercepts interceptsAnnotation = interceptor.getClass().getAnnotation(Intercepts.class);
+        if (interceptsAnnotation == null) {
+            throw new PluginException(&quot;...&quot;);
+        }
+        
+        Signature[] sigs = interceptsAnnotation.value();
+        Map&lt;Class&lt;?&gt;, Set&lt;Method&gt;&gt; signatureMap = new HashMap&lt;&gt;();
+        
+        for (Signature sig : sigs) {
+            // 根据 @Signature 中的 type、method、args 找到对应的方法
+            Set&lt;Method&gt; methods = signatureMap.computeIfAbsent(sig.type(), k -&gt; new HashSet&lt;&gt;());
+            try {
+                Method method = sig.type().getMethod(sig.method(), sig.args());
+                methods.add(method);
+            } catch (NoSuchMethodException e) {
+                throw new PluginException(&quot;...&quot;);
+            }
+        }
+        return signatureMap;
+    }
+    
+    // 查找目标对象实现了哪些可拦截的接口
+    private static Class&lt;?&gt;[] getAllInterfaces(Class&lt;?&gt; type, Map&lt;Class&lt;?&gt;, Set&lt;Method&gt;&gt; signatureMap) {
+        Set&lt;Class&lt;?&gt;&gt; interfaces = new HashSet&lt;&gt;();
+        while (type != null) {
+            for (Class&lt;?&gt; c : type.getInterfaces()) {
+                if (signatureMap.containsKey(c)) {
+                    interfaces.add(c);
+                }
+            }
+            type = type.getSuperclass();
+        }
+        return interfaces.toArray(new Class&lt;?&gt;[0]);
+    }
+}
+</code></pre>
+<h3 id="invocation-对象">Invocation 对象</h3>
+<pre><code class="language-java">// Invocation.java
+public class Invocation {
+    
+    private final Object target;      // 目标对象
+    private final Method method;      // 被拦截的方法
+    private final Object[] args;      // 方法参数
+    
+    public Invocation(Object target, Method method, Object[] args) {
+        this.target = target;
+        this.method = method;
+        this.args = args;
+    }
+    
+    public Object getTarget() { return target; }
+    public Method getMethod() { return method; }
+    public Object[] getArgs() { return args; }
+    
+    // ★ 执行目标方法（在拦截器中调用）
+    public Object proceed() throws InvocationTargetException, IllegalAccessException {
+        return method.invoke(target, args);
+    }
+}
+</code></pre>
+<hr>
 <h2 id="四拦截器链的执行">四、拦截器链的执行</h2>
 <h3 id="41-interceptorchain">4.1 InterceptorChain</h3>
 <p>多个插件形成一条链，依次代理目标对象：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// InterceptorChain.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">InterceptorChain</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Interceptor</span><span class="o">&gt;</span><span class="w"> </span><span class="n">interceptors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 将目标对象通过所有插件依次包装</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">pluginAll</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">target</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Interceptor</span><span class="w"> </span><span class="n">interceptor</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">interceptors</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">target</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">interceptor</span><span class="p">.</span><span class="na">plugin</span><span class="p">(</span><span class="n">target</span><span class="p">);</span><span class="w">  </span><span class="c1">// 每个插件包装一次</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">target</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">addInterceptor</span><span class="p">(</span><span class="n">Interceptor</span><span class="w"> </span><span class="n">interceptor</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">interceptors</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">interceptor</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Interceptor</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">getInterceptors</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">Collections</span><span class="p">.</span><span class="na">unmodifiableList</span><span class="p">(</span><span class="n">interceptors</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="42-在四大组件中注册">4.2 在四大组件中注册</h3>
+<pre><code class="language-java">// InterceptorChain.java
+public class InterceptorChain {
+    
+    private final List&lt;Interceptor&gt; interceptors = new ArrayList&lt;&gt;();
+    
+    // ★ 将目标对象通过所有插件依次包装
+    public Object pluginAll(Object target) {
+        for (Interceptor interceptor : interceptors) {
+            target = interceptor.plugin(target);  // 每个插件包装一次
+        }
+        return target;
+    }
+    
+    public void addInterceptor(Interceptor interceptor) {
+        interceptors.add(interceptor);
+    }
+    
+    public List&lt;Interceptor&gt; getInterceptors() {
+        return Collections.unmodifiableList(interceptors);
+    }
+}
+</code></pre>
+<h3 id="42-在四大组件中注册">4.2 在四大组件中注册</h3>
 <p>在 <code>Configuration.newExecutor()</code>、<code>Configuration.newStatementHandler()</code> 等方法中调用 <code>pluginAll()</code>：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// Configuration.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">Executor</span><span class="w"> </span><span class="nf">newExecutor</span><span class="p">(</span><span class="n">Transaction</span><span class="w"> </span><span class="n">transaction</span><span class="p">,</span><span class="w"> </span><span class="n">ExecutorType</span><span class="w"> </span><span class="n">executorType</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executorType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">executorType</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">defaultExecutorType</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">executorType</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executorType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">executorType</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">ExecutorType</span><span class="p">.</span><span class="na">SIMPLE</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">executorType</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Executor</span><span class="w"> </span><span class="n">executor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ExecutorType</span><span class="p">.</span><span class="na">BATCH</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">executorType</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">BatchExecutor</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">transaction</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ExecutorType</span><span class="p">.</span><span class="na">REUSE</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">executorType</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ReuseExecutor</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">transaction</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SimpleExecutor</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">transaction</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">cacheEnabled</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CachingExecutor</span><span class="p">(</span><span class="n">executor</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 应用插件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">Executor</span><span class="p">)</span><span class="w"> </span><span class="n">interceptorChain</span><span class="p">.</span><span class="na">pluginAll</span><span class="p">(</span><span class="n">executor</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">executor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">StatementHandler</span><span class="w"> </span><span class="nf">newStatementHandler</span><span class="p">(</span><span class="n">Executor</span><span class="w"> </span><span class="n">executor</span><span class="p">,</span><span class="w"> </span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                             </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">RowBounds</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                             </span><span class="n">ResultHandler</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">StatementHandler</span><span class="w"> </span><span class="n">statementHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RoutingStatementHandler</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">executor</span><span class="p">,</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameter</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 应用插件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">statementHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">StatementHandler</span><span class="p">)</span><span class="w"> </span><span class="n">interceptorChain</span><span class="p">.</span><span class="na">pluginAll</span><span class="p">(</span><span class="n">statementHandler</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">statementHandler</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">ParameterHandler</span><span class="w"> </span><span class="nf">newParameterHandler</span><span class="p">(</span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">parameterObject</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                             </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ParameterHandler</span><span class="w"> </span><span class="n">parameterHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DefaultParameterHandler</span><span class="p">(</span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameterObject</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 应用插件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">parameterHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">ParameterHandler</span><span class="p">)</span><span class="w"> </span><span class="n">interceptorChain</span><span class="p">.</span><span class="na">pluginAll</span><span class="p">(</span><span class="n">parameterHandler</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">parameterHandler</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">ResultSetHandler</span><span class="w"> </span><span class="nf">newResultSetHandler</span><span class="p">(</span><span class="n">Executor</span><span class="w"> </span><span class="n">executor</span><span class="p">,</span><span class="w"> </span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                             </span><span class="n">RowBounds</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">,</span><span class="w"> </span><span class="n">ParameterHandler</span><span class="w"> </span><span class="n">parameterHandler</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                             </span><span class="n">ResultHandler</span><span class="w"> </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ResultSetHandler</span><span class="w"> </span><span class="n">resultSetHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DefaultResultSetHandler</span><span class="p">(</span><span class="n">executor</span><span class="p">,</span><span class="w"> </span><span class="n">ms</span><span class="p">,</span><span class="w"> </span><span class="n">parameterHandler</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">resultHandler</span><span class="p">,</span><span class="w"> </span><span class="n">boundSql</span><span class="p">,</span><span class="w"> </span><span class="n">rowBounds</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 应用插件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">resultSetHandler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">ResultSetHandler</span><span class="p">)</span><span class="w"> </span><span class="n">interceptorChain</span><span class="p">.</span><span class="na">pluginAll</span><span class="p">(</span><span class="n">resultSetHandler</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">resultSetHandler</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="43-多个插件的执行顺序">4.3 多个插件的执行顺序</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="c">&lt;!-- 注册顺序：插件A → 插件B → 插件C --&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;plugins&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;plugin</span> <span class="na">interceptor=</span><span class="s">&#34;com.example.PluginA&#34;</span><span class="nt">/&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;plugin</span> <span class="na">interceptor=</span><span class="s">&#34;com.example.PluginB&#34;</span><span class="nt">/&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;plugin</span> <span class="na">interceptor=</span><span class="s">&#34;com.example.PluginC&#34;</span><span class="nt">/&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;/plugins&gt;</span>
-</span></span></code></pre></div><p><strong>代理链构建顺序：</strong></p>
-<pre tabindex="0"><code>原始 Executor
+<pre><code class="language-java">// Configuration.java
+public Executor newExecutor(Transaction transaction, ExecutorType executorType) {
+    executorType = executorType == null ? defaultExecutorType : executorType;
+    executorType = executorType == null ? ExecutorType.SIMPLE : executorType;
+    
+    Executor executor;
+    if (ExecutorType.BATCH == executorType) {
+        executor = new BatchExecutor(this, transaction);
+    } else if (ExecutorType.REUSE == executorType) {
+        executor = new ReuseExecutor(this, transaction);
+    } else {
+        executor = new SimpleExecutor(this, transaction);
+    }
+    
+    if (cacheEnabled) {
+        executor = new CachingExecutor(executor);
+    }
+    
+    // ★ 应用插件
+    executor = (Executor) interceptorChain.pluginAll(executor);
+    
+    return executor;
+}
+
+public StatementHandler newStatementHandler(Executor executor, MappedStatement ms,
+                                             Object parameter, RowBounds rowBounds,
+                                             ResultHandler resultHandler, BoundSql boundSql) {
+    StatementHandler statementHandler = new RoutingStatementHandler(
+            executor, ms, parameter, rowBounds, resultHandler, boundSql);
+    // ★ 应用插件
+    statementHandler = (StatementHandler) interceptorChain.pluginAll(statementHandler);
+    return statementHandler;
+}
+
+public ParameterHandler newParameterHandler(MappedStatement ms, Object parameterObject,
+                                             BoundSql boundSql) {
+    ParameterHandler parameterHandler = new DefaultParameterHandler(ms, parameterObject, boundSql);
+    // ★ 应用插件
+    parameterHandler = (ParameterHandler) interceptorChain.pluginAll(parameterHandler);
+    return parameterHandler;
+}
+
+public ResultSetHandler newResultSetHandler(Executor executor, MappedStatement ms,
+                                             RowBounds rowBounds, ParameterHandler parameterHandler,
+                                             ResultHandler resultHandler, BoundSql boundSql) {
+    ResultSetHandler resultSetHandler = new DefaultResultSetHandler(executor, ms, parameterHandler,
+            resultHandler, boundSql, rowBounds);
+    // ★ 应用插件
+    resultSetHandler = (ResultSetHandler) interceptorChain.pluginAll(resultSetHandler);
+    return resultSetHandler;
+}
+</code></pre>
+<h3 id="43-多个插件的执行顺序">4.3 多个插件的执行顺序</h3>
+<pre><code class="language-xml">&lt;!-- 注册顺序：插件A → 插件B → 插件C --&gt;
+&lt;plugins&gt;
+    &lt;plugin interceptor=&quot;com.example.PluginA&quot;/&gt;
+    &lt;plugin interceptor=&quot;com.example.PluginB&quot;/&gt;
+    &lt;plugin interceptor=&quot;com.example.PluginC&quot;/&gt;
+&lt;/plugins&gt;
+</code></pre>
+<p><strong>代理链构建顺序：</strong></p>
+<pre><code>原始 Executor
   → PluginC.wrap() → 生成 C 代理
     → PluginB.wrap() → 生成 B 代理
       → PluginA.wrap() → 生成 A 代理
-</code></pre><p><strong>方法调用顺序（A → B → C → 原始 → C → B → A）：</strong></p>
-<pre tabindex="0"><code>PluginA.intercept()
+</code></pre>
+<p><strong>方法调用顺序（A → B → C → 原始 → C → B → A）：</strong></p>
+<pre><code>PluginA.intercept()
   └── PluginA.proceed()
         └── PluginB.intercept()
               └── PluginB.proceed()
                     └── PluginC.intercept()
                           └── PluginC.proceed()
                                 └── Executor.query()（原始）
-</code></pre><hr>
+</code></pre>
+<hr>
 <h2 id="五pagehelper-原理简析">五、PageHelper 原理简析</h2>
 <p>PageHelper 是最常用的 MyBatis 分页插件。其核心原理：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// PageHelper 拦截 Executor.query()，在 SQL 执行前自动添加 limit 语句</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Intercepts</span><span class="p">({</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Signature</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Executor</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;query&#34;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="n">MappedStatement</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">RowBounds</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">ResultHandler</span><span class="p">.</span><span class="na">class</span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">})</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PageInterceptor</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Interceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">intercept</span><span class="p">(</span><span class="n">Invocation</span><span class="w"> </span><span class="n">invocation</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 从线程缓存中获取当前线程的分页参数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Page</span><span class="w"> </span><span class="n">page</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">PageContext</span><span class="p">.</span><span class="na">getPage</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">page</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 没有分页参数 → 直接执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 获取 MappedStatement 和 BoundSql</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">getArgs</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">MappedStatement</span><span class="p">)</span><span class="w"> </span><span class="n">args</span><span class="o">[</span><span class="n">0</span><span class="o">]</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">parameter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">args</span><span class="o">[</span><span class="n">1</span><span class="o">]</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">getBoundSql</span><span class="p">(</span><span class="n">parameter</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 自动生成 count 查询，获取总记录数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">page</span><span class="p">.</span><span class="na">isCount</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="w"> </span><span class="n">countSql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;SELECT COUNT(1) FROM (&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">boundSql</span><span class="p">.</span><span class="na">getSql</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;) tmp&#34;</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// ... 执行 count 查询</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">page</span><span class="p">.</span><span class="na">setTotal</span><span class="p">(</span><span class="n">countResult</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 修改原始 SQL，追加 LIMIT 语句</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">pageSql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">boundSql</span><span class="p">.</span><span class="na">getSql</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34; LIMIT &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">page</span><span class="p">.</span><span class="na">getStart</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;, &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">page</span><span class="p">.</span><span class="na">getPageSize</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 通过反射修改 BoundSql 中的 SQL</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ReflectionUtil</span><span class="p">.</span><span class="na">setFieldValue</span><span class="p">(</span><span class="n">boundSql</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;sql&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">pageSql</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 5. 执行修改后的 SQL</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// PageHelper 拦截 Executor.query()，在 SQL 执行前自动添加 limit 语句
+
+@Intercepts({
+    @Signature(
+        type = Executor.class,
+        method = &quot;query&quot;,
+        args = {MappedStatement.class, Object.class, RowBounds.class, ResultHandler.class}
+    )
+})
+public class PageInterceptor implements Interceptor {
+    
+    @Override
+    public Object intercept(Invocation invocation) throws Throwable {
+        // 1. 从线程缓存中获取当前线程的分页参数
+        Page page = PageContext.getPage();
+        
+        if (page == null) {
+            // 没有分页参数 → 直接执行
+            return invocation.proceed();
+        }
+        
+        // 2. 获取 MappedStatement 和 BoundSql
+        Object[] args = invocation.getArgs();
+        MappedStatement ms = (MappedStatement) args[0];
+        Object parameter = args[1];
+        BoundSql boundSql = ms.getBoundSql(parameter);
+        
+        // 3. 自动生成 count 查询，获取总记录数
+        if (page.isCount()) {
+            String countSql = &quot;SELECT COUNT(1) FROM (&quot; + boundSql.getSql() + &quot;) tmp&quot;;
+            // ... 执行 count 查询
+            page.setTotal(countResult);
+        }
+        
+        // 4. 修改原始 SQL，追加 LIMIT 语句
+        String pageSql = boundSql.getSql() + &quot; LIMIT &quot; + page.getStart() + &quot;, &quot; + page.getPageSize();
+        
+        // ★ 通过反射修改 BoundSql 中的 SQL
+        ReflectionUtil.setFieldValue(boundSql, &quot;sql&quot;, pageSql);
+        
+        // 5. 执行修改后的 SQL
+        return invocation.proceed();
+    }
+}
+</code></pre>
+<hr>
 <h2 id="六常用插件场景">六、常用插件场景</h2>
 <h3 id="61-性能监控">6.1 性能监控</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Intercepts</span><span class="p">({</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Signature</span><span class="p">(</span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Executor</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;query&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{...}),</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Signature</span><span class="p">(</span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Executor</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;update&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="n">MappedStatement</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="p">.</span><span class="na">class</span><span class="p">})</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">})</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PerformancePlugin</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Interceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">intercept</span><span class="p">(</span><span class="n">Invocation</span><span class="w"> </span><span class="n">invocation</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">MappedStatement</span><span class="w"> </span><span class="n">ms</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">MappedStatement</span><span class="p">)</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">getArgs</span><span class="p">()</span><span class="o">[</span><span class="n">0</span><span class="o">]</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">methodName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ms</span><span class="p">.</span><span class="na">getId</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">long</span><span class="w"> </span><span class="n">start</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">nanoTime</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kt">long</span><span class="w"> </span><span class="n">elapsed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">NANOSECONDS</span><span class="p">.</span><span class="na">toMillis</span><span class="p">(</span><span class="n">System</span><span class="p">.</span><span class="na">nanoTime</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">start</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">elapsed</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">1000</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">  </span><span class="c1">// 超过 1 秒告警</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;慢查询: {} 耗时: {}ms&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">methodName</span><span class="p">,</span><span class="w"> </span><span class="n">elapsed</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="62-数据脱敏">6.2 数据脱敏</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Intercepts</span><span class="p">({</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Signature</span><span class="p">(</span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ResultSetHandler</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;handleResultSets&#34;</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">               </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="n">Statement</span><span class="p">.</span><span class="na">class</span><span class="p">})</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">})</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DataMaskPlugin</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Interceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">intercept</span><span class="p">(</span><span class="n">Invocation</span><span class="w"> </span><span class="n">invocation</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 对返回结果中的敏感字段做脱敏处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">List</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">item</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">(</span><span class="n">List</span><span class="o">&lt;?&gt;</span><span class="p">)</span><span class="w"> </span><span class="n">result</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">item</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">UserVO</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">UserVO</span><span class="w"> </span><span class="n">user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">UserVO</span><span class="p">)</span><span class="w"> </span><span class="n">item</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">user</span><span class="p">.</span><span class="na">setPhone</span><span class="p">(</span><span class="n">maskPhone</span><span class="p">(</span><span class="n">user</span><span class="p">.</span><span class="na">getPhone</span><span class="p">()));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">user</span><span class="p">.</span><span class="na">setEmail</span><span class="p">(</span><span class="n">maskEmail</span><span class="p">(</span><span class="n">user</span><span class="p">.</span><span class="na">getEmail</span><span class="p">()));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">maskPhone</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">phone</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">phone</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">phone</span><span class="p">.</span><span class="na">length</span><span class="p">()</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">7</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">phone</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">phone</span><span class="p">.</span><span class="na">replaceAll</span><span class="p">(</span><span class="s">&#34;(\\d{3})\\d{4}(\\d{4})&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;$1****$2&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="63-sql-重写">6.3 SQL 重写</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Intercepts</span><span class="p">({</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Signature</span><span class="p">(</span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">StatementHandler</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;prepare&#34;</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">               </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="n">Connection</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">Integer</span><span class="p">.</span><span class="na">class</span><span class="p">})</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">})</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SqlRewritePlugin</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Interceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">intercept</span><span class="p">(</span><span class="n">Invocation</span><span class="w"> </span><span class="n">invocation</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">StatementHandler</span><span class="w"> </span><span class="n">handler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">StatementHandler</span><span class="p">)</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">getTarget</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">BoundSql</span><span class="w"> </span><span class="n">boundSql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">handler</span><span class="p">.</span><span class="na">getBoundSql</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 自动添加逻辑删除条件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">sql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">boundSql</span><span class="p">.</span><span class="na">getSql</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">sql</span><span class="p">.</span><span class="na">contains</span><span class="p">(</span><span class="s">&#34;deleted&#34;</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">handler</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">PreparedStatementHandler</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">sql</span><span class="p">.</span><span class="na">toUpperCase</span><span class="p">().</span><span class="na">contains</span><span class="p">(</span><span class="s">&#34;SELECT&#34;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">ReflectionUtil</span><span class="p">.</span><span class="na">setFieldValue</span><span class="p">(</span><span class="n">boundSql</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;sql&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">sql</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34; AND deleted = 0&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">@Intercepts({
+    @Signature(type = Executor.class, method = &quot;query&quot;, args = {...}),
+    @Signature(type = Executor.class, method = &quot;update&quot;, args = {MappedStatement.class, Object.class})
+})
+public class PerformancePlugin implements Interceptor {
+    
+    @Override
+    public Object intercept(Invocation invocation) throws Throwable {
+        MappedStatement ms = (MappedStatement) invocation.getArgs()[0];
+        String methodName = ms.getId();
+        
+        long start = System.nanoTime();
+        try {
+            return invocation.proceed();
+        } finally {
+            long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            if (elapsed &gt; 1000) {  // 超过 1 秒告警
+                log.warn(&quot;慢查询: {} 耗时: {}ms&quot;, methodName, elapsed);
+            }
+        }
+    }
+}
+</code></pre>
+<h3 id="62-数据脱敏">6.2 数据脱敏</h3>
+<pre><code class="language-java">@Intercepts({
+    @Signature(type = ResultSetHandler.class, method = &quot;handleResultSets&quot;, 
+               args = {Statement.class})
+})
+public class DataMaskPlugin implements Interceptor {
+    
+    @Override
+    public Object intercept(Invocation invocation) throws Throwable {
+        Object result = invocation.proceed();
+        
+        // 对返回结果中的敏感字段做脱敏处理
+        if (result instanceof List) {
+            for (Object item : (List&lt;?&gt;) result) {
+                if (item instanceof UserVO) {
+                    UserVO user = (UserVO) item;
+                    user.setPhone(maskPhone(user.getPhone()));
+                    user.setEmail(maskEmail(user.getEmail()));
+                }
+            }
+        }
+        return result;
+    }
+    
+    private String maskPhone(String phone) {
+        if (phone == null || phone.length() &lt; 7) return phone;
+        return phone.replaceAll(&quot;(\\d{3})\\d{4}(\\d{4})&quot;, &quot;$1****$2&quot;);
+    }
+}
+</code></pre>
+<h3 id="63-sql-重写">6.3 SQL 重写</h3>
+<pre><code class="language-java">@Intercepts({
+    @Signature(type = StatementHandler.class, method = &quot;prepare&quot;, 
+               args = {Connection.class, Integer.class})
+})
+public class SqlRewritePlugin implements Interceptor {
+    
+    @Override
+    public Object intercept(Invocation invocation) throws Throwable {
+        StatementHandler handler = (StatementHandler) invocation.getTarget();
+        BoundSql boundSql = handler.getBoundSql();
+        
+        // 自动添加逻辑删除条件
+        String sql = boundSql.getSql();
+        if (!sql.contains(&quot;deleted&quot;) &amp;&amp; handler instanceof PreparedStatementHandler) {
+            if (sql.toUpperCase().contains(&quot;SELECT&quot;)) {
+                ReflectionUtil.setFieldValue(boundSql, &quot;sql&quot;, sql + &quot; AND deleted = 0&quot;);
+            }
+        }
+        
+        return invocation.proceed();
+    }
+}
+</code></pre>
+<hr>
 <h2 id="七插件开发注意事项">七、插件开发注意事项</h2>
 <h3 id="71-不要随意拦截-statementhandlerprepare">7.1 不要随意拦截 StatementHandler.prepare()</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ❌ 不推荐拦截 prepare()——它会改变 Statement 的创建流程</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 可能导致意外的副作用（Statement 类型变化、连接问题等）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// ✅ 推荐拦截的范围</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// Executor.query/update — 适合分页、审计、慢查询</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// StatementHandler.parameterize — 适合参数修改</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// ResultSetHandler.handleResultSets — 适合结果加工</span><span class="w">
-</span></span></span></code></pre></div><h3 id="72-多个插件的顺序依赖">7.2 多个插件的顺序依赖</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 如果插件B依赖插件A处理后的数据，需要控制注册顺序</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">SqlLogPlugin</span><span class="w"> </span><span class="nf">sqlLogPlugin</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SqlLogPlugin</span><span class="p">();</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">PerformancePlugin</span><span class="w"> </span><span class="nf">performancePlugin</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">PerformancePlugin</span><span class="p">();</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 可以给插件类加 @Order 控制顺序</span><span class="w">
-</span></span></span></code></pre></div><h3 id="73-修改-boundsql-需谨慎">7.3 修改 BoundSql 需谨慎</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 如果通过反射修改 BoundSql.sql 字段</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 需要确保也修改 ParameterMapping，否则参数设置可能会错位</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">Field</span><span class="w"> </span><span class="n">sqlField</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">BoundSql</span><span class="p">.</span><span class="na">class</span><span class="p">.</span><span class="na">getDeclaredField</span><span class="p">(</span><span class="s">&#34;sql&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">sqlField</span><span class="p">.</span><span class="na">setAccessible</span><span class="p">(</span><span class="kc">true</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">sqlField</span><span class="p">.</span><span class="na">set</span><span class="p">(</span><span class="n">boundSql</span><span class="p">,</span><span class="w"> </span><span class="n">newSql</span><span class="p">);</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// ❌ 不推荐拦截 prepare()——它会改变 Statement 的创建流程
+// 可能导致意外的副作用（Statement 类型变化、连接问题等）
+
+// ✅ 推荐拦截的范围
+// Executor.query/update — 适合分页、审计、慢查询
+// StatementHandler.parameterize — 适合参数修改
+// ResultSetHandler.handleResultSets — 适合结果加工
+</code></pre>
+<h3 id="72-多个插件的顺序依赖">7.2 多个插件的顺序依赖</h3>
+<pre><code class="language-java">// 如果插件B依赖插件A处理后的数据，需要控制注册顺序
+@Bean
+public SqlLogPlugin sqlLogPlugin() { return new SqlLogPlugin(); }
+
+@Bean
+public PerformancePlugin performancePlugin() { return new PerformancePlugin(); }
+
+// 可以给插件类加 @Order 控制顺序
+</code></pre>
+<h3 id="73-修改-boundsql-需谨慎">7.3 修改 BoundSql 需谨慎</h3>
+<pre><code class="language-java">// 如果通过反射修改 BoundSql.sql 字段
+// 需要确保也修改 ParameterMapping，否则参数设置可能会错位
+Field sqlField = BoundSql.class.getDeclaredField(&quot;sql&quot;);
+sqlField.setAccessible(true);
+sqlField.set(boundSql, newSql);
+</code></pre>
+<hr>
 <h2 id="八总结">八、总结</h2>
 <h3 id="插件机制核心流程">插件机制核心流程</h3>
-<pre tabindex="0"><code>1. 启动时注册 Interceptor → InterceptorChain
+<pre><code>1. 启动时注册 Interceptor → InterceptorChain
 2. 创建四大组件时：pluginAll(target)
    → 每个 Interceptor.plugin(target)
      → Plugin.wrap(target, interceptor)
@@ -662,7 +679,8 @@ target = interceptor.plugin(target)   ← 每个插件依次代理
      → 检查 signatureMap 是否匹配
        → 匹配 → interceptor.intercept(new Invocation(target, method, args))
        → 不匹配 → method.invoke(target, args)
-</code></pre><h3 id="可拦截的四大组件">可拦截的四大组件</h3>
+</code></pre>
+<h3 id="可拦截的四大组件">可拦截的四大组件</h3>
 <table>
 	<thead>
 			<tr>
@@ -768,6 +786,9 @@ target = interceptor.plugin(target)   ← 每个插件依次代理
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

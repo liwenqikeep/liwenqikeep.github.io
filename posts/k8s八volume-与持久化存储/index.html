@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>K8s（八）：Volume 与持久化存储 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    <link rel="stylesheet" href="/fonts/fonts.css">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#一volume-基础">一、Volume 基础</a>
+      <ul>
+        <li><a href="#11-什么是-volume">1.1 什么是 Volume？</a></li>
+        <li><a href="#12-常见-volume-类型">1.2 常见 Volume 类型</a>
+          <ul>
+            <li><a href="#emptydir">emptyDir</a></li>
+            <li><a href="#hostpath">hostPath</a></li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+    <li><a href="#二pv-与-pvc存储与使用的解耦">二、PV 与 PVC——存储与使用的解耦</a>
+      <ul>
+        <li><a href="#21-核心概念">2.1 核心概念</a></li>
+        <li><a href="#22-创建-pv">2.2 创建 PV</a></li>
+        <li><a href="#23-访问模式access-modes">2.3 访问模式（Access Modes）</a></li>
+        <li><a href="#24-创建-pvc">2.4 创建 PVC</a></li>
+        <li><a href="#25-在-pod-中使用-pvc">2.5 在 Pod 中使用 PVC</a></li>
+        <li><a href="#26-回收策略reclaim-policy">2.6 回收策略（Reclaim Policy）</a></li>
+      </ul>
+    </li>
+    <li><a href="#三storageclass动态存储供给">三、StorageClass——动态存储供给</a>
+      <ul>
+        <li><a href="#31-工作原理">3.1 工作原理</a></li>
+        <li><a href="#32-创建-storageclass">3.2 创建 StorageClass</a></li>
+        <li><a href="#33-使用-storageclass">3.3 使用 StorageClass</a></li>
+        <li><a href="#34-默认-storageclass">3.4 默认 StorageClass</a></li>
+      </ul>
+    </li>
+    <li><a href="#四实战为-mysql-提供持久化存储">四、实战：为 MySQL 提供持久化存储</a>
+      <ul>
+        <li><a href="#41-创建-pvc">4.1 创建 PVC</a></li>
+        <li><a href="#42-创建-mysql-deployment">4.2 创建 MySQL Deployment</a></li>
+        <li><a href="#43-创建-secret-存储密码">4.3 创建 Secret 存储密码</a></li>
+        <li><a href="#44-创建-service">4.4 创建 Service</a></li>
+        <li><a href="#45-部署并验证">4.5 部署并验证</a></li>
+      </ul>
+    </li>
+    <li><a href="#五有状态应用的存储考量">五、有状态应用的存储考量</a>
+      <ul>
+        <li><a href="#51-选择合适的存储后端">5.1 选择合适的存储后端</a></li>
+        <li><a href="#52-性能考量">5.2 性能考量</a></li>
+        <li><a href="#53-备份与恢复">5.3 备份与恢复</a></li>
+      </ul>
+    </li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#系列文章">系列文章</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">K8s（八）：Volume 与持久化存储</h1>
+        </header>
+
+        <div class="page-content">
+            <h2 id="前言">前言</h2>
+<p>容器默认的存储行为是<strong>临时且不可靠的</strong>：</p>
+<ul>
+<li>当容器崩溃重启后，容器内的文件系统被重置，所有数据丢失</li>
+<li>当一个 Pod 中有多个容器，它们之间默认无法共享文件</li>
+</ul>
+<p>对于日志收集、缓存共享等场景，我们需要容器内的临时存储；而对于数据库等有状态应用，我们需要<strong>即使 Pod 被删除、数据依然保留</strong>的持久化存储。</p>
+<p>Kubernetes 的 Volume 体系就是为了解决这些问题而设计的。本文将从最基础的 Volume 类型出发，逐步深入 PV、PVC 和 StorageClass 的完整存储生态。</p>
+<h2 id="一volume-基础">一、Volume 基础</h2>
+<h3 id="11-什么是-volume">1.1 什么是 Volume？</h3>
+<p>Kubernetes 的 Volume 本质上是 Pod 中的一个目录，Pod 中所有容器都可以访问这个目录。不同类型的 Volume 决定了这个目录的来源和生命周期。</p>
+<pre><code class="language-text">  ┌─────────────────────────────┐
+  │           Pod               │
+  │  ┌─────────┐  ┌─────────┐  │
+  │  │ 容器 A   │  │ 容器 B   │  │
+  │  │  /data   │  │  /data   │  │
+  │  └────┬────┘  └────┬────┘  │
+  │       └──────┬──────┘      │
+  │              ▼             │
+  │        ┌──────────┐        │
+  │        │  Volume   │        │  ← Pod 级别的存储
+  │        └──────────┘        │
+  └─────────────────────────────┘
+</code></pre>
+<p><strong>Volume 的生命周期与 Pod 绑定</strong>——Pod 存在，Volume 就存在；Pod 被删除，Volume 也随之消亡（部分类型除外，如 PV）。</p>
+<h3 id="12-常见-volume-类型">1.2 常见 Volume 类型</h3>
+<h4 id="emptydir">emptyDir</h4>
+<p><code>emptyDir</code> 是最基础的 Volume 类型。Pod 创建时创建一个空目录，Pod 删除时目录被清空。</p>
+<pre><code class="language-yaml"># pod-emptydir.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: emptydir-pod
+spec:
+  containers:
+    - name: writer
+      image: busybox
+      command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;while true; do echo $(date) &gt;&gt; /data/log.txt; sleep 1; done&quot;]
+      volumeMounts:
+        - name: shared-data
+          mountPath: /data
+    - name: reader
+      image: busybox
+      command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;tail -f /data/log.txt&quot;]
+      volumeMounts:
+        - name: shared-data
+          mountPath: /data
+  volumes:
+    - name: shared-data
+      emptyDir: {}
+</code></pre>
+<p><strong>典型用途</strong>：</p>
+<ul>
+<li>容器间共享数据（如 sidecar 模式：主容器写日志，sidecar 容器读取并发送到远程）</li>
+<li>临时缓存</li>
+<li>磁盘排序（将数据写入 emptyDir 比在内存中处理更稳定）</li>
+</ul>
+<h4 id="hostpath">hostPath</h4>
+<p><code>hostPath</code> 将宿主机上的目录挂载到 Pod 中。</p>
+<pre><code class="language-yaml"># pod-hostpath.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hostpath-pod
+spec:
+  containers:
+    - name: app
+      image: nginx:1.21-alpine
+      volumeMounts:
+        - name: host-data
+          mountPath: /usr/share/nginx/html
+  volumes:
+    - name: host-data
+      hostPath:
+        path: /data/nginx      # 宿主机路径
+        type: DirectoryOrCreate # 目录不存在则创建
+</code></pre>
+<p><strong>注意事项</strong>：</p>
+<table>
+	<thead>
+			<tr>
+					<th>hostPath 类型</th>
+					<th>行为</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>DirectoryOrCreate</code></td>
+					<td>目录不存在则自动创建</td>
+			</tr>
+			<tr>
+					<td><code>Directory</code></td>
+					<td>目录必须已存在</td>
+			</tr>
+			<tr>
+					<td><code>FileOrCreate</code></td>
+					<td>文件不存在则自动创建</td>
+			</tr>
+			<tr>
+					<td><code>File</code></td>
+					<td>文件必须已存在</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>使用限制</strong>：</p>
+<ul>
+<li>Pod 调度到不同节点后，访问的是不同宿主机的目录</li>
+<li>不适合跨节点的数据共享</li>
+<li>需要关注宿主机文件系统权限</li>
+</ul>
+<p><strong>适用场景</strong>：DaemonSet 读取宿主机日志（如 <code>/var/log</code>）、监控 agent 访问宿主机 <code>/sys</code> 和 <code>/proc</code>。</p>
+<hr>
+<h2 id="二pv-与-pvc存储与使用的解耦">二、PV 与 PVC——存储与使用的解耦</h2>
+<p>单个 Pod 使用 emptyDir 或 hostPath 没问题，但当集群规模扩大后，我们需要更灵活的存储管理方式。Kubernetes 提供了 <strong>PV（PersistentVolume）</strong> 和 <strong>PVC（PersistentVolumeClaim）</strong> 两个抽象层。</p>
+<h3 id="21-核心概念">2.1 核心概念</h3>
+<pre><code class="language-text">  ┌────────────────┐
+  │  管理员/集群    │
+  │                │
+  │   PV 池        │  ← 存储资源（由管理员预先创建或 StorageClass 动态供给）
+  │  ┌──┐ ┌──┐    │
+  │  │PV│ │PV│    │
+  │  │10G│ │50G│   │
+  │  └──┘ └──┘    │
+  └───────┬───────┘
+          │ 绑定（Bind）
+          ▼
+  ┌────────────────┐
+  │  用户/开发者    │
+  │                │
+  │   PVC          │  ← 存储需求声明（用户指定大小、访问模式）
+  │  &quot;我需要 10G   │
+  │  读写一次的存储&quot;│
+  └────────────────┘
+</code></pre>
+<table>
+	<thead>
+			<tr>
+					<th>角色</th>
+					<th>资源</th>
+					<th>职责</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>集群管理员</strong></td>
+					<td>PV</td>
+					<td>准备存储资源（提前创建或配置 StorageClass）</td>
+			</tr>
+			<tr>
+					<td><strong>用户/开发者</strong></td>
+					<td>PVC</td>
+					<td>声明存储需求（多大、什么读写模式）</td>
+			</tr>
+			<tr>
+					<td><strong>Kubernetes</strong></td>
+					<td>绑定</td>
+					<td>将 PVC 与满足条件的 PV 自动匹配绑定</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="22-创建-pv">2.2 创建 PV</h3>
+<pre><code class="language-yaml"># pv-example.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-local-10g
+spec:
+  capacity:
+    storage: 10Gi                     # 容量
+  volumeMode: Filesystem              # Filesystem 或 Block
+  accessModes:
+    - ReadWriteOnce                   # 单节点读写
+  persistentVolumeReclaimPolicy: Retain # 回收策略
+  storageClassName: manual            # 存储类名称
+  local:
+    path: /mnt/data                   # 宿主机路径
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - node-1              # 指定节点（local PV 必须）
+</code></pre>
+<h3 id="23-访问模式access-modes">2.3 访问模式（Access Modes）</h3>
+<table>
+	<thead>
+			<tr>
+					<th>模式</th>
+					<th>缩写</th>
+					<th>含义</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>ReadWriteOnce</code></td>
+					<td>RWO</td>
+					<td>单节点读写</td>
+			</tr>
+			<tr>
+					<td><code>ReadOnlyMany</code></td>
+					<td>ROX</td>
+					<td>多节点只读</td>
+			</tr>
+			<tr>
+					<td><code>ReadWriteMany</code></td>
+					<td>RWX</td>
+					<td>多节点读写</td>
+			</tr>
+	</tbody>
+</table>
+<p>不同存储后端支持的访问模式不同：</p>
+<table>
+	<thead>
+			<tr>
+					<th>存储后端</th>
+					<th>RWO</th>
+					<th>ROX</th>
+					<th>RWX</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>hostPath</td>
+					<td>✅</td>
+					<td>❌</td>
+					<td>❌</td>
+			</tr>
+			<tr>
+					<td>NFS</td>
+					<td>✅</td>
+					<td>✅</td>
+					<td>✅</td>
+			</tr>
+			<tr>
+					<td>AWS EBS</td>
+					<td>✅</td>
+					<td>❌</td>
+					<td>❌</td>
+			</tr>
+			<tr>
+					<td>GCP PD</td>
+					<td>✅</td>
+					<td>✅</td>
+					<td>❌</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="24-创建-pvc">2.4 创建 PVC</h3>
+<pre><code class="language-yaml"># pvc-example.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-local-10g
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: manual      # 必须与 PV 匹配
+</code></pre>
+<pre><code class="language-bash">kubectl apply -f pv-example.yaml
+kubectl apply -f pvc-example.yaml
+</code></pre>
+<p>查看绑定状态：</p>
+<pre><code class="language-bash">kubectl get pv
+kubectl get pvc
+kubectl get pv pv-local-10g -o yaml
+</code></pre>
+<pre><code class="language-text">NAME           CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                  STORAGECLASS
+pv-local-10g   10Gi       RWO            Retain           Bound    default/pvc-local-10g   manual
+</code></pre>
+<h3 id="25-在-pod-中使用-pvc">2.5 在 Pod 中使用 PVC</h3>
+<pre><code class="language-yaml"># pod-pvc.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-pod
+spec:
+  containers:
+    - name: app
+      image: nginx:1.21-alpine
+      volumeMounts:
+        - name: storage
+          mountPath: /usr/share/nginx/html
+  volumes:
+    - name: storage
+      persistentVolumeClaim:
+        claimName: pvc-local-10g   # 引用 PVC 名称
+</code></pre>
+<h3 id="26-回收策略reclaim-policy">2.6 回收策略（Reclaim Policy）</h3>
+<p>当 PVC 被删除后，PV 的回收策略决定了其后续行为：</p>
+<table>
+	<thead>
+			<tr>
+					<th>策略</th>
+					<th>行为</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>Retain</code></td>
+					<td>保留数据，PV 状态变为 Released，需管理员手动清理</td>
+			</tr>
+			<tr>
+					<td><code>Delete</code></td>
+					<td>自动删除 PV 和后端存储（仅云存储支持）</td>
+			</tr>
+			<tr>
+					<td><code>Recycle</code></td>
+					<td>删除数据并标记为 Available（已废弃，建议使用动态供给）</td>
+			</tr>
+	</tbody>
+</table>
+<pre><code class="language-text">PVC 删除后:
+  Retain → PV 状态变为 Released（数据保留，等待管理员处理）
+  Delete → PV 和后端存储一起删除
+</code></pre>
+<hr>
+<h2 id="三storageclass动态存储供给">三、StorageClass——动态存储供给</h2>
+<p>手动创建 PV 的效率太低——数据库、缓存、消息队列等应用都需要存储，不可能每个都手动匹配。<strong>StorageClass</strong> 实现了存储的<strong>动态供给</strong>：用户创建 PVC 时，Kubernetes 自动调用存储后端（如 AWS EBS、GCP PD、NFS 等）创建对应的 PV。</p>
+<h3 id="31-工作原理">3.1 工作原理</h3>
+<pre><code class="language-text">  用户创建 PVC
+       │
+       ▼
+  ┌─────────────────┐
+  │   StorageClass   │  ← 定义了&quot;如何创建存储&quot;的模板
+  │  provisioner:    │     提供者（如 kubernetes.io/aws-ebs）
+  │  parameters:     │     参数（如 type: gp2）
+  │  reclaimPolicy:  │     回收策略
+  └────────┬────────┘
+           │
+           ▼
+  调用云存储 API 创建磁盘
+           │
+           ▼
+  自动创建 PV 并绑定 PVC
+</code></pre>
+<h3 id="32-创建-storageclass">3.2 创建 StorageClass</h3>
+<p><strong>AWS EBS 示例</strong>：</p>
+<pre><code class="language-yaml"># storageclass-aws.yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-ssd
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3                    # SSD 类型
+  fsType: ext4
+  iopsPerGB: &quot;10&quot;
+reclaimPolicy: Delete          # PVC 删除后自动删除 PV
+allowVolumeExpansion: true     # 支持在线扩容
+</code></pre>
+<p><strong>NFS 示例（使用 nfs-subdir-external-provisioner）</strong>：</p>
+<pre><code class="language-yaml"># storageclass-nfs.yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-storage
+provisioner: k8s-sigs.io/nfs-subdir-external-provisioner
+parameters:
+  archiveOnDelete: &quot;true&quot;      # 删除 PVC 时归档数据
+reclaimPolicy: Delete
+</code></pre>
+<h3 id="33-使用-storageclass">3.3 使用 StorageClass</h3>
+<p>用户只需在 PVC 中指定 <code>storageClassName</code>，剩下的由系统自动完成：</p>
+<pre><code class="language-yaml"># pvc-dynamic.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dynamic-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: fast-ssd   # 引用 StorageClass
+</code></pre>
+<pre><code class="language-bash">kubectl apply -f pvc-dynamic.yaml
+# 自动创建 PV 并绑定
+kubectl get pv
+</code></pre>
+<h3 id="34-默认-storageclass">3.4 默认 StorageClass</h3>
+<p>可以设置一个 StorageClass 为集群默认值：</p>
+<pre><code class="language-bash">kubectl patch storageclass fast-ssd -p '{&quot;metadata&quot;:{&quot;annotations&quot;:{&quot;storageclass.kubernetes.io/is-default-class&quot;:&quot;true&quot;}}}'
+</code></pre>
+<p>这样不带 <code>storageClassName</code> 的 PVC 会自动使用默认 StorageClass。</p>
+<hr>
+<h2 id="四实战为-mysql-提供持久化存储">四、实战：为 MySQL 提供持久化存储</h2>
+<p>这是一个完整的实战案例：部署一个使用 PVC 持久化的 MySQL 实例。</p>
+<h3 id="41-创建-pvc">4.1 创建 PVC</h3>
+<pre><code class="language-yaml"># mysql-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard   # 根据环境替换
+</code></pre>
+<h3 id="42-创建-mysql-deployment">4.2 创建 MySQL Deployment</h3>
+<pre><code class="language-yaml"># mysql-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: root-password
+          ports:
+            - containerPort: 3306
+          volumeMounts:
+            - name: mysql-storage
+              mountPath: /var/lib/mysql   # MySQL 数据目录
+          resources:
+            requests:
+              memory: &quot;1Gi&quot;
+              cpu: &quot;500m&quot;
+      volumes:
+        - name: mysql-storage
+          persistentVolumeClaim:
+            claimName: mysql-data
+</code></pre>
+<h3 id="43-创建-secret-存储密码">4.3 创建 Secret 存储密码</h3>
+<pre><code class="language-yaml"># mysql-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+type: Opaque
+stringData:
+  root-password: &quot;MyStr0ng!Pass&quot;
+</code></pre>
+<h3 id="44-创建-service">4.4 创建 Service</h3>
+<pre><code class="language-yaml"># mysql-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+spec:
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+</code></pre>
+<h3 id="45-部署并验证">4.5 部署并验证</h3>
+<pre><code class="language-bash">kubectl apply -f mysql-secret.yaml
+kubectl apply -f mysql-pvc.yaml
+kubectl apply -f mysql-deployment.yaml
+kubectl apply -f mysql-service.yaml
+
+# 等待 Pod 就绪
+kubectl get pods -l app=mysql
+</code></pre>
+<p>验证数据持久化：</p>
+<pre><code class="language-bash"># 1. 创建测试数据
+kubectl exec -it pod/mysql-xxx -- mysql -u root -pMyStr0ng!Pass -e &quot;
+  CREATE DATABASE testdb;
+  USE testdb;
+  CREATE TABLE users (id INT, name VARCHAR(50));
+  INSERT INTO users VALUES (1, 'Alice');
+&quot;
+
+# 2. 删除 Pod（模拟崩溃或重建）
+kubectl delete pod mysql-xxx
+
+# 3. 等待新 Pod 启动
+kubectl get pods -l app=mysql
+
+# 4. 验证数据仍在
+kubectl exec -it pod/mysql-xxx -- mysql -u root -pMyStr0ng!Pass -e &quot;
+  SELECT * FROM testdb.users;
+&quot;
+# 应该返回: 1 | Alice
+</code></pre>
+<hr>
+<h2 id="五有状态应用的存储考量">五、有状态应用的存储考量</h2>
+<p>对于数据库、消息队列等有状态应用，除了 PV/PVC，还需要考虑以下几点：</p>
+<h3 id="51-选择合适的存储后端">5.1 选择合适的存储后端</h3>
+<table>
+	<thead>
+			<tr>
+					<th>应用类型</th>
+					<th>推荐存储</th>
+					<th>访问模式</th>
+					<th>原因</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>MySQL / PostgreSQL</td>
+					<td>云 SSD（AWS gp3、GCP pd-ssd）</td>
+					<td>RWO</td>
+					<td>需要低延迟、高 IOPS</td>
+			</tr>
+			<tr>
+					<td>Elasticsearch</td>
+					<td>本地 SSD 或云 SSD</td>
+					<td>RWO</td>
+					<td>数据分片，每个节点独立</td>
+			</tr>
+			<tr>
+					<td>RabbitMQ / Kafka</td>
+					<td>云普通磁盘</td>
+					<td>RWO</td>
+					<td>顺序写入，对 IOPS 要求低</td>
+			</tr>
+			<tr>
+					<td>文件共享 / NAS</td>
+					<td>NFS / CephFS</td>
+					<td>RWX</td>
+					<td>多节点同时读写</td>
+			</tr>
+			<tr>
+					<td>日志 / 缓存</td>
+					<td>emptyDir 或本地 SSD</td>
+					<td>RWO</td>
+					<td>容忍数据丢失</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="52-性能考量">5.2 性能考量</h3>
+<ul>
+<li><strong>网络存储 vs 本地存储</strong>：云存储（EBS、PD）是网络盘，延迟比本地盘高</li>
+<li><strong>IOPS 和吞吐量</strong>：IOPS 密集型应用（数据库）需要高性能存储类</li>
+<li><strong>容量规划</strong>：监控存储使用率，设置告警，使用 <code>allowVolumeExpansion: true</code> 支持在线扩容</li>
+</ul>
+<h3 id="53-备份与恢复">5.3 备份与恢复</h3>
+<p>存储的尽头是备份。即使有 PV 持久化，也应该：</p>
+<ul>
+<li>定期备份数据库（如使用 Velero 备份整个 Namespace）</li>
+<li>使用数据库自身的备份机制（如 MySQL 的 mysqldump）</li>
+<li>异地容灾：跨可用区或跨地域备份</li>
+</ul>
+<hr>
+<h2 id="总结">总结</h2>
+<p>Kubernetes 的存储体系从简单到复杂分为三个层次：</p>
+<table>
+	<thead>
+			<tr>
+					<th>层次</th>
+					<th>资源</th>
+					<th>适用场景</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>基础 Volume</strong></td>
+					<td>emptyDir、hostPath</td>
+					<td>临时缓存、容器间共享、宿主机日志采集</td>
+			</tr>
+			<tr>
+					<td><strong>静态供给</strong></td>
+					<td>PV + PVC</td>
+					<td>需要手动管理存储的场景</td>
+			</tr>
+			<tr>
+					<td><strong>动态供给</strong></td>
+					<td>StorageClass + PVC</td>
+					<td>生产环境推荐，自动化存储管理</td>
+			</tr>
+	</tbody>
+</table>
+<p><strong>核心命令</strong>：</p>
+<pre><code class="language-bash"># 查看存储资源
+kubectl get pv
+kubectl get pvc
+kubectl get storageclass
+
+# 查看详情
+kubectl describe pv &lt;name&gt;
+kubectl describe pvc &lt;name&gt;
+
+# 删除 PVC（注意回收策略）
+kubectl delete pvc &lt;name&gt;
+</code></pre>
+<p>下一篇文章将介绍 <strong>StatefulSet</strong>——专为有状态应用设计的控制器，以及它如何与 Headless Service、PV/PVC 配合，管理数据库等有状态应用的部署。</p>
+<hr>
+<h2 id="系列文章">系列文章</h2>
+<ul>
+<li><a href="/posts/k8s%E4%B8%80%E4%BB%8E%E9%9B%B6%E8%AE%A4%E8%AF%86-kubernetes-%E6%9E%B6%E6%9E%84%E4%B8%8E%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5/">K8s（一）：从零认识 Kubernetes — 架构与核心概念</a></li>
+<li><a href="/posts/k8s%E4%BA%8C%E4%BD%BF%E7%94%A8-kubeadm-%E6%90%AD%E5%BB%BA-k8s-%E9%9B%86%E7%BE%A4%E5%AE%9E%E6%88%98/">K8s（二）：使用 kubeadm 搭建 K8s 集群实战</a></li>
+<li><a href="/posts/k8s%E4%B8%89pod-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%E4%B8%8E%E5%AE%B9%E5%99%A8%E7%BC%96%E6%8E%92%E5%9F%BA%E7%A1%80/">K8s（三）：Pod 核心概念与容器编排基础</a></li>
+<li><a href="/posts/k8s%E5%9B%9Bdeployment-%E4%B8%8E-replicaset-%E5%BA%94%E7%94%A8%E9%83%A8%E7%BD%B2%E4%B8%8E%E6%89%A9%E7%BC%A9%E5%AE%B9/">K8s（四）：Deployment 与 ReplicaSet — 应用部署与扩缩容</a></li>
+<li><a href="/posts/k8s%E4%BA%94service-%E4%B8%8E%E9%9B%86%E7%BE%A4%E5%86%85%E6%9C%8D%E5%8A%A1%E5%8F%91%E7%8E%B0/">K8s（五）：Service 与集群内服务发现</a></li>
+<li><a href="/posts/k8s%E5%85%ADingress-%E4%B8%8E%E9%9B%86%E7%BE%A4%E5%A4%96%E9%83%A8%E6%B5%81%E9%87%8F%E6%8E%A5%E5%85%A5/">K8s（六）：Ingress 与集群外部流量接入</a></li>
+<li><a href="/posts/k8s%E4%B8%83configmap-%E4%B8%8E-secret-%E9%85%8D%E7%BD%AE%E7%AE%A1%E7%90%86/">K8s（七）：ConfigMap 与 Secret — 配置管理</a></li>
+<li><a href="/posts/k8s%E4%B9%9Dstatefulset-%E4%B8%8E%E6%9C%89%E7%8A%B6%E6%80%81%E5%BA%94%E7%94%A8/">K8s（九）：StatefulSet 与有状态应用</a></li>
+<li><a href="/posts/k8s%E5%8D%81helm-%E5%8C%85%E7%AE%A1%E7%90%86%E5%99%A8%E5%85%A5%E9%97%A8/">K8s（十）：Helm 包管理器入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%B8%80%E9%9B%86%E7%BE%A4%E5%AE%89%E5%85%A8%E5%9F%BA%E7%A1%80-rbac-%E4%B8%8E-serviceaccount/">K8s（十一）：集群安全基础 — RBAC 与 ServiceAccount</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%BA%8C%E7%9B%91%E6%8E%A7%E4%B8%8E%E6%97%A5%E5%BF%97-%E5%8F%AF%E8%A7%82%E6%B5%8B%E6%80%A7%E5%85%A5%E9%97%A8/">K8s（十二）：监控与日志 — 可观测性入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%B8%89%E7%94%9F%E4%BA%A7%E5%AE%9E%E8%B7%B5%E4%B8%8E%E7%B3%BB%E5%88%97%E6%80%BB%E7%BB%93/">K8s（十三）：生产实践与系列总结</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -101,7 +98,7 @@
 </blockquote>
 <h2 id="一对账体系架构">一、对账体系架构</h2>
 <p>对账系统采用分层设计，分为数据层、对账引擎层、差异处理层、展示层。</p>
-<pre tabindex="0"><code>┌──────────────────────────────────────────────────────────┐
+<pre><code>┌──────────────────────────────────────────────────────────┐
 │  展示层         对账报表、差异看板、告警通知                 │
 ├──────────────────────────────────────────────────────────┤
 │  差异处理层    自动修复（补单/调账）+ 人工工单               │
@@ -110,8 +107,9 @@
 ├──────────────────────────────────────────────────────────┤
 │  数据层        渠道结算文件  │  我方支付流水  │  账户流水   │
 └──────────────────────────────────────────────────────────┘
-</code></pre><h2 id="二对账核心流程">二、对账核心流程</h2>
-<pre tabindex="0"><code>每日对账流程（T+1）：
+</code></pre>
+<h2 id="二对账核心流程">二、对账核心流程</h2>
+<pre><code>每日对账流程（T+1）：
 
        ┌──────────┐
        │ 定时触发   │  每日凌晨 02:00
@@ -140,133 +138,137 @@
        ┌────▼─────┐
        │ 差异处理   │  自动修复 + 人工工单
        └──────────┘
-</code></pre><h2 id="三对账引擎核心实现">三、对账引擎核心实现</h2>
+</code></pre>
+<h2 id="三对账引擎核心实现">三、对账引擎核心实现</h2>
 <h3 id="31-对账数据模型">3.1 对账数据模型</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm"> * 对账单 - 统一的对账记录
-</span></span></span><span class="line"><span class="cl"><span class="cm"> */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Data</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ReconciliationRecord</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">id</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">channel</span><span class="p">;</span><span class="w">              </span><span class="c1">// 渠道</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">channelTransactionId</span><span class="p">;</span><span class="w"> </span><span class="c1">// 渠道交易号</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">ourTransactionId</span><span class="p">;</span><span class="w">     </span><span class="c1">// 我方流水号</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">channelAmount</span><span class="p">;</span><span class="w">          </span><span class="c1">// 渠道金额（分）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">ourAmount</span><span class="p">;</span><span class="w">              </span><span class="c1">// 我方金额（分）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">LocalDateTime</span><span class="w"> </span><span class="n">channelTime</span><span class="p">;</span><span class="w">   </span><span class="c1">// 渠道交易时间</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">LocalDateTime</span><span class="w"> </span><span class="n">ourTime</span><span class="p">;</span><span class="w">       </span><span class="c1">// 我方交易时间</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">status</span><span class="p">;</span><span class="w">               </span><span class="c1">// 渠道侧状态</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">ourStatus</span><span class="p">;</span><span class="w">            </span><span class="c1">// 我方可状态</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm"> * 对账结果
-</span></span></span><span class="line"><span class="cl"><span class="cm"> */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Data</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ReconciliationResult</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">id</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">orderId</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">channel</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">DiffType</span><span class="w"> </span><span class="n">diffType</span><span class="p">;</span><span class="w">           </span><span class="c1">// 差异类型</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">channelAmount</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">ourAmount</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">channelStatus</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">ourStatus</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">resolveStatus</span><span class="p">;</span><span class="w">        </span><span class="c1">// PENDING / AUTO_FIXED / MANUAL</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">enum</span><span class="w"> </span><span class="n">DiffType</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">MATCHED</span><span class="p">,</span><span class="w">             </span><span class="c1">// 完全一致</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">CHANNEL_ONLY</span><span class="p">,</span><span class="w">        </span><span class="c1">// 渠道有，我方无（漏单）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">OUR_ONLY</span><span class="p">,</span><span class="w">            </span><span class="c1">// 我方可，渠道无（多记）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">AMOUNT_MISMATCH</span><span class="p">,</span><span class="w">     </span><span class="c1">// 金额不一致</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">STATUS_MISMATCH</span><span class="w">      </span><span class="c1">// 状态不一致</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="32-对账引擎">3.2 对账引擎</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Slf4j</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ReconciliationEngine</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * 执行对账
-</span></span></span><span class="line"><span class="cl"><span class="cm">     *
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * @param channelRecords 渠道对账单
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * @param ourRecords     我方流水
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * @return 差异列表
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ReconciliationResult</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">reconcile</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ReconciliationRecord</span><span class="o">&gt;</span><span class="w"> </span><span class="n">channelRecords</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ReconciliationRecord</span><span class="o">&gt;</span><span class="w"> </span><span class="n">ourRecords</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ReconciliationResult</span><span class="o">&gt;</span><span class="w"> </span><span class="n">results</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 构建渠道侧 Map（key: channelTransactionId）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">ReconciliationRecord</span><span class="o">&gt;</span><span class="w"> </span><span class="n">channelMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">channelRecords</span><span class="p">.</span><span class="na">stream</span><span class="p">()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">collect</span><span class="p">(</span><span class="n">Collectors</span><span class="p">.</span><span class="na">toMap</span><span class="p">(</span><span class="n">ReconciliationRecord</span><span class="p">::</span><span class="n">getChannelTransactionId</span><span class="p">,</span><span class="w"> </span><span class="n">r</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">r</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 逐笔比对我方流水</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">ReconciliationRecord</span><span class="w"> </span><span class="n">our</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">ourRecords</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">ReconciliationRecord</span><span class="w"> </span><span class="n">channel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">channelMap</span><span class="p">.</span><span class="na">remove</span><span class="p">(</span><span class="n">our</span><span class="p">.</span><span class="na">getChannelTransactionId</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">channel</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 我方有，渠道无 → 我方多记</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">results</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">buildDiff</span><span class="p">(</span><span class="n">our</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="n">DiffType</span><span class="p">.</span><span class="na">OUR_ONLY</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 双方都有 → 比对金额和状态</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">channel</span><span class="p">.</span><span class="na">getChannelAmount</span><span class="p">().</span><span class="na">equals</span><span class="p">(</span><span class="n">our</span><span class="p">.</span><span class="na">getOurAmount</span><span class="p">()))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">results</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">buildDiff</span><span class="p">(</span><span class="n">our</span><span class="p">,</span><span class="w"> </span><span class="n">channel</span><span class="p">,</span><span class="w"> </span><span class="n">DiffType</span><span class="p">.</span><span class="na">AMOUNT_MISMATCH</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">channel</span><span class="p">.</span><span class="na">getStatus</span><span class="p">().</span><span class="na">equals</span><span class="p">(</span><span class="n">our</span><span class="p">.</span><span class="na">getStatus</span><span class="p">()))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">results</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">buildDiff</span><span class="p">(</span><span class="n">our</span><span class="p">,</span><span class="w"> </span><span class="n">channel</span><span class="p">,</span><span class="w"> </span><span class="n">DiffType</span><span class="p">.</span><span class="na">STATUS_MISMATCH</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">results</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">buildDiff</span><span class="p">(</span><span class="n">our</span><span class="p">,</span><span class="w"> </span><span class="n">channel</span><span class="p">,</span><span class="w"> </span><span class="n">DiffType</span><span class="p">.</span><span class="na">MATCHED</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 剩余的是渠道有，我方无 → 渠道漏单</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">ReconciliationRecord</span><span class="w"> </span><span class="n">channel</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">channelMap</span><span class="p">.</span><span class="na">values</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">results</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">buildDiff</span><span class="p">(</span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="n">channel</span><span class="p">,</span><span class="w"> </span><span class="n">DiffType</span><span class="p">.</span><span class="na">CHANNEL_ONLY</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">results</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="四差异处理策略">四、差异处理策略</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Slf4j</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DiffResolver</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * 自动处理差异
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">autoResolve</span><span class="p">(</span><span class="n">ReconciliationResult</span><span class="w"> </span><span class="n">diff</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">diff</span><span class="p">.</span><span class="na">getDiffType</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">CHANNEL_ONLY</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 渠道有，我方无 → 主动补单</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;补单: transactionId={}, amount={}&#34;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">diff</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">(),</span><span class="w"> </span><span class="n">diff</span><span class="p">.</span><span class="na">getChannelAmount</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">supplementOrder</span><span class="p">(</span><span class="n">diff</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">OUR_ONLY</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 我方有，渠道无 → 查询渠道确认</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;我方多记，需人工确认: orderId={}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">diff</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">createManualTicket</span><span class="p">(</span><span class="n">diff</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">AMOUNT_MISMATCH</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 金额不一致 → 查询明细，差额调账</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;金额不一致: orderId={}, channel={}, our={}&#34;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">diff</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">(),</span><span class="w"> </span><span class="n">diff</span><span class="p">.</span><span class="na">getChannelAmount</span><span class="p">(),</span><span class="w"> </span><span class="n">diff</span><span class="p">.</span><span class="na">getOurAmount</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">createManualTicket</span><span class="p">(</span><span class="n">diff</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="n">STATUS_MISMATCH</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 状态不一致 → 以渠道为准修正</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;修正状态: orderId={}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">diff</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">correctStatus</span><span class="p">(</span><span class="n">diff</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="五总结">五、总结</h2>
+<pre><code class="language-java">/**
+ * 对账单 - 统一的对账记录
+ */
+@Data
+public class ReconciliationRecord {
+    private String id;
+    private String channel;              // 渠道
+    private String channelTransactionId; // 渠道交易号
+    private String ourTransactionId;     // 我方流水号
+    private Long channelAmount;          // 渠道金额（分）
+    private Long ourAmount;              // 我方金额（分）
+    private LocalDateTime channelTime;   // 渠道交易时间
+    private LocalDateTime ourTime;       // 我方交易时间
+    private String status;               // 渠道侧状态
+    private String ourStatus;            // 我方可状态
+}
+
+/**
+ * 对账结果
+ */
+@Data
+public class ReconciliationResult {
+    private String id;
+    private String orderId;
+    private String channel;
+    private DiffType diffType;           // 差异类型
+    private Long channelAmount;
+    private Long ourAmount;
+    private String channelStatus;
+    private String ourStatus;
+    private String resolveStatus;        // PENDING / AUTO_FIXED / MANUAL
+}
+
+public enum DiffType {
+    MATCHED,             // 完全一致
+    CHANNEL_ONLY,        // 渠道有，我方无（漏单）
+    OUR_ONLY,            // 我方可，渠道无（多记）
+    AMOUNT_MISMATCH,     // 金额不一致
+    STATUS_MISMATCH      // 状态不一致
+}
+</code></pre>
+<h3 id="32-对账引擎">3.2 对账引擎</h3>
+<pre><code class="language-java">@Component
+@Slf4j
+public class ReconciliationEngine {
+
+    /**
+     * 执行对账
+     *
+     * @param channelRecords 渠道对账单
+     * @param ourRecords     我方流水
+     * @return 差异列表
+     */
+    public List&lt;ReconciliationResult&gt; reconcile(
+            List&lt;ReconciliationRecord&gt; channelRecords,
+            List&lt;ReconciliationRecord&gt; ourRecords) {
+
+        List&lt;ReconciliationResult&gt; results = new ArrayList&lt;&gt;();
+
+        // 1. 构建渠道侧 Map（key: channelTransactionId）
+        Map&lt;String, ReconciliationRecord&gt; channelMap = channelRecords.stream()
+                .collect(Collectors.toMap(ReconciliationRecord::getChannelTransactionId, r -&gt; r));
+
+        // 2. 逐笔比对我方流水
+        for (ReconciliationRecord our : ourRecords) {
+            ReconciliationRecord channel = channelMap.remove(our.getChannelTransactionId());
+
+            if (channel == null) {
+                // 我方有，渠道无 → 我方多记
+                results.add(buildDiff(our, null, DiffType.OUR_ONLY));
+            } else {
+                // 双方都有 → 比对金额和状态
+                if (!channel.getChannelAmount().equals(our.getOurAmount())) {
+                    results.add(buildDiff(our, channel, DiffType.AMOUNT_MISMATCH));
+                } else if (!channel.getStatus().equals(our.getStatus())) {
+                    results.add(buildDiff(our, channel, DiffType.STATUS_MISMATCH));
+                } else {
+                    results.add(buildDiff(our, channel, DiffType.MATCHED));
+                }
+            }
+        }
+
+        // 3. 剩余的是渠道有，我方无 → 渠道漏单
+        for (ReconciliationRecord channel : channelMap.values()) {
+            results.add(buildDiff(null, channel, DiffType.CHANNEL_ONLY));
+        }
+
+        return results;
+    }
+}
+</code></pre>
+<h2 id="四差异处理策略">四、差异处理策略</h2>
+<pre><code class="language-java">@Component
+@Slf4j
+public class DiffResolver {
+
+    /**
+     * 自动处理差异
+     */
+    public void autoResolve(ReconciliationResult diff) {
+        switch (diff.getDiffType()) {
+            case CHANNEL_ONLY -&gt; {
+                // 渠道有，我方无 → 主动补单
+                log.info(&quot;补单: transactionId={}, amount={}&quot;,
+                        diff.getOrderId(), diff.getChannelAmount());
+                supplementOrder(diff);
+            }
+            case OUR_ONLY -&gt; {
+                // 我方有，渠道无 → 查询渠道确认
+                log.warn(&quot;我方多记，需人工确认: orderId={}&quot;, diff.getOrderId());
+                createManualTicket(diff);
+            }
+            case AMOUNT_MISMATCH -&gt; {
+                // 金额不一致 → 查询明细，差额调账
+                log.warn(&quot;金额不一致: orderId={}, channel={}, our={}&quot;,
+                        diff.getOrderId(), diff.getChannelAmount(), diff.getOurAmount());
+                createManualTicket(diff);
+            }
+            case STATUS_MISMATCH -&gt; {
+                // 状态不一致 → 以渠道为准修正
+                log.info(&quot;修正状态: orderId={}&quot;, diff.getOrderId());
+                correctStatus(diff);
+            }
+        }
+    }
+}
+</code></pre>
+<h2 id="五总结">五、总结</h2>
 <ul>
 <li><strong>三层对账</strong>：内部对账 → 渠道对账 → 资金对账</li>
 <li><strong>对账引擎</strong>：双端比对、差异分类</li>
@@ -310,6 +312,9 @@
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

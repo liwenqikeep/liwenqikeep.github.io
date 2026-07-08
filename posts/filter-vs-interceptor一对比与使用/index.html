@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -116,7 +113,7 @@
 <p>很多开发者分不清什么时候该用 Filter、什么时候该用 Interceptor。本文从概念、使用方式、执行顺序到源码层面对两者进行全面对比。</p>
 <h2 id="一概念与层次">一、概念与层次</h2>
 <h3 id="11-两者在请求链路中的位置">1.1 两者在请求链路中的位置</h3>
-<pre tabindex="0"><code>请求进入
+<pre><code>请求进入
     │
     ▼
 Tomcat（Servlet 容器）
@@ -138,7 +135,8 @@ Tomcat（Servlet 容器）
           └── ViewResolver → 视图渲染
                 │
           Filter ... (afterCompletion 之后)
-</code></pre><p><strong>核心区别：</strong></p>
+</code></pre>
+<p><strong>核心区别：</strong></p>
 <table>
 	<thead>
 			<tr>
@@ -177,243 +175,253 @@ Tomcat（Servlet 容器）
 </table>
 <h2 id="二filter-的使用">二、Filter 的使用</h2>
 <h3 id="21-接口定义">2.1 接口定义</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">Filter</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 初始化（Web 应用启动时调用）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">default</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">init</span><span class="p">(</span><span class="n">FilterConfig</span><span class="w"> </span><span class="n">filterConfig</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 每次请求调用</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">void</span><span class="w"> </span><span class="nf">doFilter</span><span class="p">(</span><span class="n">ServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">ServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                  </span><span class="n">FilterChain</span><span class="w"> </span><span class="n">chain</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 销毁（Web 应用关闭时调用）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">default</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">destroy</span><span class="p">()</span><span class="w"> </span><span class="p">{}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="22-实现一个-filter">2.2 实现一个 Filter</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">  </span><span class="c1">// Spring Boot 中可以直接注册</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">LoggingFilter</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Filter</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Logger</span><span class="w"> </span><span class="n">log</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LoggerFactory</span><span class="p">.</span><span class="na">getLogger</span><span class="p">(</span><span class="n">getClass</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">init</span><span class="p">(</span><span class="n">FilterConfig</span><span class="w"> </span><span class="n">filterConfig</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;LoggingFilter 初始化&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doFilter</span><span class="p">(</span><span class="n">ServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">ServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                         </span><span class="n">FilterChain</span><span class="w"> </span><span class="n">chain</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">IOException</span><span class="p">,</span><span class="w"> </span><span class="n">ServletException</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">httpRequest</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="p">)</span><span class="w"> </span><span class="n">request</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 请求前处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">long</span><span class="w"> </span><span class="n">start</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;请求开始: {} {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">httpRequest</span><span class="p">.</span><span class="na">getMethod</span><span class="p">(),</span><span class="w"> </span><span class="n">httpRequest</span><span class="p">.</span><span class="na">getRequestURI</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 继续执行过滤器链</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">chain</span><span class="p">.</span><span class="na">doFilter</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 请求后处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kt">long</span><span class="w"> </span><span class="n">elapsed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">start</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;请求结束: {} {}, 耗时: {}ms&#34;</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                     </span><span class="n">httpRequest</span><span class="p">.</span><span class="na">getMethod</span><span class="p">(),</span><span class="w"> </span><span class="n">httpRequest</span><span class="p">.</span><span class="na">getRequestURI</span><span class="p">(),</span><span class="w"> </span><span class="n">elapsed</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">destroy</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;LoggingFilter 销毁&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="23-注册-filter">2.3 注册 Filter</h3>
+<pre><code class="language-java">public interface Filter {
+    
+    // 初始化（Web 应用启动时调用）
+    default void init(FilterConfig filterConfig) {}
+    
+    // 每次请求调用
+    void doFilter(ServletRequest request, ServletResponse response, 
+                  FilterChain chain);
+    
+    // 销毁（Web 应用关闭时调用）
+    default void destroy() {}
+}
+</code></pre>
+<h3 id="22-实现一个-filter">2.2 实现一个 Filter</h3>
+<pre><code class="language-java">@Component  // Spring Boot 中可以直接注册
+public class LoggingFilter implements Filter {
+    
+    private final Logger log = LoggerFactory.getLogger(getClass());
+    
+    @Override
+    public void init(FilterConfig filterConfig) {
+        log.info(&quot;LoggingFilter 初始化&quot;);
+    }
+    
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, 
+                         FilterChain chain) throws IOException, ServletException {
+        HttpServletRequest httpRequest = (HttpServletRequest) request;
+        
+        // 请求前处理
+        long start = System.currentTimeMillis();
+        log.info(&quot;请求开始: {} {}&quot;, httpRequest.getMethod(), httpRequest.getRequestURI());
+        
+        try {
+            // 继续执行过滤器链
+            chain.doFilter(request, response);
+        } finally {
+            // 请求后处理
+            long elapsed = System.currentTimeMillis() - start;
+            log.info(&quot;请求结束: {} {}, 耗时: {}ms&quot;, 
+                     httpRequest.getMethod(), httpRequest.getRequestURI(), elapsed);
+        }
+    }
+    
+    @Override
+    public void destroy() {
+        log.info(&quot;LoggingFilter 销毁&quot;);
+    }
+}
+</code></pre>
+<h3 id="23-注册-filter">2.3 注册 Filter</h3>
 <p><strong>方式一：Spring Boot 中 @Component（自动注册）</strong></p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Order</span><span class="p">(</span><span class="n">1</span><span class="p">)</span><span class="w">  </span><span class="c1">// 控制顺序</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">FirstFilter</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Filter</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Order</span><span class="p">(</span><span class="n">2</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SecondFilter</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Filter</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p><strong>方式二：@Bean + FilterRegistrationBean</strong></p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">FilterConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">FilterRegistrationBean</span><span class="o">&lt;</span><span class="n">AuthFilter</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">authFilter</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">FilterRegistrationBean</span><span class="o">&lt;</span><span class="n">AuthFilter</span><span class="o">&gt;</span><span class="w"> </span><span class="n">bean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FilterRegistrationBean</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">bean</span><span class="p">.</span><span class="na">setFilter</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">AuthFilter</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">bean</span><span class="p">.</span><span class="na">addUrlPatterns</span><span class="p">(</span><span class="s">&#34;/api/*&#34;</span><span class="p">);</span><span class="w">           </span><span class="c1">// 只拦截 /api/*</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">bean</span><span class="p">.</span><span class="na">setOrder</span><span class="p">(</span><span class="n">1</span><span class="p">);</span><span class="w">                        </span><span class="c1">// 顺序</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">bean</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">FilterRegistrationBean</span><span class="o">&lt;</span><span class="n">RateLimitFilter</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">rateLimitFilter</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">FilterRegistrationBean</span><span class="o">&lt;</span><span class="n">RateLimitFilter</span><span class="o">&gt;</span><span class="w"> </span><span class="n">bean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FilterRegistrationBean</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">bean</span><span class="p">.</span><span class="na">setFilter</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">RateLimitFilter</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">bean</span><span class="p">.</span><span class="na">addUrlPatterns</span><span class="p">(</span><span class="s">&#34;/*&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">bean</span><span class="p">.</span><span class="na">setOrder</span><span class="p">(</span><span class="n">2</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">bean</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p><strong>方式三：传统 web.xml（非 Spring Boot）</strong></p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="nt">&lt;filter&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;filter-name&gt;</span>authFilter<span class="nt">&lt;/filter-name&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;filter-class&gt;</span>com.example.AuthFilter<span class="nt">&lt;/filter-class&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;/filter&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;filter-mapping&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;filter-name&gt;</span>authFilter<span class="nt">&lt;/filter-name&gt;</span>
-</span></span><span class="line"><span class="cl">    <span class="nt">&lt;url-pattern&gt;</span>/api/*<span class="nt">&lt;/url-pattern&gt;</span>
-</span></span><span class="line"><span class="cl"><span class="nt">&lt;/filter-mapping&gt;</span>
-</span></span></code></pre></div><h3 id="24-常见-filter-使用场景">2.4 常见 Filter 使用场景</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. 字符编码</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">FilterRegistrationBean</span><span class="o">&lt;</span><span class="n">CharacterEncodingFilter</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">encodingFilter</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">FilterRegistrationBean</span><span class="o">&lt;</span><span class="n">CharacterEncodingFilter</span><span class="o">&gt;</span><span class="w"> </span><span class="n">bean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FilterRegistrationBean</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">CharacterEncodingFilter</span><span class="w"> </span><span class="n">filter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CharacterEncodingFilter</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">filter</span><span class="p">.</span><span class="na">setEncoding</span><span class="p">(</span><span class="s">&#34;UTF-8&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">filter</span><span class="p">.</span><span class="na">setForceEncoding</span><span class="p">(</span><span class="kc">true</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">bean</span><span class="p">.</span><span class="na">setFilter</span><span class="p">(</span><span class="n">filter</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">bean</span><span class="p">.</span><span class="na">addUrlPatterns</span><span class="p">(</span><span class="s">&#34;/*&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">bean</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. CORS</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Order</span><span class="p">(</span><span class="n">Ordered</span><span class="p">.</span><span class="na">HIGHEST_PRECEDENCE</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">CorsFilter</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">Filter</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doFilter</span><span class="p">(</span><span class="n">ServletRequest</span><span class="w"> </span><span class="n">req</span><span class="p">,</span><span class="w"> </span><span class="n">ServletResponse</span><span class="w"> </span><span class="n">res</span><span class="p">,</span><span class="w"> </span><span class="n">FilterChain</span><span class="w"> </span><span class="n">chain</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">HttpServletResponse</span><span class="p">)</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">response</span><span class="p">.</span><span class="na">setHeader</span><span class="p">(</span><span class="s">&#34;Access-Control-Allow-Origin&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;*&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">response</span><span class="p">.</span><span class="na">setHeader</span><span class="p">(</span><span class="s">&#34;Access-Control-Allow-Methods&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;GET, POST, PUT, DELETE, OPTIONS&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">response</span><span class="p">.</span><span class="na">setHeader</span><span class="p">(</span><span class="s">&#34;Access-Control-Allow-Headers&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;*&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="s">&#34;OPTIONS&#34;</span><span class="p">.</span><span class="na">equalsIgnoreCase</span><span class="p">(((</span><span class="n">HttpServletRequest</span><span class="p">)</span><span class="w"> </span><span class="n">req</span><span class="p">).</span><span class="na">getMethod</span><span class="p">()))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">response</span><span class="p">.</span><span class="na">setStatus</span><span class="p">(</span><span class="n">HttpServletResponse</span><span class="p">.</span><span class="na">SC_OK</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">chain</span><span class="p">.</span><span class="na">doFilter</span><span class="p">(</span><span class="n">req</span><span class="p">,</span><span class="w"> </span><span class="n">res</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. XSS 过滤、SQL 注入过滤、IP 黑白名单、限流等</span><span class="w">
-</span></span></span></code></pre></div><h2 id="三interceptor-的使用">三、Interceptor 的使用</h2>
+<pre><code class="language-java">@Component
+@Order(1)  // 控制顺序
+public class FirstFilter implements Filter { ... }
+
+@Component
+@Order(2)
+public class SecondFilter implements Filter { ... }
+</code></pre>
+<p><strong>方式二：@Bean + FilterRegistrationBean</strong></p>
+<pre><code class="language-java">@Configuration
+public class FilterConfig {
+    
+    @Bean
+    public FilterRegistrationBean&lt;AuthFilter&gt; authFilter() {
+        FilterRegistrationBean&lt;AuthFilter&gt; bean = new FilterRegistrationBean&lt;&gt;();
+        bean.setFilter(new AuthFilter());
+        bean.addUrlPatterns(&quot;/api/*&quot;);           // 只拦截 /api/*
+        bean.setOrder(1);                        // 顺序
+        return bean;
+    }
+    
+    @Bean
+    public FilterRegistrationBean&lt;RateLimitFilter&gt; rateLimitFilter() {
+        FilterRegistrationBean&lt;RateLimitFilter&gt; bean = new FilterRegistrationBean&lt;&gt;();
+        bean.setFilter(new RateLimitFilter());
+        bean.addUrlPatterns(&quot;/*&quot;);
+        bean.setOrder(2);
+        return bean;
+    }
+}
+</code></pre>
+<p><strong>方式三：传统 web.xml（非 Spring Boot）</strong></p>
+<pre><code class="language-xml">&lt;filter&gt;
+    &lt;filter-name&gt;authFilter&lt;/filter-name&gt;
+    &lt;filter-class&gt;com.example.AuthFilter&lt;/filter-class&gt;
+&lt;/filter&gt;
+&lt;filter-mapping&gt;
+    &lt;filter-name&gt;authFilter&lt;/filter-name&gt;
+    &lt;url-pattern&gt;/api/*&lt;/url-pattern&gt;
+&lt;/filter-mapping&gt;
+</code></pre>
+<h3 id="24-常见-filter-使用场景">2.4 常见 Filter 使用场景</h3>
+<pre><code class="language-java">// 1. 字符编码
+@Bean
+public FilterRegistrationBean&lt;CharacterEncodingFilter&gt; encodingFilter() {
+    FilterRegistrationBean&lt;CharacterEncodingFilter&gt; bean = new FilterRegistrationBean&lt;&gt;();
+    CharacterEncodingFilter filter = new CharacterEncodingFilter();
+    filter.setEncoding(&quot;UTF-8&quot;);
+    filter.setForceEncoding(true);
+    bean.setFilter(filter);
+    bean.addUrlPatterns(&quot;/*&quot;);
+    return bean;
+}
+
+// 2. CORS
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
+public class CorsFilter implements Filter {
+    
+    @Override
+    public void doFilter(ServletRequest req, ServletResponse res, FilterChain chain) {
+        HttpServletResponse response = (HttpServletResponse) res;
+        response.setHeader(&quot;Access-Control-Allow-Origin&quot;, &quot;*&quot;);
+        response.setHeader(&quot;Access-Control-Allow-Methods&quot;, &quot;GET, POST, PUT, DELETE, OPTIONS&quot;);
+        response.setHeader(&quot;Access-Control-Allow-Headers&quot;, &quot;*&quot;);
+        
+        if (&quot;OPTIONS&quot;.equalsIgnoreCase(((HttpServletRequest) req).getMethod())) {
+            response.setStatus(HttpServletResponse.SC_OK);
+            return;
+        }
+        chain.doFilter(req, res);
+    }
+}
+
+// 3. XSS 过滤、SQL 注入过滤、IP 黑白名单、限流等
+</code></pre>
+<h2 id="三interceptor-的使用">三、Interceptor 的使用</h2>
 <h3 id="31-接口定义">3.1 接口定义</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">HandlerInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// Handler 执行前调用</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 返回 true：继续请求；返回 false：终止</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">default</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">preHandle</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                              </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// Handler 执行后、视图渲染前调用</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">default</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">postHandle</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                            </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                            </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                            </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">ModelAndView</span><span class="w"> </span><span class="n">modelAndView</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 请求完成后调用（无论是否异常）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">default</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">afterCompletion</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                  </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                  </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                  </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="32-实现一个-interceptor">3.2 实现一个 Interceptor</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AuthInterceptor</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">HandlerInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Logger</span><span class="w"> </span><span class="n">log</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LoggerFactory</span><span class="p">.</span><span class="na">getLogger</span><span class="p">(</span><span class="n">getClass</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">preHandle</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                             </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                             </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 检查是否 HandlerMethod（避免静态资源等非方法请求）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="p">(</span><span class="n">handler</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">HandlerMethod</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">token</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="na">getHeader</span><span class="p">(</span><span class="s">&#34;Authorization&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">token</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="o">!</span><span class="n">token</span><span class="p">.</span><span class="na">startsWith</span><span class="p">(</span><span class="s">&#34;Bearer &#34;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">response</span><span class="p">.</span><span class="na">setStatus</span><span class="p">(</span><span class="n">401</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">response</span><span class="p">.</span><span class="na">setContentType</span><span class="p">(</span><span class="s">&#34;application/json&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">response</span><span class="p">.</span><span class="na">getWriter</span><span class="p">().</span><span class="na">write</span><span class="p">(</span><span class="s">&#34;{\&#34;code\&#34;:401,\&#34;message\&#34;:\&#34;未授权\&#34;}&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">  </span><span class="c1">// 拦截请求</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 校验 token ...</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">  </span><span class="c1">// 放行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">postHandle</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                           </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">,</span><span class="w"> </span><span class="n">ModelAndView</span><span class="w"> </span><span class="n">modelAndView</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// Handler 执行后调用，可以修改 ModelAndView</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">afterCompletion</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                                </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">,</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 请求完成后的清理工作（总是执行）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ex</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">log</span><span class="p">.</span><span class="na">error</span><span class="p">(</span><span class="s">&#34;请求异常&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">ex</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="33-注册-interceptor">3.3 注册 Interceptor</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">WebMvcConfig</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">WebMvcConfigurer</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">AuthInterceptor</span><span class="w"> </span><span class="n">authInterceptor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">RateLimitInterceptor</span><span class="w"> </span><span class="n">rateLimitInterceptor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">addInterceptors</span><span class="p">(</span><span class="n">InterceptorRegistry</span><span class="w"> </span><span class="n">registry</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">registry</span><span class="p">.</span><span class="na">addInterceptor</span><span class="p">(</span><span class="n">authInterceptor</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">addPathPatterns</span><span class="p">(</span><span class="s">&#34;/api/**&#34;</span><span class="p">)</span><span class="w">               </span><span class="c1">// 需要拦截的路径</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">excludePathPatterns</span><span class="p">(</span><span class="s">&#34;/api/login&#34;</span><span class="p">)</span><span class="w">        </span><span class="c1">// 排除的路径</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">order</span><span class="p">(</span><span class="n">1</span><span class="p">);</span><span class="w">                                </span><span class="c1">// 顺序</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">registry</span><span class="p">.</span><span class="na">addInterceptor</span><span class="p">(</span><span class="n">rateLimitInterceptor</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">addPathPatterns</span><span class="p">(</span><span class="s">&#34;/api/**&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">order</span><span class="p">(</span><span class="n">2</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="34-常见-interceptor-使用场景">3.4 常见 Interceptor 使用场景</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. 权限校验</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">preHandle</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">HttpServletResponse</span><span class="w"> </span><span class="n">response</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                         </span><span class="n">Object</span><span class="w"> </span><span class="n">handler</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 检查用户是否有权限访问当前 API</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">checkPermission</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">handler</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 日志记录（可获取方法名、参数等详细信息）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">afterCompletion</span><span class="p">(</span><span class="n">HttpServletRequest</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="p">...)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">handler</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">HandlerMethod</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">HandlerMethod</span><span class="w"> </span><span class="n">hm</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">HandlerMethod</span><span class="p">)</span><span class="w"> </span><span class="n">handler</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">methodName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">hm</span><span class="p">.</span><span class="na">getMethod</span><span class="p">().</span><span class="na">getName</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 记录方法级别的日志</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. 请求预处理（设置 ThreadLocal 上下文、读取公共参数等）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 4. 响应后处理（统一包装响应、记录慢方法等）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 5. 性能监控（精确到具体方法）</span><span class="w">
-</span></span></span></code></pre></div><h2 id="四执行顺序对比">四、执行顺序对比</h2>
+<pre><code class="language-java">public interface HandlerInterceptor {
+    
+    // Handler 执行前调用
+    // 返回 true：继续请求；返回 false：终止
+    default boolean preHandle(HttpServletRequest request, 
+                              HttpServletResponse response, 
+                              Object handler) {
+        return true;
+    }
+    
+    // Handler 执行后、视图渲染前调用
+    default void postHandle(HttpServletRequest request,
+                            HttpServletResponse response,
+                            Object handler,
+                            @Nullable ModelAndView modelAndView) {}
+    
+    // 请求完成后调用（无论是否异常）
+    default void afterCompletion(HttpServletRequest request,
+                                  HttpServletResponse response,
+                                  Object handler,
+                                  @Nullable Exception ex) {}
+}
+</code></pre>
+<h3 id="32-实现一个-interceptor">3.2 实现一个 Interceptor</h3>
+<pre><code class="language-java">@Component
+public class AuthInterceptor implements HandlerInterceptor {
+    
+    private final Logger log = LoggerFactory.getLogger(getClass());
+    
+    @Override
+    public boolean preHandle(HttpServletRequest request, 
+                             HttpServletResponse response,
+                             Object handler) {
+        // 检查是否 HandlerMethod（避免静态资源等非方法请求）
+        if (!(handler instanceof HandlerMethod)) {
+            return true;
+        }
+        
+        String token = request.getHeader(&quot;Authorization&quot;);
+        if (token == null || !token.startsWith(&quot;Bearer &quot;)) {
+            response.setStatus(401);
+            response.setContentType(&quot;application/json&quot;);
+            response.getWriter().write(&quot;{\&quot;code\&quot;:401,\&quot;message\&quot;:\&quot;未授权\&quot;}&quot;);
+            return false;  // 拦截请求
+        }
+        
+        // 校验 token ...
+        return true;  // 放行
+    }
+    
+    @Override
+    public void postHandle(HttpServletRequest request, HttpServletResponse response,
+                           Object handler, ModelAndView modelAndView) {
+        // Handler 执行后调用，可以修改 ModelAndView
+    }
+    
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
+                                Object handler, Exception ex) {
+        // 请求完成后的清理工作（总是执行）
+        if (ex != null) {
+            log.error(&quot;请求异常&quot;, ex);
+        }
+    }
+}
+</code></pre>
+<h3 id="33-注册-interceptor">3.3 注册 Interceptor</h3>
+<pre><code class="language-java">@Configuration
+public class WebMvcConfig implements WebMvcConfigurer {
+    
+    @Autowired
+    private AuthInterceptor authInterceptor;
+    
+    @Autowired
+    private RateLimitInterceptor rateLimitInterceptor;
+    
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(authInterceptor)
+                .addPathPatterns(&quot;/api/**&quot;)               // 需要拦截的路径
+                .excludePathPatterns(&quot;/api/login&quot;)        // 排除的路径
+                .order(1);                                // 顺序
+        
+        registry.addInterceptor(rateLimitInterceptor)
+                .addPathPatterns(&quot;/api/**&quot;)
+                .order(2);
+    }
+}
+</code></pre>
+<h3 id="34-常见-interceptor-使用场景">3.4 常见 Interceptor 使用场景</h3>
+<pre><code class="language-java">// 1. 权限校验
+@Override
+public boolean preHandle(HttpServletRequest request, HttpServletResponse response,
+                         Object handler) {
+    // 检查用户是否有权限访问当前 API
+    return checkPermission(request, handler);
+}
+
+// 2. 日志记录（可获取方法名、参数等详细信息）
+@Override
+public void afterCompletion(HttpServletRequest request, ...) {
+    if (handler instanceof HandlerMethod) {
+        HandlerMethod hm = (HandlerMethod) handler;
+        String methodName = hm.getMethod().getName();
+        // 记录方法级别的日志
+    }
+}
+
+// 3. 请求预处理（设置 ThreadLocal 上下文、读取公共参数等）
+
+// 4. 响应后处理（统一包装响应、记录慢方法等）
+
+// 5. 性能监控（精确到具体方法）
+</code></pre>
+<h2 id="四执行顺序对比">四、执行顺序对比</h2>
 <h3 id="41-正常请求">4.1 正常请求</h3>
-<pre tabindex="0"><code>Filter.doFilter → preHandle → Controller → postHandle → afterCompletion → Filter 返回
+<pre><code>Filter.doFilter → preHandle → Controller → postHandle → afterCompletion → Filter 返回
 
 详细顺序：
 1. Filter 1.doFilter()                 // doFilter 之前的代码
@@ -429,15 +437,17 @@ Tomcat（Servlet 容器）
 11. Interceptor 1.afterCompletion()
 12. Filter 2.doFilter()                // doFilter 之后的代码
 13. Filter 1.doFilter()                // doFilter 之后的代码
-</code></pre><h3 id="42-prehandle-返回-false">4.2 preHandle 返回 false</h3>
-<pre tabindex="0"><code>Interceptor 1.preHandle() → return false
+</code></pre>
+<h3 id="42-prehandle-返回-false">4.2 preHandle 返回 false</h3>
+<pre><code>Interceptor 1.preHandle() → return false
   ↓
 不会进入 Controller，不会执行后续 Interceptor 的 preHandle
 触发已执行拦截器的 afterCompletion
   ↓
 Interceptor 1.afterCompletion()
-</code></pre><h3 id="43-controller-抛出异常">4.3 Controller 抛出异常</h3>
-<pre tabindex="0"><code>Filter → preHandle → Controller 抛异常
+</code></pre>
+<h3 id="43-controller-抛出异常">4.3 Controller 抛出异常</h3>
+<pre><code>Filter → preHandle → Controller 抛异常
   ↓
 不会执行 postHandle
 执行 Interceptor 的 afterCompletion（倒序）
@@ -445,7 +455,8 @@ Interceptor 1.afterCompletion()
 DispatcherServlet 的异常处理器处理异常
   ↓
 Filter 的 doFilter 异常处理
-</code></pre><h2 id="五对比总结">五、对比总结</h2>
+</code></pre>
+<h2 id="五对比总结">五、对比总结</h2>
 <h3 id="51-核心差异对照">5.1 核心差异对照</h3>
 <table>
 	<thead>
@@ -499,7 +510,7 @@ Filter 的 doFilter 异常处理
 	</tbody>
 </table>
 <h3 id="52-选型指南">5.2 选型指南</h3>
-<pre tabindex="0"><code>场景 → 该用 Filter 还是 Interceptor？
+<pre><code>场景 → 该用 Filter 还是 Interceptor？
 
 需要操作请求/响应对象本身（如包装 request） → Filter
 需要获取 Controller 方法和注解信息         → Interceptor
@@ -508,7 +519,8 @@ Filter 的 doFilter 异常处理
 需要对静态资源也生效                        → Filter
 功能与 Spring 框架无关（如编码过滤）        → Filter
 功能与业务逻辑紧密相关（如权限）            → Interceptor
-</code></pre><h3 id="53-一句话原则">5.3 一句话原则</h3>
+</code></pre>
+<h3 id="53-一句话原则">5.3 一句话原则</h3>
 <blockquote>
 <p><strong>Filter 解决&quot;请求通路上&quot;的问题（编码、压缩、安全），Interceptor 解决&quot;业务调用中&quot;的问题（权限、日志、上下文）。</strong></p>
 </blockquote>
@@ -551,6 +563,9 @@ Filter 的 doFilter 异常处理
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

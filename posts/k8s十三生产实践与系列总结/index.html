@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>K8s（十三）：生产实践与系列总结 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    <link rel="stylesheet" href="/fonts/fonts.css">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#回顾整个系列的知识地图">回顾：整个系列的知识地图</a></li>
+    <li><a href="#命名空间隔离与资源配额">命名空间隔离与资源配额</a>
+      <ul>
+        <li><a href="#多租户隔离">多租户隔离</a></li>
+        <li><a href="#resourcequota资源配额">ResourceQuota（资源配额）</a></li>
+        <li><a href="#limitrange默认资源限制">LimitRange（默认资源限制）</a></li>
+      </ul>
+    </li>
+    <li><a href="#pod-优雅终止">Pod 优雅终止</a>
+      <ul>
+        <li><a href="#prestop-钩子">preStop 钩子</a></li>
+        <li><a href="#terminationgraceperiodseconds">terminationGracePeriodSeconds</a></li>
+      </ul>
+    </li>
+    <li><a href="#节点污点taints与-pod-容忍tolerations">节点污点（Taints）与 Pod 容忍（Tolerations）</a>
+      <ul>
+        <li><a href="#为什么需要污点">为什么需要污点？</a></li>
+        <li><a href="#添加和查看污点">添加和查看污点</a></li>
+        <li><a href="#三种污点效果effect">三种污点效果（Effect）</a></li>
+        <li><a href="#在-pod-中添加容忍">在 Pod 中添加容忍</a></li>
+        <li><a href="#常见的预置污点">常见的预置污点</a></li>
+      </ul>
+    </li>
+    <li><a href="#亲和性调度">亲和性调度</a>
+      <ul>
+        <li><a href="#nodeaffinity节点亲和性">nodeAffinity（节点亲和性）</a></li>
+        <li><a href="#podaffinity-与-podantiaffinity">podAffinity 与 podAntiAffinity</a></li>
+      </ul>
+    </li>
+    <li><a href="#常用排障手段">常用排障手段</a>
+      <ul>
+        <li><a href="#1-pod-层面">1. Pod 层面</a></li>
+        <li><a href="#2-节点层面">2. 节点层面</a></li>
+        <li><a href="#3-集群层面">3. 集群层面</a></li>
+        <li><a href="#4-常用排障口诀">4. 常用排障口诀</a></li>
+      </ul>
+    </li>
+    <li><a href="#学习路线推荐">学习路线推荐</a>
+      <ul>
+        <li><a href="#运维方向">运维方向</a></li>
+        <li><a href="#开发方向">开发方向</a></li>
+        <li><a href="#认证推荐">认证推荐</a></li>
+      </ul>
+    </li>
+    <li><a href="#系列总结与寄语">系列总结与寄语</a></li>
+    <li><a href="#系列文章">系列文章</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">K8s（十三）：生产实践与系列总结</h1>
+        </header>
+
+        <div class="page-content">
+            <p>终于到了系列最后一篇。在过去的十二篇文章中，我们走过了从&quot;K8s 是什么&quot;到&quot;如何部署一个有状态应用&quot;的完整旅程。但纸上得来终觉浅——把应用真正跑在生产环境，还有一系列&quot;必修课&quot;：资源怎么隔离？Pod 怎么优雅关闭？如何让 Pod 调度到合适的节点？出了问题怎么排障？</p>
+<p>本文将这些生产实践融会贯通，同时也作为整个系列的收官回顾。</p>
+<h2 id="回顾整个系列的知识地图">回顾：整个系列的知识地图</h2>
+<p>在进入新内容之前，先回顾一下我们走过的路：</p>
+<table>
+	<thead>
+			<tr>
+					<th>篇目</th>
+					<th>核心内容</th>
+					<th>一句话总结</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>(一) 架构与核心概念</td>
+					<td>K8s 是什么、架构组件</td>
+					<td>搭建认知框架</td>
+			</tr>
+			<tr>
+					<td>(二) kubeadm 搭建集群</td>
+					<td>集群安装、节点管理</td>
+					<td>动手搭建环境</td>
+			</tr>
+			<tr>
+					<td>(三) Pod 与容器编排</td>
+					<td>Pod、容器生命周期</td>
+					<td>最小调度单元</td>
+			</tr>
+			<tr>
+					<td>(四) Deployment 与 ReplicaSet</td>
+					<td>无状态应用部署、扩缩容</td>
+					<td>让应用跑起来</td>
+			</tr>
+			<tr>
+					<td>(五) Service</td>
+					<td>集群内服务发现</td>
+					<td>稳定的网络入口</td>
+			</tr>
+			<tr>
+					<td>(六) Ingress</td>
+					<td>外部流量接入</td>
+					<td>对外暴露服务</td>
+			</tr>
+			<tr>
+					<td>(七) ConfigMap 与 Secret</td>
+					<td>配置管理</td>
+					<td>配置与镜像分离</td>
+			</tr>
+			<tr>
+					<td>(八) Volume 与持久化存储</td>
+					<td>存储卷、PV/PVC</td>
+					<td>持久化数据</td>
+			</tr>
+			<tr>
+					<td>(九) StatefulSet</td>
+					<td>有状态应用</td>
+					<td>数据库类应用</td>
+			</tr>
+			<tr>
+					<td>(十) Helm</td>
+					<td>包管理器</td>
+					<td>模板化部署</td>
+			</tr>
+			<tr>
+					<td>(十一) RBAC 与安全</td>
+					<td>认证授权</td>
+					<td>权限管控</td>
+			</tr>
+			<tr>
+					<td>(十二) 监控与日志</td>
+					<td>可观测性</td>
+					<td>了解集群状态</td>
+			</tr>
+	</tbody>
+</table>
+<p>最后这篇文章，我们来补充那些&quot;生产环境缺一不可&quot;的知识点。</p>
+<hr>
+<h2 id="命名空间隔离与资源配额">命名空间隔离与资源配额</h2>
+<h3 id="多租户隔离">多租户隔离</h3>
+<p>生产环境一般按环境或团队划分 Namespace：</p>
+<pre><code class="language-bash">kubectl create namespace production
+kubectl create namespace staging
+kubectl create namespace development
+</code></pre>
+<p>每个 Namespace 就是独立的&quot;虚拟集群&quot;，资源名称可以在不同 Namespace 中重复，互不干扰。</p>
+<h3 id="resourcequota资源配额">ResourceQuota（资源配额）</h3>
+<p>ResourceQuota 限制一个 Namespace 能使用的总资源上限，防止一个团队&quot;吃光&quot;整个集群：</p>
+<pre><code class="language-yaml">apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: dev-quota
+  namespace: development
+spec:
+  hard:
+    requests.cpu: &quot;4&quot;         # 所有 Pod CPU 请求总和不超过 4 核
+    requests.memory: &quot;8Gi&quot;    # 所有 Pod 内存请求总和不超过 8Gi
+    limits.cpu: &quot;8&quot;           # 所有 Pod CPU 限制总和不超过 8 核
+    limits.memory: &quot;16Gi&quot;     # 所有 Pod 内存限制总和不超过 16Gi
+    persistentvolumeclaims: &quot;5&quot;  # PVC 数量不超过 5 个
+    pods: &quot;20&quot;                # Pod 数量不超过 20 个
+</code></pre>
+<h3 id="limitrange默认资源限制">LimitRange（默认资源限制）</h3>
+<p>LimitRange 为单个 Pod 或容器设置默认的资源请求/限制，并约束资源上下限：</p>
+<pre><code class="language-yaml">apiVersion: v1
+kind: LimitRange
+metadata:
+  name: dev-limits
+  namespace: development
+spec:
+  limits:
+  - default:                    # 默认 limit
+      cpu: &quot;500m&quot;
+      memory: &quot;512Mi&quot;
+    defaultRequest:             # 默认 request
+      cpu: &quot;200m&quot;
+      memory: &quot;256Mi&quot;
+    max:                        # 单个容器上限
+      cpu: &quot;2&quot;
+      memory: &quot;2Gi&quot;
+    min:                        # 单个容器下限
+      cpu: &quot;50m&quot;
+      memory: &quot;64Mi&quot;
+    type: Container
+</code></pre>
+<p><strong>最佳实践</strong>：每个团队 Namespace 都配置 ResourceQuota 和 LimitRange，避免资源争抢。</p>
+<hr>
+<h2 id="pod-优雅终止">Pod 优雅终止</h2>
+<p>当 Pod 被删除或滚动更新时，K8s 会给容器发送 <code>SIGTERM</code> 信号，等待一段时间（默认 30 秒）后如果还没结束，就强制 <code>SIGKILL</code>。</p>
+<p>但如果你的应用正在处理重要的请求，30 秒可能不够。你需要<strong>优雅终止</strong>。</p>
+<h3 id="prestop-钩子">preStop 钩子</h3>
+<p><code>preStop</code> 在容器收到 <code>SIGTERM</code> 之前执行，可以用来通知负载均衡器摘除节点、等待正在处理的请求完成：</p>
+<pre><code class="language-yaml">spec:
+  containers:
+  - name: my-app
+    image: my-app:latest
+    lifecycle:
+      preStop:
+        exec:
+          command:
+          - /bin/sh
+          - -c
+          - |
+            # 通知注册中心摘除节点
+            curl -X POST http://localhost:8080/shutdown
+            # 等待正在处理的请求完成
+            sleep 10
+</code></pre>
+<h3 id="terminationgraceperiodseconds">terminationGracePeriodSeconds</h3>
+<p>调整优雅终止的等待时间：</p>
+<pre><code class="language-yaml">spec:
+  terminationGracePeriodSeconds: 60   # 给 60 秒完成收尾工作
+</code></pre>
+<p><strong>完整工作流</strong>：</p>
+<ol>
+<li>Pod 状态变为 <code>Terminating</code></li>
+<li>执行 <code>preStop</code> 钩子</li>
+<li>向主容器进程发送 <code>SIGTERM</code></li>
+<li>等待 <code>terminationGracePeriodSeconds</code> 秒</li>
+<li>若仍未退出，发送 <code>SIGKILL</code> 强制终止</li>
+</ol>
+<hr>
+<h2 id="节点污点taints与-pod-容忍tolerations">节点污点（Taints）与 Pod 容忍（Tolerations）</h2>
+<h3 id="为什么需要污点">为什么需要污点？</h3>
+<p>默认情况下，任何 Pod 都可以调度到任何节点。但生产环境中你可能希望：</p>
+<ul>
+<li>专用节点运行 GPU 任务</li>
+<li>专用节点运行系统组件</li>
+<li>不让普通 Pod 调度到坏掉的节点</li>
+</ul>
+<p><strong>污点（Taints）</strong> 就是节点上的&quot;排斥标记&quot;，只有<strong>容忍（Tolerations）</strong> 了该污点的 Pod 才能被调度到该节点。</p>
+<h3 id="添加和查看污点">添加和查看污点</h3>
+<pre><code class="language-bash"># 给节点添加污点：key=value:Effect
+kubectl taint nodes node1 gpu=true:NoSchedule
+
+# 查看节点污点
+kubectl describe node node1 | grep Taints
+
+# 移除污点
+kubectl taint nodes node1 gpu=true:NoSchedule-
+</code></pre>
+<h3 id="三种污点效果effect">三种污点效果（Effect）</h3>
+<table>
+	<thead>
+			<tr>
+					<th>Effect</th>
+					<th>行为</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>NoSchedule</code></td>
+					<td>不容忍该污点的 Pod 不会被调度到此节点</td>
+			</tr>
+			<tr>
+					<td><code>PreferNoSchedule</code></td>
+					<td>尽量不调度，但无法避免时仍可调度</td>
+			</tr>
+			<tr>
+					<td><code>NoExecute</code></td>
+					<td>不容忍的 Pod 不仅不会调度，已有的也会被驱逐</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="在-pod-中添加容忍">在 Pod 中添加容忍</h3>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-pod
+spec:
+  tolerations:
+  - key: &quot;gpu&quot;
+    operator: &quot;Equal&quot;
+    value: &quot;true&quot;
+    effect: &quot;NoSchedule&quot;
+  containers:
+  - name: cuda-container
+    image: nvidia/cuda:11.0
+</code></pre>
+<h3 id="常见的预置污点">常见的预置污点</h3>
+<p>K8s 在节点出现问题时会自动打上污点：</p>
+<ul>
+<li><code>node.kubernetes.io/unreachable</code>：节点不可达</li>
+<li><code>node.kubernetes.io/out-of-disk</code>：磁盘空间不足</li>
+<li><code>node.kubernetes.io/memory-pressure</code>：内存压力</li>
+<li><code>node.kubernetes.io/disk-pressure</code>：磁盘压力</li>
+</ul>
+<p>大多数 Pod 默认容忍短时间的节点不可达（<code>tolerationSeconds: 300</code>），超过 5 分钟会被驱逐。</p>
+<hr>
+<h2 id="亲和性调度">亲和性调度</h2>
+<p>污点和容忍是&quot;排斥&quot;逻辑，而<strong>亲和性（Affinity）</strong> 是&quot;吸引&quot;逻辑——你希望 Pod 优先调度到某些节点，或者与某些 Pod 靠近/远离。</p>
+<h3 id="nodeaffinity节点亲和性">nodeAffinity（节点亲和性）</h3>
+<p>将 Pod 调度到具有特定标签的节点：</p>
+<pre><code class="language-yaml">spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: disk-type
+            operator: In
+            values:
+            - ssd
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+          - key: zone
+            operator: In
+            values:
+            - az-a
+</code></pre>
+<ul>
+<li><code>requiredDuringSchedulingIgnoredDuringExecution</code>：硬需求，必须满足</li>
+<li><code>preferredDuringSchedulingIgnoredDuringExecution</code>：软偏好，尽量满足</li>
+</ul>
+<h3 id="podaffinity-与-podantiaffinity">podAffinity 与 podAntiAffinity</h3>
+<p>控制 Pod 之间的调度关系：</p>
+<pre><code class="language-yaml">spec:
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app
+              operator: In
+              values:
+              - my-app
+          topologyKey: &quot;kubernetes.io/hostname&quot;
+</code></pre>
+<p><strong>典型场景</strong>：</p>
+<table>
+	<thead>
+			<tr>
+					<th>策略</th>
+					<th>用途</th>
+					<th>示例</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>podAntiAffinity</code></td>
+					<td>分散部署</td>
+					<td>同一应用的多个副本分布在不同节点，提高可用性</td>
+			</tr>
+			<tr>
+					<td><code>podAffinity</code></td>
+					<td>就近部署</td>
+					<td>缓存和 Web 应用部署到同一节点，减少网络延迟</td>
+			</tr>
+	</tbody>
+</table>
+<hr>
+<h2 id="常用排障手段">常用排障手段</h2>
+<p>生产环境中，问题迟早会发生。下面这些命令是你的&quot;急救箱&quot;：</p>
+<h3 id="1-pod-层面">1. Pod 层面</h3>
+<pre><code class="language-bash"># 查看 Pod 状态和事件
+kubectl describe pod &lt;pod-name&gt;
+
+# 查看实时日志
+kubectl logs -f &lt;pod-name&gt;
+
+# 查看崩溃前日志
+kubectl logs --previous &lt;pod-name&gt;
+
+# 进入容器交互式排查
+kubectl exec -it &lt;pod-name&gt; -- /bin/sh
+
+# 端口转发（本地访问 Pod 端口）
+kubectl port-forward pod/&lt;pod-name&gt; 8080:80
+</code></pre>
+<h3 id="2-节点层面">2. 节点层面</h3>
+<pre><code class="language-bash"># 查看节点状态和资源
+kubectl describe node &lt;node-name&gt;
+
+# 查看节点资源使用
+kubectl top node
+
+# 查看节点条件（Ready、DiskPressure 等）
+kubectl get node &lt;node-name&gt; -o json | jq '.status.conditions'
+
+# SSH 登录节点（如果可达）
+ssh &lt;node-ip&gt;
+# 查看 kubelet 日志
+journalctl -u kubelet -n 100 --no-pager
+</code></pre>
+<h3 id="3-集群层面">3. 集群层面</h3>
+<pre><code class="language-bash"># 查看集群事件
+kubectl get events --sort-by='.lastTimestamp'
+
+# 查看所有 Namespace 的资源概览
+kubectl get all --all-namespaces
+
+# API Server 健康检查
+kubectl get --raw=/healthz
+
+# 查看组件状态
+kubectl get componentstatuses
+</code></pre>
+<h3 id="4-常用排障口诀">4. 常用排障口诀</h3>
+<blockquote>
+<p>&ldquo;先看 Events，再看 Logs，describe 是万能钥匙&rdquo;</p>
+</blockquote>
+<p>遇到问题按此顺序排查：</p>
+<ol>
+<li><code>kubectl get pods</code> — 确认状态</li>
+<li><code>kubectl describe pod &lt;name&gt;</code> — 查看事件和条件</li>
+<li><code>kubectl logs &lt;name&gt; [--previous]</code> — 查看应用日志</li>
+<li><code>kubectl exec -it &lt;name&gt; -- sh</code> — 进入容器进一步排查</li>
+</ol>
+<hr>
+<h2 id="学习路线推荐">学习路线推荐</h2>
+<p>K8s 的学习是&quot;实践驱动&quot;的，以下是进阶学习路线：</p>
+<h3 id="运维方向">运维方向</h3>
+<ol>
+<li><strong>集群管理</strong>：多集群管理（Karmada）、集群升级、备份恢复（Velero）</li>
+<li><strong>网络方案</strong>：Calico/Cilium 网络策略、Service Mesh（Istio）</li>
+<li><strong>容器运行时</strong>：Containerd 原理、安全容器（Kata Containers）</li>
+<li><strong>GitOps</strong>：ArgoCD / Flux — 声明式应用交付</li>
+<li><strong>云原生存储</strong>：Rook/Ceph、Longhorn</li>
+<li><strong>服务网格</strong>：Istio 流量管理、可观测性</li>
+</ol>
+<h3 id="开发方向">开发方向</h3>
+<ol>
+<li><strong>Operator 模式</strong>：用 Operator SDK 编写 K8s 扩展</li>
+<li><strong>自定义资源（CRD）</strong>：扩展 K8s API</li>
+<li><strong>调度器扩展</strong>：自定义调度策略</li>
+<li><strong>K8s 开发框架</strong>：controller-runtime、client-go</li>
+<li><strong>云原生应用设计</strong>：12-Factor App、无服务器（Knative）</li>
+</ol>
+<h3 id="认证推荐">认证推荐</h3>
+<ul>
+<li><strong>CKA（Certified Kubernetes Administrator）</strong>：运维方向的行业标准认证</li>
+<li><strong>CKAD（Certified Kubernetes Application Developer）</strong>：开发方向认证</li>
+<li><strong>CKS（Certified Kubernetes Security Specialist）</strong>：安全方向高级认证</li>
+</ul>
+<hr>
+<h2 id="系列总结与寄语">系列总结与寄语</h2>
+<p>历时十三篇文章，我们从零到一梳理了 Kubernetes 的核心知识体系。</p>
+<p>还记得系列第一篇开头的追问吗？<strong>&ldquo;当你在一个拥有几十台服务器的公司做运维时，你是怎么发布一个 Java 项目的？&rdquo;</strong> 到了今天，你应该已经有了答案——你不再 SSH 登录到某一台服务器上手动部署，不再担心某台机器宕机导致服务不可用，也不再为了扩容而彻夜加班。你学会了声明式地描述&quot;最终状态&quot;，让 K8s 自己搞定一切。</p>
+<p>Kubernetes 的学习曲线确实陡峭，但一旦上手，你会感受到它带来的&quot;确定性&quot;——部署是确定的、伸缩是确定的、自愈是确定的。这种确定性，正是云原生时代工程师追求的核心体验。</p>
+<p>最后，送你三句话：</p>
+<blockquote>
+<p><strong>学 K8s，不懂原理是走不远的。</strong> 不要把 YAML 当脚本写，理解每个字段背后的设计意图。</p>
+<p><strong>动手实践是最好的老师。</strong> 把每篇文章的示例亲手敲一遍，比读十遍更有效。</p>
+<p><strong>遇到问题不要慌，Events+Logs+Describe 能解决 90% 的问题。</strong></p>
+</blockquote>
+<p>感谢你一路读到这里。如果这个系列对你有哪怕一点点帮助，它就完成了自己的使命。未来云原生的世界，期待你的参与！🚀</p>
+<hr>
+<h2 id="系列文章">系列文章</h2>
+<ul>
+<li><a href="/posts/k8s%E4%B8%80%E4%BB%8E%E9%9B%B6%E8%AE%A4%E8%AF%86-kubernetes-%E6%9E%B6%E6%9E%84%E4%B8%8E%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5/">K8s（一）：从零认识 Kubernetes — 架构与核心概念</a></li>
+<li><a href="/posts/k8s%E4%BA%8C%E4%BD%BF%E7%94%A8-kubeadm-%E6%90%AD%E5%BB%BA-k8s-%E9%9B%86%E7%BE%A4%E5%AE%9E%E6%88%98/">K8s（二）：使用 kubeadm 搭建 K8s 集群实战</a></li>
+<li><a href="/posts/k8s%E4%B8%89pod-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%E4%B8%8E%E5%AE%B9%E5%99%A8%E7%BC%96%E6%8E%92%E5%9F%BA%E7%A1%80/">K8s（三）：Pod 核心概念与容器编排基础</a></li>
+<li><a href="/posts/k8s%E5%9B%9Bdeployment-%E4%B8%8E-replicaset-%E5%BA%94%E7%94%A8%E9%83%A8%E7%BD%B2%E4%B8%8E%E6%89%A9%E7%BC%A9%E5%AE%B9/">K8s（四）：Deployment 与 ReplicaSet — 应用部署与扩缩容</a></li>
+<li><a href="/posts/k8s%E4%BA%94service-%E4%B8%8E%E9%9B%86%E7%BE%A4%E5%86%85%E6%9C%8D%E5%8A%A1%E5%8F%91%E7%8E%B0/">K8s（五）：Service 与集群内服务发现</a></li>
+<li><a href="/posts/k8s%E5%85%ADingress-%E4%B8%8E%E9%9B%86%E7%BE%A4%E5%A4%96%E9%83%A8%E6%B5%81%E9%87%8F%E6%8E%A5%E5%85%A5/">K8s（六）：Ingress 与集群外部流量接入</a></li>
+<li><a href="/posts/k8s%E4%B8%83configmap-%E4%B8%8E-secret-%E9%85%8D%E7%BD%AE%E7%AE%A1%E7%90%86/">K8s（七）：ConfigMap 与 Secret — 配置管理</a></li>
+<li><a href="/posts/k8s%E5%85%ABvolume-%E4%B8%8E%E6%8C%81%E4%B9%85%E5%8C%96%E5%AD%98%E5%82%A8/">K8s（八）：Volume 与持久化存储</a></li>
+<li><a href="/posts/k8s%E4%B9%9Dstatefulset-%E4%B8%8E%E6%9C%89%E7%8A%B6%E6%80%81%E5%BA%94%E7%94%A8/">K8s（九）：StatefulSet 与有状态应用</a></li>
+<li><a href="/posts/k8s%E5%8D%81helm-%E5%8C%85%E7%AE%A1%E7%90%86%E5%99%A8%E5%85%A5%E9%97%A8/">K8s（十）：Helm 包管理器入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%B8%80%E9%9B%86%E7%BE%A4%E5%AE%89%E5%85%A8%E5%9F%BA%E7%A1%80-rbac-%E4%B8%8E-serviceaccount/">K8s（十一）：集群安全基础 — RBAC 与 ServiceAccount</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%BA%8C%E7%9B%91%E6%8E%A7%E4%B8%8E%E6%97%A5%E5%BF%97-%E5%8F%AF%E8%A7%82%E6%B5%8B%E6%80%A7%E5%85%A5%E9%97%A8/">K8s（十二）：监控与日志 — 可观测性入门</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

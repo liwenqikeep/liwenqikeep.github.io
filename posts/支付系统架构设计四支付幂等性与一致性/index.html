@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -144,12 +141,12 @@
 </blockquote>
 <h2 id="一幂等性同一个操作执行多次的结果相同">一、幂等性：同一个操作执行多次的结果相同</h2>
 <h3 id="11-支付系统中需要幂等的场景">1.1 支付系统中需要幂等的场景</h3>
-<pre tabindex="0"><code>场景 1：支付回调重复通知
+<pre><code>场景 1：支付回调重复通知
   微信支付成功回调 → 网络抖动 → 微信重发回调
   → 如果重复入账，商户收到两笔钱 ❌
 
 场景 2：前端重复提交
-  用户支付时点击&#34;确认&#34;按钮没反应 → 又点了一次
+  用户支付时点击&quot;确认&quot;按钮没反应 → 又点了一次
   → 发起两笔支付请求 ❌
 
 场景 3：MQ 消息重复消费
@@ -159,7 +156,8 @@
 场景 4：退款重试
   退款接口超时 → 定时任务重试
   → 发起两次退款 ❌
-</code></pre><h3 id="12-幂等性分级">1.2 幂等性分级</h3>
+</code></pre>
+<h3 id="12-幂等性分级">1.2 幂等性分级</h3>
 <table>
 	<thead>
 			<tr>
@@ -200,73 +198,75 @@
 <h2 id="二幂等方案一数据库唯一键约束">二、幂等方案一：数据库唯一键约束</h2>
 <h3 id="21-原理">2.1 原理</h3>
 <p>对可能重复插入的数据，建立唯一键约束。重复插入时由数据库层面拦截。</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-sql" data-lang="sql"><span class="line"><span class="cl"><span class="c1">-- 支付流水表：一个 payment_order_id + channel + channel_transaction_id 唯一确定一条流水
-</span></span></span><span class="line"><span class="cl"><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="o">`</span><span class="n">pay_transaction</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">id</span><span class="o">`</span><span class="w"> </span><span class="nb">bigint</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="n">AUTO_INCREMENT</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">transaction_id</span><span class="o">`</span><span class="w"> </span><span class="nb">varchar</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">COMMENT</span><span class="w"> </span><span class="s1">&#39;流水号&#39;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">payment_order_id</span><span class="o">`</span><span class="w"> </span><span class="nb">varchar</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">COMMENT</span><span class="w"> </span><span class="s1">&#39;支付单号&#39;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">channel</span><span class="o">`</span><span class="w"> </span><span class="nb">varchar</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">COMMENT</span><span class="w"> </span><span class="s1">&#39;支付渠道&#39;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">channel_transaction_id</span><span class="o">`</span><span class="w"> </span><span class="nb">varchar</span><span class="p">(</span><span class="mi">64</span><span class="p">)</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">COMMENT</span><span class="w"> </span><span class="s1">&#39;渠道交易号&#39;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">status</span><span class="o">`</span><span class="w"> </span><span class="nb">varchar</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">COMMENT</span><span class="w"> </span><span class="s1">&#39;流水状态&#39;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">id</span><span class="o">`</span><span class="p">),</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">UNIQUE</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">uk_pay_order_channel_tx</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">payment_order_id</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">channel</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">channel_transaction_id</span><span class="o">`</span><span class="p">),</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">idx_transaction_id</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">transaction_id</span><span class="o">`</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">)</span><span class="w"> </span><span class="n">ENGINE</span><span class="o">=</span><span class="n">InnoDB</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="n">CHARSET</span><span class="o">=</span><span class="n">utf8mb4</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">-- 记账流水表：一个流水号 + 账目类型唯一确定一条记账记录
-</span></span></span><span class="line"><span class="cl"><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="o">`</span><span class="n">account_journal</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">id</span><span class="o">`</span><span class="w"> </span><span class="nb">bigint</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="n">AUTO_INCREMENT</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">journal_no</span><span class="o">`</span><span class="w"> </span><span class="nb">varchar</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">COMMENT</span><span class="w"> </span><span class="s1">&#39;流水号&#39;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">transaction_id</span><span class="o">`</span><span class="w"> </span><span class="nb">varchar</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">COMMENT</span><span class="w"> </span><span class="s1">&#39;支付流水号&#39;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">account_no</span><span class="o">`</span><span class="w"> </span><span class="nb">varchar</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">COMMENT</span><span class="w"> </span><span class="s1">&#39;账号&#39;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">amount</span><span class="o">`</span><span class="w"> </span><span class="nb">bigint</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">COMMENT</span><span class="w"> </span><span class="s1">&#39;金额（分）&#39;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">journal_type</span><span class="o">`</span><span class="w"> </span><span class="nb">varchar</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">COMMENT</span><span class="w"> </span><span class="s1">&#39;类型：CREDIT/DEBIT&#39;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="o">`</span><span class="n">status</span><span class="o">`</span><span class="w"> </span><span class="nb">varchar</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">COMMENT</span><span class="w"> </span><span class="s1">&#39;状态&#39;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">id</span><span class="o">`</span><span class="p">),</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">UNIQUE</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">uk_tx_journal_type</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">transaction_id</span><span class="o">`</span><span class="p">,</span><span class="w"> </span><span class="o">`</span><span class="n">journal_type</span><span class="o">`</span><span class="p">),</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">KEY</span><span class="w"> </span><span class="o">`</span><span class="n">idx_account_no</span><span class="o">`</span><span class="w"> </span><span class="p">(</span><span class="o">`</span><span class="n">account_no</span><span class="o">`</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">)</span><span class="w"> </span><span class="n">ENGINE</span><span class="o">=</span><span class="n">InnoDB</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="n">CHARSET</span><span class="o">=</span><span class="n">utf8mb4</span><span class="p">;</span><span class="w">
-</span></span></span></code></pre></div><h3 id="22-java-实现">2.2 Java 实现</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Slf4j</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@RequiredArgsConstructor</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AccountJournalService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">AccountJournalMapper</span><span class="w"> </span><span class="n">journalMapper</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">TransactionTemplate</span><span class="w"> </span><span class="n">transactionTemplate</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * 入账（幂等）
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * 利用 UNIQUE KEY 保证同一个流水不会重复入账
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">JournalResult</span><span class="w"> </span><span class="nf">credit</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">transactionId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">accountNo</span><span class="p">,</span><span class="w"> </span><span class="n">Money</span><span class="w"> </span><span class="n">amount</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 生成记账流水号</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">journalNo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;J&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">transactionId</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">AccountJournal</span><span class="w"> </span><span class="n">journal</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">AccountJournal</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">journal</span><span class="p">.</span><span class="na">setJournalNo</span><span class="p">(</span><span class="n">journalNo</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">journal</span><span class="p">.</span><span class="na">setTransactionId</span><span class="p">(</span><span class="n">transactionId</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">journal</span><span class="p">.</span><span class="na">setAccountNo</span><span class="p">(</span><span class="n">accountNo</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">journal</span><span class="p">.</span><span class="na">setAmount</span><span class="p">(</span><span class="n">amount</span><span class="p">.</span><span class="na">getAmount</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">journal</span><span class="p">.</span><span class="na">setJournalType</span><span class="p">(</span><span class="s">&#34;CREDIT&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">journal</span><span class="p">.</span><span class="na">setStatus</span><span class="p">(</span><span class="s">&#34;SUCCESS&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">journalMapper</span><span class="p">.</span><span class="na">insert</span><span class="p">(</span><span class="n">journal</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;入账成功: transactionId={}, amount={}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">transactionId</span><span class="p">,</span><span class="w"> </span><span class="n">amount</span><span class="p">.</span><span class="na">toYuanString</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">JournalResult</span><span class="p">.</span><span class="na">success</span><span class="p">(</span><span class="n">journal</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">DuplicateKeyException</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 唯一键冲突 → 已入账，直接返回成功</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;入账幂等命中: transactionId={}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">transactionId</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">JournalResult</span><span class="p">.</span><span class="na">duplicated</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-sql">-- 支付流水表：一个 payment_order_id + channel + channel_transaction_id 唯一确定一条流水
+CREATE TABLE `pay_transaction` (
+    `id` bigint NOT NULL AUTO_INCREMENT,
+    `transaction_id` varchar(32) NOT NULL COMMENT '流水号',
+    `payment_order_id` varchar(32) NOT NULL COMMENT '支付单号',
+    `channel` varchar(20) NOT NULL COMMENT '支付渠道',
+    `channel_transaction_id` varchar(64) DEFAULT NULL COMMENT '渠道交易号',
+    `status` varchar(20) NOT NULL COMMENT '流水状态',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_pay_order_channel_tx` (`payment_order_id`, `channel`, `channel_transaction_id`),
+    KEY `idx_transaction_id` (`transaction_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 记账流水表：一个流水号 + 账目类型唯一确定一条记账记录
+CREATE TABLE `account_journal` (
+    `id` bigint NOT NULL AUTO_INCREMENT,
+    `journal_no` varchar(32) NOT NULL COMMENT '流水号',
+    `transaction_id` varchar(32) NOT NULL COMMENT '支付流水号',
+    `account_no` varchar(32) NOT NULL COMMENT '账号',
+    `amount` bigint NOT NULL COMMENT '金额（分）',
+    `journal_type` varchar(20) NOT NULL COMMENT '类型：CREDIT/DEBIT',
+    `status` varchar(20) NOT NULL COMMENT '状态',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_tx_journal_type` (`transaction_id`, `journal_type`),
+    KEY `idx_account_no` (`account_no`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+</code></pre>
+<h3 id="22-java-实现">2.2 Java 实现</h3>
+<pre><code class="language-java">@Service
+@Slf4j
+@RequiredArgsConstructor
+public class AccountJournalService {
+
+    private final AccountJournalMapper journalMapper;
+    private final TransactionTemplate transactionTemplate;
+
+    /**
+     * 入账（幂等）
+     * 利用 UNIQUE KEY 保证同一个流水不会重复入账
+     */
+    public JournalResult credit(String transactionId, String accountNo, Money amount) {
+        // 生成记账流水号
+        String journalNo = &quot;J&quot; + transactionId;
+
+        try {
+            AccountJournal journal = new AccountJournal();
+            journal.setJournalNo(journalNo);
+            journal.setTransactionId(transactionId);
+            journal.setAccountNo(accountNo);
+            journal.setAmount(amount.getAmount());
+            journal.setJournalType(&quot;CREDIT&quot;);
+            journal.setStatus(&quot;SUCCESS&quot;);
+
+            journalMapper.insert(journal);
+            log.info(&quot;入账成功: transactionId={}, amount={}&quot;, transactionId, amount.toYuanString());
+            return JournalResult.success(journal);
+
+        } catch (DuplicateKeyException e) {
+            // 唯一键冲突 → 已入账，直接返回成功
+            log.info(&quot;入账幂等命中: transactionId={}&quot;, transactionId);
+            return JournalResult.duplicated();
+        }
+    }
+}
+</code></pre>
+<hr>
 <h2 id="三幂等方案二状态机前置校验">三、幂等方案二：状态机前置校验</h2>
 <p>支付单状态机本身就是最强力的一道幂等防线。</p>
-<pre tabindex="0"><code>支付成功回调处理流程：
+<pre><code>支付成功回调处理流程：
 
 1. 根据 transactionId 找到 Transaction
 2. 根据 Transaction 找到 PaymentOrder
@@ -276,66 +276,68 @@
    └── 其他     → 状态异常，拒绝处理
 4. 执行入账、发事件等操作
 5. 调用状态机: stateMachine.sendEvent(PAY_SUCCESS)
-</code></pre><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Slf4j</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@RequiredArgsConstructor</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PayCallbackService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">PaymentOrderRepository</span><span class="w"> </span><span class="n">paymentOrderRepository</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">PayOrderStateMachineService</span><span class="w"> </span><span class="n">stateMachineService</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">AccountJournalService</span><span class="w"> </span><span class="n">accountJournalService</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">DomainEventPublisher</span><span class="w"> </span><span class="n">eventPublisher</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * 处理支付成功回调（幂等）
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">PaymentOrder</span><span class="w"> </span><span class="nf">handlePayCallback</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">transactionId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">channelResult</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 查询流水</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Transaction</span><span class="w"> </span><span class="n">tx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">findTransaction</span><span class="p">(</span><span class="n">transactionId</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">PaymentOrder</span><span class="w"> </span><span class="n">order</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">paymentOrderRepository</span><span class="p">.</span><span class="na">findById</span><span class="p">(</span><span class="n">tx</span><span class="p">.</span><span class="na">getPaymentOrderId</span><span class="p">())</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">orElseThrow</span><span class="p">(()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RuntimeException</span><span class="p">(</span><span class="s">&#34;支付单不存在&#34;</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 幂等校验：已经成功的不再处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="s">&#34;SUCCESS&#34;</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">order</span><span class="p">.</span><span class="na">getStatus</span><span class="p">()))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;幂等回调: 支付单已成功, orderId={}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">order</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 只处理 PAYING 状态的订单</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="s">&#34;PAYING&#34;</span><span class="p">.</span><span class="na">equals</span><span class="p">(</span><span class="n">order</span><span class="p">.</span><span class="na">getStatus</span><span class="p">()))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="n">PaymentException</span><span class="p">.</span><span class="na">paramError</span><span class="p">(</span><span class="s">&#34;支付单状态异常: &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="na">getStatus</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 更新流水</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">tx</span><span class="p">.</span><span class="na">markSuccess</span><span class="p">(</span><span class="n">channelResult</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">paymentOrderRepository</span><span class="p">.</span><span class="na">updateTransaction</span><span class="p">(</span><span class="n">tx</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 5. 入账（幂等，利用唯一键）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">JournalResult</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">accountJournalService</span><span class="p">.</span><span class="na">credit</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">transactionId</span><span class="p">,</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="na">getMerchantId</span><span class="p">(),</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="na">getAmount</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="na">isDuplicated</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;入账幂等命中，但支付单状态仍需更新: {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 6. 状态机：驱动 PAYING → SUCCESS</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">boolean</span><span class="w"> </span><span class="n">accepted</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">stateMachineService</span><span class="p">.</span><span class="na">sendEvent</span><span class="p">(</span><span class="n">order</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">(),</span><span class="w"> </span><span class="n">PayOrderEvent</span><span class="p">.</span><span class="na">PAY_SUCCESS</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">accepted</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="n">PaymentException</span><span class="p">.</span><span class="na">systemError</span><span class="p">(</span><span class="s">&#34;状态机拒绝状态转换&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 7. 发布领域事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">eventPublisher</span><span class="p">.</span><span class="na">publish</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">PaymentSucceededEvent</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">order</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">(),</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="na">getBizOrderNo</span><span class="p">(),</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="na">getAmount</span><span class="p">(),</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="na">getChannel</span><span class="p">()));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">order</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+</code></pre>
+<pre><code class="language-java">@Service
+@Slf4j
+@RequiredArgsConstructor
+public class PayCallbackService {
+
+    private final PaymentOrderRepository paymentOrderRepository;
+    private final PayOrderStateMachineService stateMachineService;
+    private final AccountJournalService accountJournalService;
+    private final DomainEventPublisher eventPublisher;
+
+    /**
+     * 处理支付成功回调（幂等）
+     */
+    @Transactional
+    public PaymentOrder handlePayCallback(String transactionId, String channelResult) {
+        // 1. 查询流水
+        Transaction tx = findTransaction(transactionId);
+        PaymentOrder order = paymentOrderRepository.findById(tx.getPaymentOrderId())
+                .orElseThrow(() -&gt; new RuntimeException(&quot;支付单不存在&quot;));
+
+        // 2. 幂等校验：已经成功的不再处理
+        if (&quot;SUCCESS&quot;.equals(order.getStatus())) {
+            log.info(&quot;幂等回调: 支付单已成功, orderId={}&quot;, order.getOrderId());
+            return order;
+        }
+
+        // 3. 只处理 PAYING 状态的订单
+        if (!&quot;PAYING&quot;.equals(order.getStatus())) {
+            throw PaymentException.paramError(&quot;支付单状态异常: &quot; + order.getStatus());
+        }
+
+        // 4. 更新流水
+        tx.markSuccess(channelResult);
+        paymentOrderRepository.updateTransaction(tx);
+
+        // 5. 入账（幂等，利用唯一键）
+        JournalResult result = accountJournalService.credit(
+                transactionId, order.getMerchantId(), order.getAmount());
+        if (result.isDuplicated()) {
+            log.warn(&quot;入账幂等命中，但支付单状态仍需更新: {}&quot;, order.getOrderId());
+        }
+
+        // 6. 状态机：驱动 PAYING → SUCCESS
+        boolean accepted = stateMachineService.sendEvent(order.getOrderId(), PayOrderEvent.PAY_SUCCESS);
+        if (!accepted) {
+            throw PaymentException.systemError(&quot;状态机拒绝状态转换&quot;);
+        }
+
+        // 7. 发布领域事件
+        eventPublisher.publish(new PaymentSucceededEvent(
+                order.getOrderId(), order.getBizOrderNo(), order.getAmount(), order.getChannel()));
+
+        return order;
+    }
+}
+</code></pre>
+<hr>
 <h2 id="四幂等方案三去重表">四、幂等方案三：去重表</h2>
 <h3 id="41-原理redis-去重--db-兜底">4.1 原理：Redis 去重 + DB 兜底</h3>
 <p>大部分支付业务不需要强一致性去重，用 Redis 做第一道防线，DB 唯一键做第二道防线：</p>
-<pre tabindex="0"><code>请求到达时：
+<pre><code>请求到达时：
            ┌──────────┐
            │  Redis    │
            │ SETNX key │
@@ -351,41 +353,43 @@
          ▼
     DB 写入
     (唯一键兜底)
-</code></pre><h3 id="42-实现">4.2 实现</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Slf4j</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">IdempotencyServiceImpl</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">IdempotencyService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">IDEMPOTENT_KEY_PREFIX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;idempotent:&#34;</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">KEY_TTL_SECONDS</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">86400L</span><span class="p">;</span><span class="w"> </span><span class="c1">// 24小时</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">StringRedisTemplate</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="nf">tryProcess</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">idempotentKey</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">IDEMPOTENT_KEY_PREFIX</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">idempotentKey</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">().</span><span class="na">get</span><span class="p">(</span><span class="n">key</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">value</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 已有结果，反序列化返回</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">log</span><span class="p">.</span><span class="na">debug</span><span class="p">(</span><span class="s">&#34;幂等命中: key={}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">idempotentKey</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">JsonUtils</span><span class="p">.</span><span class="na">parse</span><span class="p">(</span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">saveResult</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">idempotentKey</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">result</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">IDEMPOTENT_KEY_PREFIX</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">idempotentKey</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">JsonUtils</span><span class="p">.</span><span class="na">toJson</span><span class="p">(</span><span class="n">result</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">().</span><span class="na">set</span><span class="p">(</span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="n">KEY_TTL_SECONDS</span><span class="p">,</span><span class="w"> </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">SECONDS</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+</code></pre>
+<h3 id="42-实现">4.2 实现</h3>
+<pre><code class="language-java">@Service
+@Slf4j
+public class IdempotencyServiceImpl implements IdempotencyService {
+
+    private static final String IDEMPOTENT_KEY_PREFIX = &quot;idempotent:&quot;;
+    private static final long KEY_TTL_SECONDS = 86400L; // 24小时
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    @Override
+    public &lt;T&gt; T tryProcess(String idempotentKey) {
+        String key = IDEMPOTENT_KEY_PREFIX + idempotentKey;
+        String value = redisTemplate.opsForValue().get(key);
+        if (value != null) {
+            // 已有结果，反序列化返回
+            log.debug(&quot;幂等命中: key={}&quot;, idempotentKey);
+            return JsonUtils.parse(value, null);
+        }
+        return null;
+    }
+
+    @Override
+    public void saveResult(String idempotentKey, Object result) {
+        String key = IDEMPOTENT_KEY_PREFIX + idempotentKey;
+        String value = JsonUtils.toJson(result);
+        redisTemplate.opsForValue().set(key, value, KEY_TTL_SECONDS, TimeUnit.SECONDS);
+    }
+}
+</code></pre>
+<hr>
 <h2 id="五幂等方案四token-机制前端兜底">五、幂等方案四：Token 机制（前端兜底）</h2>
 <h3 id="51-原理">5.1 原理</h3>
 <p>每次进入支付页面时，先向后端申请一个 token。提交支付时必须携带该 token，后端验证 token 有效后才处理。</p>
-<pre tabindex="0"><code>1. 用户进入支付页面 ──▶ 后端生成 token，存入 Redis ──▶ 返回给前端
+<pre><code>1. 用户进入支付页面 ──▶ 后端生成 token，存入 Redis ──▶ 返回给前端
 2. 用户提交支付 ──────▶ 携带 token ──▶ 后端验证 token
                            │
                      ┌─────┴─────┐
@@ -395,42 +399,44 @@
                      ▼           ▼
                 继续处理      拒绝处理（重复提交）
                 删除 token
-</code></pre><h3 id="52-实现">5.2 实现</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PaymentTokenService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">TOKEN_PREFIX</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;pay_token:&#34;</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">TOKEN_TTL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">300L</span><span class="p">;</span><span class="w"> </span><span class="c1">// 5 分钟</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">StringRedisTemplate</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * 生成支付 token
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">generateToken</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">bizOrderNo</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">token</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">UUID</span><span class="p">.</span><span class="na">randomUUID</span><span class="p">().</span><span class="na">toString</span><span class="p">().</span><span class="na">replace</span><span class="p">(</span><span class="s">&#34;-&#34;</span><span class="p">,</span><span class="w"> </span><span class="s">&#34;&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">().</span><span class="na">set</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">TOKEN_PREFIX</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">token</span><span class="p">,</span><span class="w"> </span><span class="n">bizOrderNo</span><span class="p">,</span><span class="w"> </span><span class="n">TOKEN_TTL</span><span class="p">,</span><span class="w"> </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">SECONDS</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">token</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * 验证并消费 token（幂等）
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * @return true: token 有效且未被使用
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">consumeToken</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">token</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TOKEN_PREFIX</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">token</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// DEL 返回 &gt;0 表示 key 存在且被删除</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Long</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">delete</span><span class="p">(</span><span class="n">key</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+</code></pre>
+<h3 id="52-实现">5.2 实现</h3>
+<pre><code class="language-java">@Service
+public class PaymentTokenService {
+
+    private static final String TOKEN_PREFIX = &quot;pay_token:&quot;;
+    private static final long TOKEN_TTL = 300L; // 5 分钟
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    /**
+     * 生成支付 token
+     */
+    public String generateToken(String bizOrderNo) {
+        String token = UUID.randomUUID().toString().replace(&quot;-&quot;, &quot;&quot;);
+        redisTemplate.opsForValue().set(
+                TOKEN_PREFIX + token, bizOrderNo, TOKEN_TTL, TimeUnit.SECONDS);
+        return token;
+    }
+
+    /**
+     * 验证并消费 token（幂等）
+     * @return true: token 有效且未被使用
+     */
+    public boolean consumeToken(String token) {
+        String key = TOKEN_PREFIX + token;
+        // DEL 返回 &gt;0 表示 key 存在且被删除
+        Long result = redisTemplate.delete(key);
+        return result != null &amp;&amp; result &gt; 0;
+    }
+}
+</code></pre>
+<hr>
 <h2 id="六分布式事务方案">六、分布式事务方案</h2>
 <p>幂等性解决的是&quot;同一个操作&quot;的重复问题。但支付系统的另一个核心问题是&quot;多个不同操作之间&quot;的一致性——比如扣款和入账需要保持一致。</p>
 <h3 id="61-支付系统的一致性要求">6.1 支付系统的一致性要求</h3>
-<pre tabindex="0"><code>支付成功的完整链路涉及多个独立系统：
+<pre><code>支付成功的完整链路涉及多个独立系统：
 
 用户账户 ─(扣款)──▶ 支付渠道 ─(回调)──▶ 支付系统 ─(入账)──▶ 商户账户
 
@@ -441,9 +447,10 @@
 │  组合 2：支付单状态 FAIL    + 用户资金解冻                  │
 │  组合 3：退款单状态 SUCCESS + 商户扣款 + 用户入账           │
 └─────────────────────────────────────────────────────────┘
-</code></pre><h3 id="62-tcc-模式try-confirm-cancel">6.2 TCC 模式（Try-Confirm-Cancel）</h3>
+</code></pre>
+<h3 id="62-tcc-模式try-confirm-cancel">6.2 TCC 模式（Try-Confirm-Cancel）</h3>
 <p>TCC 是支付系统中最常用的事务模式之一。它通过业务层面的补偿，保证跨系统的数据一致性。</p>
-<pre tabindex="0"><code>TCC 三个阶段：
+<pre><code>TCC 三个阶段：
 
 Try 阶段：
    冻结用户账户中的支付金额（不扣款，只是锁定）
@@ -457,108 +464,112 @@ Confirm 阶段：
 Cancel 阶段：
    解冻被冻结的资金
    将支付单状态更新为 FAIL
-</code></pre><p><strong>为什么要 Try？</strong> 如果不 Try 直接扣款，Confirm 失败后需要逆向操作：</p>
-<pre tabindex="0"><code>❌ 没有 Try：直接扣款
+</code></pre>
+<p><strong>为什么要 Try？</strong> 如果不 Try 直接扣款，Confirm 失败后需要逆向操作：</p>
+<pre><code>❌ 没有 Try：直接扣款
     扣款成功 → Confirm 入账失败 → 需要退款（逆向操作复杂）
 
 ✅ 有 Try：先冻结
     冻结成功 → Confirm 入账 → 解冻
     Confirm 失败 → Cancel 解冻（不涉及资金变动）
-</code></pre><h3 id="63-使用-seata-tcc-实现">6.3 使用 Seata TCC 实现</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kn">package</span><span class="w"> </span><span class="nn">com.payment.core.tcc</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">io.seata.rm.tcc.api.BusinessActionContext</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">io.seata.rm.tcc.api.LocalTCC</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">io.seata.rm.tcc.api.TwoPhaseBusinessAction</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm"> * TCC 支付接口
-</span></span></span><span class="line"><span class="cl"><span class="cm"> */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@LocalTCC</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">interface</span> <span class="nc">PaymentTccAction</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * Try：冻结资金
-</span></span></span><span class="line"><span class="cl"><span class="cm">     *
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * @param actionContext Seata 上下文
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * @param orderId       支付单号
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * @param amount        金额（分）
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * @return true: 冻结成功；false: 冻结失败
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@TwoPhaseBusinessAction</span><span class="p">(</span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;paymentTccAction&#34;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">commitMethod</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;confirm&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">rollbackMethod</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;cancel&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span><span class="n">BusinessActionContext</span><span class="w"> </span><span class="n">actionContext</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">String</span><span class="w"> </span><span class="n">orderId</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">amount</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * Confirm：确认扣款
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">confirm</span><span class="p">(</span><span class="n">BusinessActionContext</span><span class="w"> </span><span class="n">actionContext</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * Cancel：解冻资金
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">cancel</span><span class="p">(</span><span class="n">BusinessActionContext</span><span class="w"> </span><span class="n">actionContext</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kn">package</span><span class="w"> </span><span class="nn">com.payment.core.tcc</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">io.seata.rm.tcc.api.BusinessActionContext</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">lombok.extern.slf4j.Slf4j</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">org.springframework.stereotype.Component</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">org.springframework.transaction.annotation.Transactional</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm"> * TCC 支付实现 - 资金冻结与扣款
-</span></span></span><span class="line"><span class="cl"><span class="cm"> */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Slf4j</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PaymentTccActionImpl</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">PaymentTccAction</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">AccountFreezeMapper</span><span class="w"> </span><span class="n">freezeMapper</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span><span class="n">BusinessActionContext</span><span class="w"> </span><span class="n">ctx</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">orderId</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">amount</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">userId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">getActionContext</span><span class="p">(</span><span class="s">&#34;userId&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 冻结资金：插入冻结记录</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">AccountFreeze</span><span class="w"> </span><span class="n">freeze</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">AccountFreeze</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">freeze</span><span class="p">.</span><span class="na">setOrderId</span><span class="p">(</span><span class="n">orderId</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">freeze</span><span class="p">.</span><span class="na">setUserId</span><span class="p">(</span><span class="n">userId</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">freeze</span><span class="p">.</span><span class="na">setAmount</span><span class="p">(</span><span class="n">amount</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">freeze</span><span class="p">.</span><span class="na">setStatus</span><span class="p">(</span><span class="s">&#34;FROZEN&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">freezeMapper</span><span class="p">.</span><span class="na">insert</span><span class="p">(</span><span class="n">freeze</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;Try 冻结资金: orderId={}, userId={}, amount={}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">orderId</span><span class="p">,</span><span class="w"> </span><span class="n">userId</span><span class="p">,</span><span class="w"> </span><span class="n">amount</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">rows</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">confirm</span><span class="p">(</span><span class="n">BusinessActionContext</span><span class="w"> </span><span class="n">ctx</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">orderId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">getActionContext</span><span class="p">(</span><span class="s">&#34;orderId&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 确认扣款：删除冻结记录（表示资金已扣除）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">freezeMapper</span><span class="p">.</span><span class="na">deleteByOrderId</span><span class="p">(</span><span class="n">orderId</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;Confirm 确认扣款: orderId={}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">orderId</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">cancel</span><span class="p">(</span><span class="n">BusinessActionContext</span><span class="w"> </span><span class="n">ctx</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">orderId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">getActionContext</span><span class="p">(</span><span class="s">&#34;orderId&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 取消：删除冻结记录（资金回流）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">freezeMapper</span><span class="p">.</span><span class="na">deleteByOrderId</span><span class="p">(</span><span class="n">orderId</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;Cancel 解冻资金: orderId={}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">orderId</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="64-saga-模式">6.4 Saga 模式</h3>
+</code></pre>
+<h3 id="63-使用-seata-tcc-实现">6.3 使用 Seata TCC 实现</h3>
+<pre><code class="language-java">package com.payment.core.tcc;
+
+import io.seata.rm.tcc.api.BusinessActionContext;
+import io.seata.rm.tcc.api.LocalTCC;
+import io.seata.rm.tcc.api.TwoPhaseBusinessAction;
+
+/**
+ * TCC 支付接口
+ */
+@LocalTCC
+public interface PaymentTccAction {
+
+    /**
+     * Try：冻结资金
+     *
+     * @param actionContext Seata 上下文
+     * @param orderId       支付单号
+     * @param amount        金额（分）
+     * @return true: 冻结成功；false: 冻结失败
+     */
+    @TwoPhaseBusinessAction(name = &quot;paymentTccAction&quot;,
+            commitMethod = &quot;confirm&quot;, rollbackMethod = &quot;cancel&quot;)
+    boolean prepare(BusinessActionContext actionContext,
+                    String orderId, long amount);
+
+    /**
+     * Confirm：确认扣款
+     */
+    boolean confirm(BusinessActionContext actionContext);
+
+    /**
+     * Cancel：解冻资金
+     */
+    boolean cancel(BusinessActionContext actionContext);
+}
+</code></pre>
+<pre><code class="language-java">package com.payment.core.tcc;
+
+import io.seata.rm.tcc.api.BusinessActionContext;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * TCC 支付实现 - 资金冻结与扣款
+ */
+@Slf4j
+@Component
+public class PaymentTccActionImpl implements PaymentTccAction {
+
+    @Autowired
+    private AccountFreezeMapper freezeMapper;
+
+    @Override
+    @Transactional
+    public boolean prepare(BusinessActionContext ctx, String orderId, long amount) {
+        String userId = ctx.getActionContext(&quot;userId&quot;, String.class);
+
+        // 冻结资金：插入冻结记录
+        AccountFreeze freeze = new AccountFreeze();
+        freeze.setOrderId(orderId);
+        freeze.setUserId(userId);
+        freeze.setAmount(amount);
+        freeze.setStatus(&quot;FROZEN&quot;);
+
+        int rows = freezeMapper.insert(freeze);
+        log.info(&quot;Try 冻结资金: orderId={}, userId={}, amount={}&quot;, orderId, userId, amount);
+        return rows &gt; 0;
+    }
+
+    @Override
+    @Transactional
+    public boolean confirm(BusinessActionContext ctx) {
+        String orderId = ctx.getActionContext(&quot;orderId&quot;, String.class);
+
+        // 确认扣款：删除冻结记录（表示资金已扣除）
+        freezeMapper.deleteByOrderId(orderId);
+        log.info(&quot;Confirm 确认扣款: orderId={}&quot;, orderId);
+        return true;
+    }
+
+    @Override
+    @Transactional
+    public boolean cancel(BusinessActionContext ctx) {
+        String orderId = ctx.getActionContext(&quot;orderId&quot;, String.class);
+
+        // 取消：删除冻结记录（资金回流）
+        freezeMapper.deleteByOrderId(orderId);
+        log.info(&quot;Cancel 解冻资金: orderId={}&quot;, orderId);
+        return true;
+    }
+}
+</code></pre>
+<h3 id="64-saga-模式">6.4 Saga 模式</h3>
 <p>相对于 TCC 需要业务方实现 Try/Confirm/Cancel，Saga 模式更轻量——它通过<strong>本地事务 + 补偿操作</strong>来实现分布式事务。</p>
-<pre tabindex="0"><code>Saga 执行流程：
+<pre><code>Saga 执行流程：
 
 正向操作（执行本地事务）：
   Step 1：创建支付单（本地事务）
@@ -570,7 +581,8 @@ Cancel 阶段：
   Step 3 补偿：无（尚未执行）
   Step 2 补偿：调用退款接口退钱
   Step 1 补偿：将支付单置为 FAIL
-</code></pre><p><strong>Saga vs TCC 选择：</strong></p>
+</code></pre>
+<p><strong>Saga vs TCC 选择：</strong></p>
 <table>
 	<thead>
 			<tr>
@@ -609,7 +621,7 @@ Cancel 阶段：
 </table>
 <h3 id="65-基于-mq-的最终一致性方案">6.5 基于 MQ 的最终一致性方案</h3>
 <p>对于非核心链路（通知商户、发送短信、更新统计等），使用 MQ 最终一致性即可满足要求。</p>
-<pre tabindex="0"><code>┌────────────┐       ┌────────────┐       ┌────────────┐
+<pre><code>┌────────────┐       ┌────────────┐       ┌────────────┐
 │  支付成功    │       │   消息队列   │       │   消费者    │
 │             │       │  (RocketMQ) │       │            │
 │  1. 本地事务  │       │            │       │            │
@@ -617,44 +629,46 @@ Cancel 阶段：
 │    发送消息   │       │            │       │  入账/通知  │
 │    合并操作   │       │            │       │            │
 └────────────┘       └────────────┘       └────────────┘
-</code></pre><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 事务消息 - RocketMQ 示例</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Slf4j</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@RequiredArgsConstructor</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">PaymentTransactionalMessageService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">RocketMQTemplate</span><span class="w"> </span><span class="n">rocketMQTemplate</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">PaymentOrderRepository</span><span class="w"> </span><span class="n">paymentOrderRepository</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * 本地事务 + 发送消息
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">processPaymentSuccess</span><span class="p">(</span><span class="n">PaymentOrder</span><span class="w"> </span><span class="n">order</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 本地事务：更新支付单状态</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">order</span><span class="p">.</span><span class="na">complete</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">paymentOrderRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="n">order</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 发送事务消息（RocketMQ 事务消息）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果发送失败，本地事务回滚</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Message</span><span class="o">&lt;</span><span class="n">PaymentSucceededEvent</span><span class="o">&gt;</span><span class="w"> </span><span class="n">message</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MessageBuilder</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">withPayload</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">PaymentSucceededEvent</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">order</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">(),</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="na">getBizOrderNo</span><span class="p">(),</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">order</span><span class="p">.</span><span class="na">getAmount</span><span class="p">(),</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="na">getChannel</span><span class="p">()))</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">.</span><span class="na">build</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">rocketMQTemplate</span><span class="p">.</span><span class="na">sendMessageInTransaction</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="s">&#34;payment-topic&#34;</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">message</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">order</span><span class="p">.</span><span class="na">getOrderId</span><span class="p">()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+</code></pre>
+<pre><code class="language-java">// 事务消息 - RocketMQ 示例
+@Service
+@Slf4j
+@RequiredArgsConstructor
+public class PaymentTransactionalMessageService {
+
+    private final RocketMQTemplate rocketMQTemplate;
+    private final PaymentOrderRepository paymentOrderRepository;
+
+    /**
+     * 本地事务 + 发送消息
+     */
+    @Transactional
+    public void processPaymentSuccess(PaymentOrder order) {
+        // 1. 本地事务：更新支付单状态
+        order.complete();
+        paymentOrderRepository.save(order);
+
+        // 2. 发送事务消息（RocketMQ 事务消息）
+        // 如果发送失败，本地事务回滚
+        Message&lt;PaymentSucceededEvent&gt; message = MessageBuilder
+                .withPayload(new PaymentSucceededEvent(
+                        order.getOrderId(), order.getBizOrderNo(),
+                        order.getAmount(), order.getChannel()))
+                .build();
+
+        rocketMQTemplate.sendMessageInTransaction(
+                &quot;payment-topic&quot;,
+                message,
+                order.getOrderId()
+        );
+    }
+}
+</code></pre>
+<hr>
 <h2 id="七对账一致性的最终防线">七、对账：一致性的最终防线</h2>
 <p>无论设计多完善的分布式事务方案，都不能 100% 保证所有情况下都不出问题。<strong>对账是保障资金一致性的最终防线。</strong></p>
 <h3 id="71-对账体系">7.1 对账体系</h3>
-<pre tabindex="0"><code>对账的三层防线：
+<pre><code>对账的三层防线：
 
 第一层：实时对账（T+0）
    每次支付完成后，对比：
@@ -667,8 +681,9 @@ Cancel 阶段：
 第三层：资金对账（T+1）
    每日，对比：
      └── 账户余额 vs 实际入账金额
-</code></pre><h3 id="72-对账差异处理">7.2 对账差异处理</h3>
-<pre tabindex="0"><code>对账差异类型与处理方案：
+</code></pre>
+<h3 id="72-对账差异处理">7.2 对账差异处理</h3>
+<pre><code>对账差异类型与处理方案：
 
 ┌──────────────────────────────────────────────────────┐
 │  我方有，渠道无  →  渠道漏单 → 查询渠道确认 → 补单     │
@@ -683,43 +698,45 @@ Cancel 阶段：
 │                                                      │
 │  短款（渠道少付） →  向渠道发起争议                     │
 └──────────────────────────────────────────────────────┘
-</code></pre><hr>
+</code></pre>
+<hr>
 <h2 id="八支付系统的安全防护">八、支付系统的安全防护</h2>
 <h3 id="81-幂等防重放">8.1 幂等防重放</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm"> * 支付回调幂等防重放
-</span></span></span><span class="line"><span class="cl"><span class="cm"> * 利用 payment_order_id + callback_time 双重判断
-</span></span></span><span class="line"><span class="cl"><span class="cm"> */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">CallbackIdempotencyFilter</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/** 最近 N 秒内的相同回调，认为是重放 */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">REPLAY_WINDOW_SECONDS</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">5</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">StringRedisTemplate</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm">     * 检查是否是重放攻击
-</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">isReplayAttack</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">orderId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">channelTxId</span><span class="p">,</span><span class="w"> </span><span class="n">LocalDateTime</span><span class="w"> </span><span class="n">callbackTime</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;callback:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">orderId</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#34;:&#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">channelTxId</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">lastTime</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">().</span><span class="na">get</span><span class="p">(</span><span class="n">key</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">lastTime</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">LocalDateTime</span><span class="w"> </span><span class="n">lastCallback</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LocalDateTime</span><span class="p">.</span><span class="na">parse</span><span class="p">(</span><span class="n">lastTime</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 5 秒内的相同回调，认为是重放</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">Duration</span><span class="p">.</span><span class="na">between</span><span class="p">(</span><span class="n">lastCallback</span><span class="p">,</span><span class="w"> </span><span class="n">callbackTime</span><span class="p">).</span><span class="na">getSeconds</span><span class="p">()</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">REPLAY_WINDOW_SECONDS</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;检测到回调重放攻击: orderId={}, channelTxId={}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">orderId</span><span class="p">,</span><span class="w"> </span><span class="n">channelTxId</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">redisTemplate</span><span class="p">.</span><span class="na">opsForValue</span><span class="p">().</span><span class="na">set</span><span class="p">(</span><span class="n">key</span><span class="p">,</span><span class="w"> </span><span class="n">callbackTime</span><span class="p">.</span><span class="na">toString</span><span class="p">(),</span><span class="w"> </span><span class="n">1</span><span class="p">,</span><span class="w"> </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">HOURS</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="82-幂等设计的黄金法则">8.2 幂等设计的&quot;黄金法则&quot;</h3>
-<pre tabindex="0"><code>支付幂等设计五条黄金法则：
+<pre><code class="language-java">/**
+ * 支付回调幂等防重放
+ * 利用 payment_order_id + callback_time 双重判断
+ */
+public class CallbackIdempotencyFilter {
+
+    /** 最近 N 秒内的相同回调，认为是重放 */
+    private static final long REPLAY_WINDOW_SECONDS = 5;
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    /**
+     * 检查是否是重放攻击
+     */
+    public boolean isReplayAttack(String orderId, String channelTxId, LocalDateTime callbackTime) {
+        String key = &quot;callback:&quot; + orderId + &quot;:&quot; + channelTxId;
+        String lastTime = redisTemplate.opsForValue().get(key);
+
+        if (lastTime != null) {
+            LocalDateTime lastCallback = LocalDateTime.parse(lastTime);
+            // 5 秒内的相同回调，认为是重放
+            if (Duration.between(lastCallback, callbackTime).getSeconds() &lt; REPLAY_WINDOW_SECONDS) {
+                log.warn(&quot;检测到回调重放攻击: orderId={}, channelTxId={}&quot;, orderId, channelTxId);
+                return true;
+            }
+        }
+
+        redisTemplate.opsForValue().set(key, callbackTime.toString(), 1, TimeUnit.HOURS);
+        return false;
+    }
+}
+</code></pre>
+<h3 id="82-幂等设计的黄金法则">8.2 幂等设计的&quot;黄金法则&quot;</h3>
+<pre><code>支付幂等设计五条黄金法则：
 
 1. 唯一键是根基
    任何可重复的操作，必须有唯一的业务键
@@ -740,7 +757,8 @@ Cancel 阶段：
 5. 记录日志审计
    每一次幂等命中都要记录日志
    └── 用于事后审计和问题排查
-</code></pre><hr>
+</code></pre>
+<hr>
 <h2 id="九总结">九、总结</h2>
 <p>本文系统地梳理了支付系统幂等性和一致性的设计方案：</p>
 <h3 id="幂等方案矩阵">幂等方案矩阵</h3>
@@ -813,15 +831,16 @@ Cancel 阶段：
 	</tbody>
 </table>
 <h3 id="设计哲学">设计哲学</h3>
-<pre tabindex="0"><code>支付系统一致性设计的核心理念：
-&#34;不信任任何一次调用，为每个操作都做好重试和补偿的准备。&#34;
+<pre><code>支付系统一致性设计的核心理念：
+&quot;不信任任何一次调用，为每个操作都做好重试和补偿的准备。&quot;
 
 幂等性让你安全地重试。
 分布式事务让你安全地跨系统操作。
 对账让你在出错后能及时发现和修复。
 
 三者结合，才是完整的资金安全保障体系。
-</code></pre><hr>
+</code></pre>
+<hr>
 <blockquote>
 <p><strong>📚 系列文章导航</strong></p>
 <ul>
@@ -874,6 +893,9 @@ Cancel 阶段：
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -115,7 +112,7 @@
 <h2 id="一beanfactory-体系结构">一、BeanFactory 体系结构</h2>
 <p>在深入初始化过程之前，先理清 Spring IoC 容器最核心的类层次。</p>
 <h3 id="11-beanfactory-接口层次">1.1 BeanFactory 接口层次</h3>
-<pre tabindex="0"><code>BeanFactory                          ← 最基础：getBean()、containsBean()、isSingleton()
+<pre><code>BeanFactory                          ← 最基础：getBean()、containsBean()、isSingleton()
   │
   └── ListableBeanFactory            ← 可枚举：getBeanDefinitionNames()、getBeansOfType()
         │
@@ -126,7 +123,8 @@
                     └── AbstractAutowireCapableBeanFactory  ← 自动装配核心：createBean()、populateBean()
                           │
                           └── DefaultListableBeanFactory    ← 默认实现：BeanDefinition 注册与获取
-</code></pre><p><strong>核心职责分工：</strong></p>
+</code></pre>
+<p><strong>核心职责分工：</strong></p>
 <table>
 	<thead>
 			<tr>
@@ -163,21 +161,23 @@
 </table>
 <h3 id="12-applicationcontext-层次">1.2 ApplicationContext 层次</h3>
 <p><code>ApplicationContext</code> 是一个更高级的容器，它在 BeanFactory 的基础上增加了企业级功能。</p>
-<pre tabindex="0"><code>ApplicationContext
+<pre><code>ApplicationContext
   ├── BeanFactory（通过 getBeanFactory() 获取）
   ├── MessageSource（国际化）
   ├── ResourcePatternResolver（资源加载）
   ├── ApplicationEventPublisher（事件发布）
   └── EnvironmentCapable（环境配置）
-</code></pre><p><strong>常见实现类：</strong></p>
-<pre tabindex="0"><code>ApplicationContext
+</code></pre>
+<p><strong>常见实现类：</strong></p>
+<pre><code>ApplicationContext
   ├── ClassPathXmlApplicationContext     ← 基于 XML 配置
   ├── FileSystemXmlApplicationContext    ← 基于文件系统 XML
   ├── AnnotationConfigApplicationContext ← 基于注解配置（最常用）
   └── GenericWebApplicationContext        ← Web 环境
-</code></pre><h3 id="13-beandefinition-体系">1.3 BeanDefinition 体系</h3>
+</code></pre>
+<h3 id="13-beandefinition-体系">1.3 BeanDefinition 体系</h3>
 <p><code>BeanDefinition</code> 是 IoC 容器的核心数据模型——它描述了 Bean 的所有元信息。</p>
-<pre tabindex="0"><code>BeanDefinition
+<pre><code>BeanDefinition
   ├── beanClass                    // Bean 的类型
   ├── scope                        // 作用域（singleton/prototype）
   ├── lazyInit                     // 是否懒加载
@@ -189,7 +189,8 @@
   ├── dependsOn                    // 依赖关系
   ├── primary                      // 是否首选
   └── role                         // 角色（APPLICATION/INFRASTRUCTURE/SUPPORT）
-</code></pre><p><strong>BeanDefinition 的三种实现：</strong></p>
+</code></pre>
+<p><strong>BeanDefinition 的三种实现：</strong></p>
 <table>
 	<thead>
 			<tr>
@@ -214,87 +215,90 @@
 </table>
 <h2 id="二容器初始化流程">二、容器初始化流程</h2>
 <h3 id="21-入口annotationconfigapplicationcontext">2.1 入口：AnnotationConfigApplicationContext</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 一行代码启动容器</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">AnnotationConfigApplicationContext</span><span class="w"> </span><span class="n">context</span><span class="w"> </span><span class="o">=</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">new</span><span class="w"> </span><span class="n">AnnotationConfigApplicationContext</span><span class="p">(</span><span class="n">AppConfig</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span></code></pre></div><p><strong>构造器源码：</strong></p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AnnotationConfigApplicationContext.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AnnotationConfigApplicationContext</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">GenericApplicationContext</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">implements</span><span class="w"> </span><span class="n">AnnotationConfigRegistry</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 核心组件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">AnnotatedBeanDefinitionReader</span><span class="w"> </span><span class="n">reader</span><span class="p">;</span><span class="w">    </span><span class="c1">// 读取 @Configuration 类</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ClassPathBeanDefinitionScanner</span><span class="w"> </span><span class="n">scanner</span><span class="p">;</span><span class="w">  </span><span class="c1">// 扫描包路径</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">AnnotationConfigApplicationContext</span><span class="p">(</span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="p">...</span><span class="w"> </span><span class="n">componentClasses</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 调用父类构造器：创建 DefaultListableBeanFactory</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">super</span><span class="p">();</span><span class="w">  
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 初始化 reader 和 scanner</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">reader</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">AnnotatedBeanDefinitionReader</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">scanner</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ClassPathBeanDefinitionScanner</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 注册配置类</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">register</span><span class="p">(</span><span class="n">componentClasses</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 刷新容器（核心！）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">refresh</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="22-refresh容器的完整启动">2.2 refresh()——容器的完整启动</h3>
+<pre><code class="language-java">// 一行代码启动容器
+AnnotationConfigApplicationContext context = 
+    new AnnotationConfigApplicationContext(AppConfig.class);
+</code></pre>
+<p><strong>构造器源码：</strong></p>
+<pre><code class="language-java">// AnnotationConfigApplicationContext.java
+public class AnnotationConfigApplicationContext extends GenericApplicationContext
+        implements AnnotationConfigRegistry {
+
+    // 核心组件
+    private final AnnotatedBeanDefinitionReader reader;    // 读取 @Configuration 类
+    private final ClassPathBeanDefinitionScanner scanner;  // 扫描包路径
+
+    public AnnotationConfigApplicationContext(Class&lt;?&gt;... componentClasses) {
+        // 1. 调用父类构造器：创建 DefaultListableBeanFactory
+        super();  
+        // 2. 初始化 reader 和 scanner
+        this.reader = new AnnotatedBeanDefinitionReader(this);
+        this.scanner = new ClassPathBeanDefinitionScanner(this);
+        // 3. 注册配置类
+        register(componentClasses);
+        // 4. 刷新容器（核心！）
+        refresh();
+    }
+}
+</code></pre>
+<h3 id="22-refresh容器的完整启动">2.2 refresh()——容器的完整启动</h3>
 <p><code>refresh()</code> 是 <code>AbstractApplicationContext</code> 中定义的方法，是整个 IoC 容器的启动入口。</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractApplicationContext.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">refresh</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">BeansException</span><span class="p">,</span><span class="w"> </span><span class="n">IllegalStateException</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">synchronized</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">startupShutdownMonitor</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 刷新前置准备</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">prepareRefresh</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 获取 BeanFactory（子类实现）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">//    在 GenericApplicationContext 中就是获取已有的 DefaultListableBeanFactory</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ConfigurableListableBeanFactory</span><span class="w"> </span><span class="n">beanFactory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">obtainFreshBeanFactory</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. BeanFactory 预准备</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">prepareBeanFactory</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 4. BeanFactory 后置处理（子类扩展）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">postProcessBeanFactory</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 5. 调用 BeanFactoryPostProcessor</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">//    这里包含了 @Configuration 类解析、@ComponentScan 扫描、</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">//    @Import 处理等所有注解配置的解析逻辑</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">invokeBeanFactoryPostProcessors</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 6. 注册 BeanPostProcessor</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">registerBeanPostProcessors</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 7. 初始化 MessageSource</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">initMessageSource</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 8. 初始化事件广播器</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">initApplicationEventMulticaster</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 9. 子类模板方法（如 Web 容器中的 onRefresh）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">onRefresh</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 10. 注册监听器</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">registerListeners</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 11. 实例化所有非懒加载的单例 Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">finishBeanFactoryInitialization</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 12. 完成刷新：发布事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">finishRefresh</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">BeansException</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 异常处理：销毁已创建的 Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">destroyBeans</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">cancelRefresh</span><span class="p">(</span><span class="n">ex</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="n">ex</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">finally</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">resetCommonCaches</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p><code>refresh()</code> 的 12 个步骤可以用下图概括：</p>
-<pre tabindex="0"><code>prepareRefresh()                            [准备环境]
+<pre><code class="language-java">// AbstractApplicationContext.java
+@Override
+public void refresh() throws BeansException, IllegalStateException {
+    synchronized (this.startupShutdownMonitor) {
+        // 1. 刷新前置准备
+        prepareRefresh();
+
+        // 2. 获取 BeanFactory（子类实现）
+        //    在 GenericApplicationContext 中就是获取已有的 DefaultListableBeanFactory
+        ConfigurableListableBeanFactory beanFactory = obtainFreshBeanFactory();
+
+        // 3. BeanFactory 预准备
+        prepareBeanFactory(beanFactory);
+
+        try {
+            // 4. BeanFactory 后置处理（子类扩展）
+            postProcessBeanFactory(beanFactory);
+
+            // 5. 调用 BeanFactoryPostProcessor
+            //    这里包含了 @Configuration 类解析、@ComponentScan 扫描、
+            //    @Import 处理等所有注解配置的解析逻辑
+            invokeBeanFactoryPostProcessors(beanFactory);
+
+            // 6. 注册 BeanPostProcessor
+            registerBeanPostProcessors(beanFactory);
+
+            // 7. 初始化 MessageSource
+            initMessageSource();
+
+            // 8. 初始化事件广播器
+            initApplicationEventMulticaster();
+
+            // 9. 子类模板方法（如 Web 容器中的 onRefresh）
+            onRefresh();
+
+            // 10. 注册监听器
+            registerListeners();
+
+            // 11. 实例化所有非懒加载的单例 Bean
+            finishBeanFactoryInitialization(beanFactory);
+
+            // 12. 完成刷新：发布事件
+            finishRefresh();
+        } catch (BeansException ex) {
+            // 异常处理：销毁已创建的 Bean
+            destroyBeans();
+            cancelRefresh(ex);
+            throw ex;
+        } finally {
+            resetCommonCaches();
+        }
+    }
+}
+</code></pre>
+<p><code>refresh()</code> 的 12 个步骤可以用下图概括：</p>
+<pre><code>prepareRefresh()                            [准备环境]
     │
 obtainFreshBeanFactory()                     [获取 BeanFactory]
     │
@@ -315,58 +319,61 @@ registerListeners()                          [注册 ApplicationListener]
 finishBeanFactoryInitialization()            [★ 实例化所有非懒加载单例 Bean]
     │
 finishRefresh()                              [发布 ContextRefreshedEvent]
-</code></pre><p>下面展开最关键的两个步骤：<strong>第 5 步（BeanFactoryPostProcessor 调用）<strong>和</strong>第 11 步（单例 Bean 实例化）</strong>。</p>
+</code></pre>
+<p>下面展开最关键的两个步骤：<strong>第 5 步（BeanFactoryPostProcessor 调用）<strong>和</strong>第 11 步（单例 Bean 实例化）</strong>。</p>
 <h2 id="三invokebeanfactorypostprocessors配置类解析">三、invokeBeanFactoryPostProcessors——配置类解析</h2>
 <p>这一步是整个注解驱动的核心。Spring 通过 <code>ConfigurationClassPostProcessor</code>（一个 <code>BeanDefinitionRegistryPostProcessor</code>）来处理 <code>@Configuration</code> 类。</p>
 <h3 id="31-调用链路">3.1 调用链路</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractApplicationContext.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">invokeBeanFactoryPostProcessors</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="err">↓</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">PostProcessorRegistrationDelegate</span><span class="p">.</span><span class="na">invokeBeanFactoryPostProcessors</span><span class="p">(</span><span class="n">beanFactory</span><span class="p">,</span><span class="w"> </span><span class="n">getBeanFactoryPostProcessors</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="err">↓</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 找出所有 BeanDefinitionRegistryPostProcessor（BeanFactoryPostProcessor 的子接口）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 优先调用实现了 PriorityOrdered 的</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">BeanDefinitionRegistryPostProcessor</span><span class="w"> </span><span class="n">processor</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">registryProcessors</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">processor</span><span class="p">.</span><span class="na">postProcessBeanDefinitionRegistry</span><span class="p">(</span><span class="n">registry</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="err">↓</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">ConfigurationClassPostProcessor</span><span class="p">.</span><span class="na">postProcessBeanDefinitionRegistry</span><span class="p">()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="err">↓</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">processConfigBeanDefinitions</span><span class="p">(</span><span class="n">registry</span><span class="p">);</span><span class="w">  </span><span class="c1">// 核心逻辑</span><span class="w">
-</span></span></span></code></pre></div><h3 id="32-configurationclasspostprocessor-的处理逻辑">3.2 ConfigurationClassPostProcessor 的处理逻辑</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ConfigurationClassPostProcessor.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">processConfigBeanDefinitions</span><span class="p">(</span><span class="n">BeanDefinitionRegistry</span><span class="w"> </span><span class="n">registry</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 找出所有已注册的候选配置类</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">BeanDefinitionHolder</span><span class="o">&gt;</span><span class="w"> </span><span class="n">configCandidates</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">candidateNames</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">registry</span><span class="p">.</span><span class="na">getBeanDefinitionNames</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">beanName</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">candidateNames</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">BeanDefinition</span><span class="w"> </span><span class="n">bd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">registry</span><span class="p">.</span><span class="na">getBeanDefinition</span><span class="p">(</span><span class="n">beanName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ConfigurationClassUtils</span><span class="p">.</span><span class="na">checkConfigurationClassCandidate</span><span class="p">(</span><span class="n">bd</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">metadataReaderFactory</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">configCandidates</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">BeanDefinitionHolder</span><span class="p">(</span><span class="n">bd</span><span class="p">,</span><span class="w"> </span><span class="n">beanName</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 通过 ConfigurationClassParser 解析配置类</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ConfigurationClassParser</span><span class="w"> </span><span class="n">parser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ConfigurationClassParser</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">metadataReaderFactory</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">problemReporter</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">environment</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">resourceLoader</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">componentScanBeanNameGenerator</span><span class="p">,</span><span class="w"> </span><span class="n">registry</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">BeanDefinitionHolder</span><span class="o">&gt;</span><span class="w"> </span><span class="n">candidates</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">LinkedHashSet</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">configCandidates</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 递归解析（处理 @Import 等嵌套）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">parser</span><span class="p">.</span><span class="na">parse</span><span class="p">(</span><span class="n">candidates</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">parser</span><span class="p">.</span><span class="na">validate</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 获取解析出的所有配置类，转换成 BeanDefinition</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">ConfigurationClass</span><span class="o">&gt;</span><span class="w"> </span><span class="n">configClasses</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">.</span><span class="na">getConfigurationClasses</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 4. 使用 ConfigurationClassBeanDefinitionReader 将 @Bean 方法注册为 BeanDefinition</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">metadataReaderFactory</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">CachingMetadataReaderFactory</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ...</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">reader</span><span class="p">.</span><span class="na">loadBeanDefinitions</span><span class="p">(</span><span class="n">configClasses</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p><strong>解析器会处理哪些注解？</strong></p>
+<pre><code class="language-java">// AbstractApplicationContext.java
+invokeBeanFactoryPostProcessors(beanFactory);
+    ↓
+PostProcessorRegistrationDelegate.invokeBeanFactoryPostProcessors(beanFactory, getBeanFactoryPostProcessors());
+    ↓
+// 找出所有 BeanDefinitionRegistryPostProcessor（BeanFactoryPostProcessor 的子接口）
+// 优先调用实现了 PriorityOrdered 的
+for (BeanDefinitionRegistryPostProcessor processor : registryProcessors) {
+    processor.postProcessBeanDefinitionRegistry(registry);
+}
+    ↓
+ConfigurationClassPostProcessor.postProcessBeanDefinitionRegistry()
+    ↓
+processConfigBeanDefinitions(registry);  // 核心逻辑
+</code></pre>
+<h3 id="32-configurationclasspostprocessor-的处理逻辑">3.2 ConfigurationClassPostProcessor 的处理逻辑</h3>
+<pre><code class="language-java">// ConfigurationClassPostProcessor.java
+public void processConfigBeanDefinitions(BeanDefinitionRegistry registry) {
+    // 1. 找出所有已注册的候选配置类
+    List&lt;BeanDefinitionHolder&gt; configCandidates = new ArrayList&lt;&gt;();
+    String[] candidateNames = registry.getBeanDefinitionNames();
+    
+    for (String beanName : candidateNames) {
+        BeanDefinition bd = registry.getBeanDefinition(beanName);
+        if (ConfigurationClassUtils.checkConfigurationClassCandidate(bd, this.metadataReaderFactory)) {
+            configCandidates.add(new BeanDefinitionHolder(bd, beanName));
+        }
+    }
+
+    // 2. 通过 ConfigurationClassParser 解析配置类
+    ConfigurationClassParser parser = new ConfigurationClassParser(
+            this.metadataReaderFactory, this.problemReporter, this.environment,
+            this.resourceLoader, this.componentScanBeanNameGenerator, registry);
+    
+    Set&lt;BeanDefinitionHolder&gt; candidates = new LinkedHashSet&lt;&gt;(configCandidates);
+    // 递归解析（处理 @Import 等嵌套）
+    parser.parse(candidates);
+    parser.validate();
+
+    // 3. 获取解析出的所有配置类，转换成 BeanDefinition
+    Set&lt;ConfigurationClass&gt; configClasses = parser.getConfigurationClasses();
+    
+    // 4. 使用 ConfigurationClassBeanDefinitionReader 将 @Bean 方法注册为 BeanDefinition
+    if (this.metadataReaderFactory instanceof CachingMetadataReaderFactory) {
+        // ...
+    }
+    reader.loadBeanDefinitions(configClasses);
+}
+</code></pre>
+<p><strong>解析器会处理哪些注解？</strong></p>
 <table>
 	<thead>
 			<tr>
@@ -398,185 +405,191 @@ finishRefresh()                              [发布 ContextRefreshedEvent]
 	</tbody>
 </table>
 <h3 id="33-componentscan-扫描过程">3.3 @ComponentScan 扫描过程</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ClassPathBeanDefinitionScanner.doScan()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">BeanDefinitionHolder</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">doScan</span><span class="p">(</span><span class="n">String</span><span class="p">...</span><span class="w"> </span><span class="n">basePackages</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">basePackage</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">basePackages</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 扫描包下的所有 .class 文件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">BeanDefinition</span><span class="o">&gt;</span><span class="w"> </span><span class="n">candidates</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">findCandidateComponents</span><span class="p">(</span><span class="n">basePackage</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">BeanDefinition</span><span class="w"> </span><span class="n">candidate</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">candidates</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 2. 解析 @Scope</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">ScopeMetadata</span><span class="w"> </span><span class="n">scopeMetadata</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">scopeMetadataResolver</span><span class="p">.</span><span class="na">resolveScopeMetadata</span><span class="p">(</span><span class="n">candidate</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">candidate</span><span class="p">.</span><span class="na">setScope</span><span class="p">(</span><span class="n">scopeMetadata</span><span class="p">.</span><span class="na">getScopeName</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 3. 生成 BeanName</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="w"> </span><span class="n">beanName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">beanNameGenerator</span><span class="p">.</span><span class="na">generateBeanName</span><span class="p">(</span><span class="n">candidate</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">registry</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 4. 处理 @Lazy、@Primary、@DependsOn 等注解</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">AnnotationConfigUtils</span><span class="p">.</span><span class="na">processCommonDefinitionAnnotations</span><span class="p">(</span><span class="n">candidate</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 5. 检查 Bean 定义是否冲突</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">checkCandidate</span><span class="p">(</span><span class="n">beanName</span><span class="p">,</span><span class="w"> </span><span class="n">candidate</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">BeanDefinitionHolder</span><span class="w"> </span><span class="n">definitionHolder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">BeanDefinitionHolder</span><span class="p">(</span><span class="n">candidate</span><span class="p">,</span><span class="w"> </span><span class="n">beanName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 6. 注册到 BeanDefinitionRegistry</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">registerBeanDefinition</span><span class="p">(</span><span class="n">definitionHolder</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">registry</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">beanDefinitions</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="四beandefinition-注册">四、BeanDefinition 注册</h2>
+<pre><code class="language-java">// ClassPathBeanDefinitionScanner.doScan()
+protected Set&lt;BeanDefinitionHolder&gt; doScan(String... basePackages) {
+    for (String basePackage : basePackages) {
+        // 1. 扫描包下的所有 .class 文件
+        Set&lt;BeanDefinition&gt; candidates = findCandidateComponents(basePackage);
+        
+        for (BeanDefinition candidate : candidates) {
+            // 2. 解析 @Scope
+            ScopeMetadata scopeMetadata = this.scopeMetadataResolver.resolveScopeMetadata(candidate);
+            candidate.setScope(scopeMetadata.getScopeName());
+            
+            // 3. 生成 BeanName
+            String beanName = this.beanNameGenerator.generateBeanName(candidate, this.registry);
+            
+            // 4. 处理 @Lazy、@Primary、@DependsOn 等注解
+            AnnotationConfigUtils.processCommonDefinitionAnnotations(candidate);
+            
+            // 5. 检查 Bean 定义是否冲突
+            if (checkCandidate(beanName, candidate)) {
+                BeanDefinitionHolder definitionHolder = new BeanDefinitionHolder(candidate, beanName);
+                // 6. 注册到 BeanDefinitionRegistry
+                registerBeanDefinition(definitionHolder, this.registry);
+            }
+        }
+    }
+    return beanDefinitions;
+}
+</code></pre>
+<h2 id="四beandefinition-注册">四、BeanDefinition 注册</h2>
 <p>经过 <code>ConfigurationClassPostProcessor</code> 处理后，所有 Bean 定义都被注册到了 <code>DefaultListableBeanFactory</code> 中。</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultListableBeanFactory.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">BeanDefinition</span><span class="o">&gt;</span><span class="w"> </span><span class="n">beanDefinitionMap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ConcurrentHashMap</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">256</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">registerBeanDefinition</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">beanName</span><span class="p">,</span><span class="w"> </span><span class="n">BeanDefinition</span><span class="w"> </span><span class="n">beanDefinition</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">throws</span><span class="w"> </span><span class="n">BeanDefinitionStoreException</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 验证 BeanDefinition（解析 class 名称等）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">beanDefinition</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">AbstractBeanDefinition</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">((</span><span class="n">AbstractBeanDefinition</span><span class="p">)</span><span class="w"> </span><span class="n">beanDefinition</span><span class="p">).</span><span class="na">validate</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 检查是否已存在同名的 BeanDefinition</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">BeanDefinition</span><span class="w"> </span><span class="n">existingDefinition</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">beanDefinitionMap</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">beanName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">existingDefinition</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果是同名的，根据 allowBeanDefinitionOverriding 决定是否覆盖</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">isAllowBeanDefinitionOverriding</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">BeanDefinitionStoreException</span><span class="p">(</span><span class="n">beanDefinition</span><span class="p">.</span><span class="na">getResourceDescription</span><span class="p">(),</span><span class="w"> </span><span class="p">...);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 覆盖已有定义</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">beanDefinitionMap</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">beanName</span><span class="p">,</span><span class="w"> </span><span class="n">beanDefinition</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 检查是否有 Bean 正在创建（循环依赖检测的一部分）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hasBeanCreationStarted</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kd">synchronized</span><span class="w"> </span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">beanDefinitionMap</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">this</span><span class="p">.</span><span class="na">beanDefinitionMap</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">beanName</span><span class="p">,</span><span class="w"> </span><span class="n">beanDefinition</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">updatedDefinitions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">beanDefinitionNames</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">updatedDefinitions</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">beanName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">this</span><span class="p">.</span><span class="na">beanDefinitionNames</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">updatedDefinitions</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">this</span><span class="p">.</span><span class="na">manualSingletonNames</span><span class="p">.</span><span class="na">remove</span><span class="p">(</span><span class="n">beanName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">beanDefinitionMap</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">beanName</span><span class="p">,</span><span class="w"> </span><span class="n">beanDefinition</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">beanDefinitionNames</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="n">beanName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">manualSingletonNames</span><span class="p">.</span><span class="na">remove</span><span class="p">(</span><span class="n">beanName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 清除该 Bean 的旧解析缓存</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">frozenBeanDefinitionNames</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p>这一步后，<strong>Bean 的定义信息全部准备就绪</strong>，但 Bean 实例尚未创建。</p>
+<pre><code class="language-java">// DefaultListableBeanFactory.java
+private final Map&lt;String, BeanDefinition&gt; beanDefinitionMap = new ConcurrentHashMap&lt;&gt;(256);
+
+@Override
+public void registerBeanDefinition(String beanName, BeanDefinition beanDefinition)
+        throws BeanDefinitionStoreException {
+    
+    // 1. 验证 BeanDefinition（解析 class 名称等）
+    if (beanDefinition instanceof AbstractBeanDefinition) {
+        ((AbstractBeanDefinition) beanDefinition).validate();
+    }
+
+    // 2. 检查是否已存在同名的 BeanDefinition
+    BeanDefinition existingDefinition = this.beanDefinitionMap.get(beanName);
+    if (existingDefinition != null) {
+        // 如果是同名的，根据 allowBeanDefinitionOverriding 决定是否覆盖
+        if (!isAllowBeanDefinitionOverriding()) {
+            throw new BeanDefinitionStoreException(beanDefinition.getResourceDescription(), ...);
+        }
+        // 覆盖已有定义
+        this.beanDefinitionMap.put(beanName, beanDefinition);
+    } else {
+        // 3. 检查是否有 Bean 正在创建（循环依赖检测的一部分）
+        if (hasBeanCreationStarted()) {
+            synchronized (this.beanDefinitionMap) {
+                this.beanDefinitionMap.put(beanName, beanDefinition);
+                List&lt;String&gt; updatedDefinitions = new ArrayList&lt;&gt;(this.beanDefinitionNames);
+                updatedDefinitions.add(beanName);
+                this.beanDefinitionNames = updatedDefinitions;
+                this.manualSingletonNames.remove(beanName);
+            }
+        } else {
+            this.beanDefinitionMap.put(beanName, beanDefinition);
+            this.beanDefinitionNames.add(beanName);
+            this.manualSingletonNames.remove(beanName);
+        }
+        
+        // 4. 清除该 Bean 的旧解析缓存
+        this.frozenBeanDefinitionNames = null;
+    }
+}
+</code></pre>
+<p>这一步后，<strong>Bean 的定义信息全部准备就绪</strong>，但 Bean 实例尚未创建。</p>
 <p><strong>BeanDefinition 注册完成后的内存状态：</strong></p>
-<pre tabindex="0"><code>DefaultListableBeanFactory
+<pre><code>DefaultListableBeanFactory
 │
 ├── beanDefinitionMap（ConcurrentHashMap）
-│   ├── &#34;userService&#34;     → GenericBeanDefinition
-│   ├── &#34;userRepository&#34;  → ScannedGenericBeanDefinition
-│   ├── &#34;dataSource&#34;      → GenericBeanDefinition
-│   └── &#34;appConfig&#34;       → AnnotatedGenericBeanDefinition
+│   ├── &quot;userService&quot;     → GenericBeanDefinition
+│   ├── &quot;userRepository&quot;  → ScannedGenericBeanDefinition
+│   ├── &quot;dataSource&quot;      → GenericBeanDefinition
+│   └── &quot;appConfig&quot;       → AnnotatedGenericBeanDefinition
 │
 ├── beanDefinitionNames（有序 List）
-│   [&#34;appConfig&#34;, &#34;userService&#34;, &#34;userRepository&#34;, ...]
+│   [&quot;appConfig&quot;, &quot;userService&quot;, &quot;userRepository&quot;, ...]
 │
 └── singletonObjects       ← 此时为空（尚未实例化）
-</code></pre><h2 id="五finishbeanfactoryinitialization单例-bean-实例化">五、finishBeanFactoryInitialization——单例 Bean 实例化</h2>
+</code></pre>
+<h2 id="五finishbeanfactoryinitialization单例-bean-实例化">五、finishBeanFactoryInitialization——单例 Bean 实例化</h2>
 <p><code>refresh()</code> 的第 11 步，是所有「非懒加载单例 Bean」的实例化入口。</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractApplicationContext.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">finishBeanFactoryInitialization</span><span class="p">(</span><span class="n">ConfigurableListableBeanFactory</span><span class="w"> </span><span class="n">beanFactory</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 初始化 ConversionService（类型转换）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">beanFactory</span><span class="p">.</span><span class="na">containsBean</span><span class="p">(</span><span class="n">CONVERSION_SERVICE_BEAN_NAME</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">isTypeMatch</span><span class="p">(</span><span class="n">CONVERSION_SERVICE_BEAN_NAME</span><span class="p">,</span><span class="w"> </span><span class="n">ConversionService</span><span class="p">.</span><span class="na">class</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">setConversionService</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">getBean</span><span class="p">(</span><span class="n">CONVERSION_SERVICE_BEAN_NAME</span><span class="p">,</span><span class="w"> </span><span class="n">ConversionService</span><span class="p">.</span><span class="na">class</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 冻结 BeanDefinition（标记，不允许再修改）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">freezeConfiguration</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 实例化所有非懒加载单例 Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">preInstantiateSingletons</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p><strong><code>preInstantiateSingletons()</code> 在 <code>DefaultListableBeanFactory</code> 中的实现：</strong></p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// DefaultListableBeanFactory.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">preInstantiateSingletons</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">BeansException</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 遍历所有 BeanDefinition 名称</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">List</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="n">beanNames</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrayList</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">beanDefinitionNames</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 遍历触发 getBean 创建每个 Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">beanName</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">beanNames</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">RootBeanDefinition</span><span class="w"> </span><span class="n">bd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getMergedLocalBeanDefinition</span><span class="p">(</span><span class="n">beanName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 只处理非抽象、单例、非懒加载的 Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">bd</span><span class="p">.</span><span class="na">isAbstract</span><span class="p">()</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">bd</span><span class="p">.</span><span class="na">isSingleton</span><span class="p">()</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">bd</span><span class="p">.</span><span class="na">isLazyInit</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 如果是 FactoryBean，特殊处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">isFactoryBean</span><span class="p">(</span><span class="n">beanName</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">Object</span><span class="w"> </span><span class="n">bean</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getBean</span><span class="p">(</span><span class="n">FACTORY_BEAN_PREFIX</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">beanName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 如果是 SmartFactoryBean 且标记为 eager，触发 getObject()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">bean</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">SmartFactoryBean</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">((</span><span class="n">SmartFactoryBean</span><span class="o">&lt;?&gt;</span><span class="p">)</span><span class="w"> </span><span class="n">bean</span><span class="p">).</span><span class="na">isEagerInit</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">getBean</span><span class="p">(</span><span class="n">beanName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 核心调用：触发 Bean 创建</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">getBean</span><span class="p">(</span><span class="n">beanName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 后处理：对于实现了 SmartInitializingSingleton 的 Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">//    在所有单例实例化完成后回调</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">beanName</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">beanNames</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Object</span><span class="w"> </span><span class="n">singletonInstance</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getSingleton</span><span class="p">(</span><span class="n">beanName</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">singletonInstance</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">SmartInitializingSingleton</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">SmartInitializingSingleton</span><span class="w"> </span><span class="n">smart</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">SmartInitializingSingleton</span><span class="p">)</span><span class="w"> </span><span class="n">singletonInstance</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">smart</span><span class="p">.</span><span class="na">afterSingletonsInstantiated</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p>这里的 <code>getBean(beanName)</code> 最终进入 <code>AbstractBeanFactory.doGetBean()</code>，下一篇文章中会详细分析从 <code>getBean</code> 到 <code>createBean</code> 的完整路径。</p>
+<pre><code class="language-java">// AbstractApplicationContext.java
+protected void finishBeanFactoryInitialization(ConfigurableListableBeanFactory beanFactory) {
+    // 1. 初始化 ConversionService（类型转换）
+    if (beanFactory.containsBean(CONVERSION_SERVICE_BEAN_NAME)
+            &amp;&amp; beanFactory.isTypeMatch(CONVERSION_SERVICE_BEAN_NAME, ConversionService.class)) {
+        beanFactory.setConversionService(
+                beanFactory.getBean(CONVERSION_SERVICE_BEAN_NAME, ConversionService.class));
+    }
+
+    // 2. 冻结 BeanDefinition（标记，不允许再修改）
+    beanFactory.freezeConfiguration();
+
+    // 3. 实例化所有非懒加载单例 Bean
+    beanFactory.preInstantiateSingletons();
+}
+</code></pre>
+<p><strong><code>preInstantiateSingletons()</code> 在 <code>DefaultListableBeanFactory</code> 中的实现：</strong></p>
+<pre><code class="language-java">// DefaultListableBeanFactory.java
+@Override
+public void preInstantiateSingletons() throws BeansException {
+    // 1. 遍历所有 BeanDefinition 名称
+    List&lt;String&gt; beanNames = new ArrayList&lt;&gt;(this.beanDefinitionNames);
+    
+    // 2. 遍历触发 getBean 创建每个 Bean
+    for (String beanName : beanNames) {
+        RootBeanDefinition bd = getMergedLocalBeanDefinition(beanName);
+        
+        // 只处理非抽象、单例、非懒加载的 Bean
+        if (!bd.isAbstract() &amp;&amp; bd.isSingleton() &amp;&amp; !bd.isLazyInit()) {
+            // 如果是 FactoryBean，特殊处理
+            if (isFactoryBean(beanName)) {
+                Object bean = getBean(FACTORY_BEAN_PREFIX + beanName);
+                // 如果是 SmartFactoryBean 且标记为 eager，触发 getObject()
+                if (bean instanceof SmartFactoryBean &amp;&amp; ((SmartFactoryBean&lt;?&gt;) bean).isEagerInit()) {
+                    getBean(beanName);
+                }
+            } else {
+                // ★ 核心调用：触发 Bean 创建
+                getBean(beanName);
+            }
+        }
+    }
+
+    // 3. 后处理：对于实现了 SmartInitializingSingleton 的 Bean
+    //    在所有单例实例化完成后回调
+    for (String beanName : beanNames) {
+        Object singletonInstance = getSingleton(beanName);
+        if (singletonInstance instanceof SmartInitializingSingleton) {
+            SmartInitializingSingleton smart = (SmartInitializingSingleton) singletonInstance;
+            smart.afterSingletonsInstantiated();
+        }
+    }
+}
+</code></pre>
+<p>这里的 <code>getBean(beanName)</code> 最终进入 <code>AbstractBeanFactory.doGetBean()</code>，下一篇文章中会详细分析从 <code>getBean</code> 到 <code>createBean</code> 的完整路径。</p>
 <h2 id="六beanfactory-预准备">六、BeanFactory 预准备</h2>
 <p>回到 <code>refresh()</code> 的第 3 步 <code>prepareBeanFactory()</code>，它为 BeanFactory 配置了一些重要基础设施：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AbstractApplicationContext.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">prepareBeanFactory</span><span class="p">(</span><span class="n">ConfigurableListableBeanFactory</span><span class="w"> </span><span class="n">beanFactory</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 设置类加载器</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">setBeanClassLoader</span><span class="p">(</span><span class="n">getClassLoader</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 设置表达式解析器（#{...} SpEL 支持）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">setBeanExpressionResolver</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">StandardBeanExpressionResolver</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 3. 设置属性编辑器注册器</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">addPropertyEditorRegistrar</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ResourceEditorRegistrar</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="n">getEnvironment</span><span class="p">()));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 4. 添加 ApplicationContextAwareProcessor</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">//    使 Bean 能实现 Aware 接口回调</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">addBeanPostProcessor</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ApplicationContextAwareProcessor</span><span class="p">(</span><span class="k">this</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 5. 忽略特定 Aware 接口的自动装配</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">ignoreDependencyInterface</span><span class="p">(</span><span class="n">EnvironmentAware</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">ignoreDependencyInterface</span><span class="p">(</span><span class="n">EmbeddedValueResolverAware</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">ignoreDependencyInterface</span><span class="p">(</span><span class="n">ResourceLoaderAware</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">ignoreDependencyInterface</span><span class="p">(</span><span class="n">ApplicationEventPublisherAware</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">ignoreDependencyInterface</span><span class="p">(</span><span class="n">MessageSourceAware</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">ignoreDependencyInterface</span><span class="p">(</span><span class="n">ApplicationContextAware</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 6. 注册特殊依赖的自动装配</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">registerResolvableDependency</span><span class="p">(</span><span class="n">BeanFactory</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">beanFactory</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">registerResolvableDependency</span><span class="p">(</span><span class="n">ResourceLoader</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">registerResolvableDependency</span><span class="p">(</span><span class="n">ApplicationEventPublisher</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">registerResolvableDependency</span><span class="p">(</span><span class="n">ApplicationContext</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="k">this</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 7. 注册一些基础设施 Bean 的后处理器</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">addBeanPostProcessor</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ApplicationListenerDetector</span><span class="p">(</span><span class="k">this</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 8. 提前注册一些基础设施 Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">beanFactory</span><span class="p">.</span><span class="na">containsLocalBean</span><span class="p">(</span><span class="n">ENVIRONMENT_BEAN_NAME</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">registerSingleton</span><span class="p">(</span><span class="n">ENVIRONMENT_BEAN_NAME</span><span class="p">,</span><span class="w"> </span><span class="n">getEnvironment</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p><strong>这一步很重要——它告诉容器：</strong></p>
+<pre><code class="language-java">// AbstractApplicationContext.java
+protected void prepareBeanFactory(ConfigurableListableBeanFactory beanFactory) {
+    // 1. 设置类加载器
+    beanFactory.setBeanClassLoader(getClassLoader());
+    
+    // 2. 设置表达式解析器（#{...} SpEL 支持）
+    beanFactory.setBeanExpressionResolver(new StandardBeanExpressionResolver());
+    
+    // 3. 设置属性编辑器注册器
+    beanFactory.addPropertyEditorRegistrar(new ResourceEditorRegistrar(this, getEnvironment()));
+
+    // 4. 添加 ApplicationContextAwareProcessor
+    //    使 Bean 能实现 Aware 接口回调
+    beanFactory.addBeanPostProcessor(new ApplicationContextAwareProcessor(this));
+    
+    // 5. 忽略特定 Aware 接口的自动装配
+    beanFactory.ignoreDependencyInterface(EnvironmentAware.class);
+    beanFactory.ignoreDependencyInterface(EmbeddedValueResolverAware.class);
+    beanFactory.ignoreDependencyInterface(ResourceLoaderAware.class);
+    beanFactory.ignoreDependencyInterface(ApplicationEventPublisherAware.class);
+    beanFactory.ignoreDependencyInterface(MessageSourceAware.class);
+    beanFactory.ignoreDependencyInterface(ApplicationContextAware.class);
+
+    // 6. 注册特殊依赖的自动装配
+    beanFactory.registerResolvableDependency(BeanFactory.class, beanFactory);
+    beanFactory.registerResolvableDependency(ResourceLoader.class, this);
+    beanFactory.registerResolvableDependency(ApplicationEventPublisher.class, this);
+    beanFactory.registerResolvableDependency(ApplicationContext.class, this);
+
+    // 7. 注册一些基础设施 Bean 的后处理器
+    beanFactory.addBeanPostProcessor(new ApplicationListenerDetector(this));
+
+    // 8. 提前注册一些基础设施 Bean
+    if (!beanFactory.containsLocalBean(ENVIRONMENT_BEAN_NAME)) {
+        beanFactory.registerSingleton(ENVIRONMENT_BEAN_NAME, getEnvironment());
+    }
+}
+</code></pre>
+<p><strong>这一步很重要——它告诉容器：</strong></p>
 <ul>
 <li>当 Bean 中 <code>@Autowired EnvironmentAware</code> 时，应该注入什么</li>
 <li>当 Bean 实现了 <code>ApplicationContextAware</code>，由谁来处理回调</li>
@@ -584,7 +597,7 @@ finishRefresh()                              [发布 ContextRefreshedEvent]
 </ul>
 <h2 id="七总结">七、总结</h2>
 <h3 id="ioc-容器初始化流程速记">IoC 容器初始化流程速记</h3>
-<pre tabindex="0"><code>1. 创建 DefaultListableBeanFactory
+<pre><code>1. 创建 DefaultListableBeanFactory
 2. 注册配置类（AnnotatedBeanDefinitionReader）
 3. refresh() 启动
    ├─ prepareRefresh()           — 环境准备
@@ -602,7 +615,8 @@ finishRefresh()                              [发布 ContextRefreshedEvent]
    │    └─ preInstantiateSingletons()
    │         └─ getBean() → doGetBean() → createBean()
    └─ finishRefresh() — 发布事件
-</code></pre><h3 id="beanfactory-与-applicationcontext-对比">BeanFactory 与 ApplicationContext 对比</h3>
+</code></pre>
+<h3 id="beanfactory-与-applicationcontext-对比">BeanFactory 与 ApplicationContext 对比</h3>
 <table>
 	<thead>
 			<tr>
@@ -730,6 +744,9 @@ finishRefresh()                              [发布 ContextRefreshedEvent]
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

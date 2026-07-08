@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -103,16 +100,17 @@
 </ul>
 </blockquote>
 <h2 id="一高可用目标">一、高可用目标</h2>
-<pre tabindex="0"><code>支付系统可用性目标：
+<pre><code>支付系统可用性目标：
 
 SLA 99.99%
   └── 全年停机时间 &lt; 52.56 分钟
 
 SLA 99.999%
   └── 全年停机时间 &lt; 5.26 分钟
-</code></pre><h2 id="二冗余部署">二、冗余部署</h2>
+</code></pre>
+<h2 id="二冗余部署">二、冗余部署</h2>
 <h3 id="21-多副本部署">2.1 多副本部署</h3>
-<pre tabindex="0"><code>            ┌─────────────┐
+<pre><code>            ┌─────────────┐
             │  负载均衡     │
             │  (Nginx/LVS) │
             └──────┬──────┘
@@ -130,9 +128,10 @@ SLA 99.999%
            │   数据库主从    │
            │   Master/Slave │
            └───────────────┘
-</code></pre><h2 id="三降级策略">三、降级策略</h2>
+</code></pre>
+<h2 id="三降级策略">三、降级策略</h2>
 <h3 id="31-降级分级">3.1 降级分级</h3>
-<pre tabindex="0"><code>降级等级矩阵：
+<pre><code>降级等级矩阵：
 
 ┌─────────────────────────────────────────────────────────┐
 │  等级     |  动作             |  影响                    │
@@ -143,32 +142,34 @@ SLA 99.999%
 │  L3 严重  |  核心熔断           |  关闭全部支付功能        │
 │  L4 灾难  |  全站只读           |  仅可查询历史订单        │
 └─────────────────────────────────────────────────────────┘
-</code></pre><h3 id="32-自动降级实现">3.2 自动降级实现</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Slf4j</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DegradationManager</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">volatile</span><span class="w"> </span><span class="n">DegradeLevel</span><span class="w"> </span><span class="n">currentLevel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">DegradeLevel</span><span class="p">.</span><span class="na">L0</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">isAvailable</span><span class="p">(</span><span class="n">PaymentRequest</span><span class="w"> </span><span class="n">request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">currentLevel</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">DegradeLevel</span><span class="p">.</span><span class="na">L3</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">currentLevel</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">DegradeLevel</span><span class="p">.</span><span class="na">L4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">currentLevel</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">DegradeLevel</span><span class="p">.</span><span class="na">L2</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">isHighCostChannel</span><span class="p">(</span><span class="n">request</span><span class="p">.</span><span class="na">getChannel</span><span class="p">()))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">synchronized</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">upgradeLevel</span><span class="p">(</span><span class="n">DegradeLevel</span><span class="w"> </span><span class="n">level</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">level</span><span class="p">.</span><span class="na">ordinal</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">currentLevel</span><span class="p">.</span><span class="na">ordinal</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">log</span><span class="p">.</span><span class="na">warn</span><span class="p">(</span><span class="s">&#34;降级等级提升: {} → {}&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">currentLevel</span><span class="p">,</span><span class="w"> </span><span class="n">level</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">this</span><span class="p">.</span><span class="na">currentLevel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">level</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="四异地多活架构">四、异地多活架构</h2>
-<pre tabindex="0"><code>                   ┌──────────────────────┐
+</code></pre>
+<h3 id="32-自动降级实现">3.2 自动降级实现</h3>
+<pre><code class="language-java">@Component
+@Slf4j
+public class DegradationManager {
+
+    private volatile DegradeLevel currentLevel = DegradeLevel.L0;
+
+    public boolean isAvailable(PaymentRequest request) {
+        if (currentLevel == DegradeLevel.L3 || currentLevel == DegradeLevel.L4) {
+            return false;
+        }
+        if (currentLevel == DegradeLevel.L2 &amp;&amp; isHighCostChannel(request.getChannel())) {
+            return false;
+        }
+        return true;
+    }
+
+    public synchronized void upgradeLevel(DegradeLevel level) {
+        if (level.ordinal() &gt; currentLevel.ordinal()) {
+            log.warn(&quot;降级等级提升: {} → {}&quot;, currentLevel, level);
+            this.currentLevel = level;
+        }
+    }
+}
+</code></pre>
+<h2 id="四异地多活架构">四、异地多活架构</h2>
+<pre><code>                   ┌──────────────────────┐
                    │   全局负载均衡 (GSLB)  │
                    │   按地域 DNS 解析      │
                    └──────────┬───────────┘
@@ -190,7 +191,8 @@ SLA 99.999%
                      │  数据同步 (DTS)   │
                      │  主从双向复制     │
                      └─────────────────┘
-</code></pre><h2 id="五关键设计要点">五、关键设计要点</h2>
+</code></pre>
+<h2 id="五关键设计要点">五、关键设计要点</h2>
 <table>
 	<thead>
 			<tr>
@@ -258,6 +260,9 @@ SLA 99.999%
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

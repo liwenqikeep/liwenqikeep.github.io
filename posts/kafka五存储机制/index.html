@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -118,7 +115,7 @@
 <p>本文深入 Kafka 的存储结构——日志分段、索引文件、消息格式的演进，以及零拷贝的实现原理。</p>
 <h2 id="一日志存储结构">一、日志存储结构</h2>
 <h3 id="11-物理存储布局">1.1 物理存储布局</h3>
-<pre tabindex="0"><code>Kafka 的日志存储在配置的 log.dirs 目录下。
+<pre><code>Kafka 的日志存储在配置的 log.dirs 目录下。
 
 /data/kafka/logs/
   ├── orders-0/                        &lt;-- Topic=orders, Partition=0
@@ -137,8 +134,9 @@
   │
   └── __transaction_state/             &lt;-- 事务状态（内部 Topic）
         └── ...
-</code></pre><h3 id="12-logsegment日志分段">1.2 LogSegment——日志分段</h3>
-<pre tabindex="0"><code>每个 Partition 的日志被切分为多个 LogSegment。
+</code></pre>
+<h3 id="12-logsegment日志分段">1.2 LogSegment——日志分段</h3>
+<pre><code>每个 Partition 的日志被切分为多个 LogSegment。
 
 LogSegment 的构成：
 ├── .log 文件：存储实际的消息数据
@@ -148,15 +146,17 @@ LogSegment 的构成：
 滚动条件（满足任一即创建新分段）：
 1. log.segment.bytes（默认 1GB）——文件达到大小上限
 2. log.roll.ms / log.roll.hours——达到时间上限（默认 7 天）
-</code></pre><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-properties" data-lang="properties"><span class="line"><span class="cl"><span class="c1"># 分段配置</span>
-</span></span><span class="line"><span class="cl"><span class="na">log.segment.bytes</span> <span class="o">=</span> <span class="s">1073741824      # 1GB 滚动</span>
-</span></span><span class="line"><span class="cl"><span class="na">log.roll.hours</span> <span class="o">=</span> <span class="s">168                # 7 天滚动</span>
-</span></span><span class="line"><span class="cl"><span class="na">log.index.size.max.bytes</span> <span class="o">=</span> <span class="s">10485760 # 索引文件最大 10MB</span>
-</span></span><span class="line"><span class="cl"><span class="na">log.index.interval.bytes</span> <span class="o">=</span> <span class="s">4096     # 每 4KB 数据建一条索引</span>
-</span></span></code></pre></div><hr>
+</code></pre>
+<pre><code class="language-properties"># 分段配置
+log.segment.bytes = 1073741824      # 1GB 滚动
+log.roll.hours = 168                # 7 天滚动
+log.index.size.max.bytes = 10485760 # 索引文件最大 10MB
+log.index.interval.bytes = 4096     # 每 4KB 数据建一条索引
+</code></pre>
+<hr>
 <h2 id="二索引机制">二、索引机制</h2>
 <h3 id="21-偏移量索引index">2.1 偏移量索引（.index）</h3>
-<pre tabindex="0"><code>偏移量索引是稀疏索引——不是每条消息都建索引，而是每隔一定字节建一条。
+<pre><code>偏移量索引是稀疏索引——不是每条消息都建索引，而是每隔一定字节建一条。
 
 索引结构（内存映射，MappedByteBuffer）：
 ┌────────────────┬────────────────┐
@@ -172,14 +172,16 @@ LogSegment 的构成：
 1. 在索引文件中二分查找 ≤ 目标 offset 的最近的索引项
 2. 拿到 physicalPosition
 3. 从该位置开始顺序扫描 .log 文件直到找到目标消息
-</code></pre><pre tabindex="0"><code>例如：查找 offset=10 的消息
+</code></pre>
+<pre><code>例如：查找 offset=10 的消息
 
 二分查找索引文件找到 relativeOffset=7 的条目
 → physicalPosition=12000
 → 从 .log 文件的 12000 位置开始顺序扫描
 → 扫描 offset 8, 9, 10 → 找到目标消息
-</code></pre><h3 id="22-时间戳索引timeindex">2.2 时间戳索引（.timeindex）</h3>
-<pre tabindex="0"><code>用于按时间戳查找消息（如从某个时间点开始消费）。
+</code></pre>
+<h3 id="22-时间戳索引timeindex">2.2 时间戳索引（.timeindex）</h3>
+<pre><code>用于按时间戳查找消息（如从某个时间点开始消费）。
 
 时间戳索引结构：
 ┌──────────────────┬────────────────┐
@@ -195,10 +197,11 @@ LogSegment 的构成：
 1. 在 timeindex 中二分查找 ≤ 目标时间戳的最近条目
 2. 拿到对应的 relativeOffset
 3. 再用偏移量索引找到物理位置
-</code></pre><hr>
+</code></pre>
+<hr>
 <h2 id="三消息格式">三、消息格式</h2>
 <h3 id="31-消息格式演进">3.1 消息格式演进</h3>
-<pre tabindex="0"><code>Kafka 的消息格式经历了多个版本的演进：
+<pre><code>Kafka 的消息格式经历了多个版本的演进：
 
 v0（0.8.x）：
   crc + magic + attributes + key + value
@@ -210,8 +213,9 @@ v2（0.11.x，当前主流）：
   引入 RecordBatch，消息更紧凑
   支持事务和幂等性
   压缩效率更高
-</code></pre><h3 id="32-v2-消息格式">3.2 v2 消息格式</h3>
-<pre tabindex="0"><code>RecordBatch（消息批次）结构：
+</code></pre>
+<h3 id="32-v2-消息格式">3.2 v2 消息格式</h3>
+<pre><code>RecordBatch（消息批次）结构：
 ┌─────────────────────────────────┐
 │         Batch Header            │ 61 字节
 │  firstOffset, length, CRC,      │
@@ -231,24 +235,27 @@ Record v2 相比 v1 的优化：
 - 偏移量存储为相对值（增量编码）→ 节省空间
 - 消息头长度更紧凑（每条消息减少 8-15 字节）
 - 支持 headers（自定义键值对）
-</code></pre><hr>
+</code></pre>
+<hr>
 <h2 id="四零拷贝">四、零拷贝</h2>
 <h3 id="41-传统-io-vs-零拷贝">4.1 传统 IO vs 零拷贝</h3>
-<pre tabindex="0"><code>传统 IO 读取文件并发送网络：
+<pre><code>传统 IO 读取文件并发送网络：
   磁盘 → 内核缓冲区 → 用户空间 → 内核 Socket 缓冲区 → 网络
   共 4 次上下文切换 + 4 次数据拷贝
 
 零拷贝（sendfile）：  
   磁盘 → 内核缓冲区 → （DMA）→ 网卡
   共 2 次上下文切换 + 3 次数据拷贝（省去了用户空间的拷贝）
-</code></pre><pre tabindex="0"><code>Kafka 利用 Java 的 FileChannel.transferTo() 实现零拷贝。
+</code></pre>
+<pre><code>Kafka 利用 Java 的 FileChannel.transferTo() 实现零拷贝。
 
 消费者读取消息时的路径：
 1. 从磁盘读取 .log 文件到操作系统的 PageCache（第一次）
 2. 后续访问直接命中 PageCache（第二次后几乎零磁盘 IO）
 3. 通过 sendfile 直接从 PageCache 发送到网卡
-</code></pre><h3 id="42-零拷贝的性能优势">4.2 零拷贝的性能优势</h3>
-<pre tabindex="0"><code>传统模式：
+</code></pre>
+<h3 id="42-零拷贝的性能优势">4.2 零拷贝的性能优势</h3>
+<pre><code>传统模式：
   磁盘 → 内核缓冲区 → 应用缓冲区 → Socket 缓冲区 → 网络
   文件大小 1GB → 经过多次拷贝 → 吞吐量受限
 
@@ -257,36 +264,39 @@ Record v2 相比 v1 的优化：
   文件大小 1GB → 直接发送 → 接近网卡上限
 
 这就是 Kafka 能支撑单机百万 TPS 的核心原因之一。
-</code></pre><hr>
+</code></pre>
+<hr>
 <h2 id="五磁盘空间管理">五、磁盘空间管理</h2>
 <h3 id="51-日志清理策略">5.1 日志清理策略</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-properties" data-lang="properties"><span class="line"><span class="cl"><span class="c1"># 策略一：删除（delete）—— 默认</span>
-</span></span><span class="line"><span class="cl"><span class="na">log.cleanup.policy</span> <span class="o">=</span> <span class="s">delete</span>
-</span></span><span class="line"><span class="cl"><span class="na">log.retention.hours</span> <span class="o">=</span> <span class="s">168           # 保留 7 天</span>
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl"><span class="c1"># 删除机制：根据日志分段文件的最后修改时间</span>
-</span></span><span class="line"><span class="cl"><span class="c1"># 超过 retention 时间的分段文件被删除</span>
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl"><span class="c1"># 策略二：压缩（compact）</span>
-</span></span><span class="line"><span class="cl"><span class="na">log.cleanup.policy</span> <span class="o">=</span> <span class="s">compact</span>
-</span></span><span class="line"><span class="cl"><span class="c1"># 保留每个 key 的最新版本</span>
-</span></span><span class="line"><span class="cl"><span class="c1"># 适合&#34;变更日志&#34;类场景（如数据库的 binlog 同步）</span>
-</span></span></code></pre></div><h3 id="52-监控磁盘使用">5.2 监控磁盘使用</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="c1"># 查看各 Topic 的磁盘占用</span>
-</span></span><span class="line"><span class="cl">du -sh /data/kafka/logs/orders-*
-</span></span><span class="line"><span class="cl">du -sh /data/kafka/logs/*--*
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl"><span class="c1"># 查看日志删除情况（Kafka 日志）</span>
-</span></span><span class="line"><span class="cl">tail -f /data/kafka/logs/server.log <span class="p">|</span> grep <span class="s2">&#34;cleaner&#34;</span>
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl"><span class="c1"># 调整保留时间</span>
-</span></span><span class="line"><span class="cl">bin/kafka-configs.sh --alter <span class="se">\
-</span></span></span><span class="line"><span class="cl">    --entity-type topics <span class="se">\
-</span></span></span><span class="line"><span class="cl">    --entity-name orders <span class="se">\
-</span></span></span><span class="line"><span class="cl">    --add-config retention.ms<span class="o">=</span><span class="m">259200000</span>  <span class="c1"># 3 天</span>
-</span></span></code></pre></div><hr>
+<pre><code class="language-properties"># 策略一：删除（delete）—— 默认
+log.cleanup.policy = delete
+log.retention.hours = 168           # 保留 7 天
+
+# 删除机制：根据日志分段文件的最后修改时间
+# 超过 retention 时间的分段文件被删除
+
+# 策略二：压缩（compact）
+log.cleanup.policy = compact
+# 保留每个 key 的最新版本
+# 适合&quot;变更日志&quot;类场景（如数据库的 binlog 同步）
+</code></pre>
+<h3 id="52-监控磁盘使用">5.2 监控磁盘使用</h3>
+<pre><code class="language-bash"># 查看各 Topic 的磁盘占用
+du -sh /data/kafka/logs/orders-*
+du -sh /data/kafka/logs/*--*
+
+# 查看日志删除情况（Kafka 日志）
+tail -f /data/kafka/logs/server.log | grep &quot;cleaner&quot;
+
+# 调整保留时间
+bin/kafka-configs.sh --alter \
+    --entity-type topics \
+    --entity-name orders \
+    --add-config retention.ms=259200000  # 3 天
+</code></pre>
+<hr>
 <h2 id="六高吞吐量的根源">六、高吞吐量的根源</h2>
-<pre tabindex="0"><code>Kafka 高吞吐量的六大设计：
+<pre><code>Kafka 高吞吐量的六大设计：
 
 1. 顺序写磁盘
    消息追加到日志末尾，不是随机写
@@ -311,19 +321,22 @@ Record v2 相比 v1 的优化：
 6. PageCache 利用
    不自己做缓存管理，充分利用操作系统 PageCache
    读写都优先命中 PageCache
-</code></pre><hr>
+</code></pre>
+<hr>
 <h2 id="七总结">七、总结</h2>
 <h3 id="存储结构速记">存储结构速记</h3>
-<pre tabindex="0"><code>Topic → Partition → LogSegment(1GB)
+<pre><code>Topic → Partition → LogSegment(1GB)
   ├── .log        — 消息数据（顺序写）
   ├── .index      — 偏移量索引（稀疏）
   └── .timeindex  — 时间戳索引
-</code></pre><h3 id="数据流路径">数据流路径</h3>
-<pre tabindex="0"><code>写入：Producer → Network → PageCache → 磁盘（顺序写）
+</code></pre>
+<h3 id="数据流路径">数据流路径</h3>
+<pre><code>写入：Producer → Network → PageCache → 磁盘（顺序写）
 读取：磁盘 → PageCache → sendfile → 网卡
 
 核心：顺序写 + 零拷贝
-</code></pre><hr>
+</code></pre>
+<hr>
 <p><strong>上一篇：</strong> <a href="/posts/kafka%E5%9B%9B%E5%8F%AF%E9%9D%A0%E6%80%A7%E4%BF%9D%E8%AF%81/">Kafka（四）：可靠性保证</a></p>
 <p><strong>系列索引：</strong></p>
 <ul>
@@ -370,6 +383,9 @@ Record v2 相比 v1 的优化：
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="开发工程师 | 技术分享">
+    <title>K8s（九）：StatefulSet 与有状态应用 - Liwenqi&#39;s Blog</title>
+    
+    
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css">
+    
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    
+    <link rel="stylesheet" href="/fonts/fonts.css">
+    
+    
+</head>
+<body>
+    
+    <header class="header">
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/img/avatar.png" alt="Liwenqi&#39;s Blog" class="nav-avatar">
+                <span class="nav-title">Liwenqi&#39;s Blog</span>
+            </a>
+            
+            <button class="nav-toggle" id="navToggle" aria-label="切换菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="/" class="nav-link ">首页</a></li>
+                <li><a href="/post/" class="nav-link active">文章</a></li>
+                <li><a href="/about/" class="nav-link">关于</a></li>
+            </ul>
+        </div>
+    </nav>
+</header>
+    
+    
+    <main class="main">
+        <div class="container">
+            
+<div class="post-layout">
+    <aside class="article-toc" id="article-toc">
+    <div class="toc-header">
+        <span class="toc-title">目录</span>
+    </div>
+    <nav id="TableOfContents" class="toc-nav">
+        <nav id="TableOfContents">
+  <ul>
+    <li><a href="#有状态-vs-无状态应用">有状态 vs 无状态应用</a></li>
+    <li><a href="#statefulset-核心特性">StatefulSet 核心特性</a>
+      <ul>
+        <li><a href="#1-稳定的网络标识">1. 稳定的网络标识</a></li>
+        <li><a href="#2-稳定的存储">2. 稳定的存储</a></li>
+        <li><a href="#3-有序部署伸缩与删除">3. 有序部署、伸缩与删除</a></li>
+      </ul>
+    </li>
+    <li><a href="#statefulset-的-yaml-结构">StatefulSet 的 YAML 结构</a>
+      <ul>
+        <li><a href="#无头-service-示例">无头 Service 示例</a></li>
+      </ul>
+    </li>
+    <li><a href="#实战部署有状态-mysql-实例">实战：部署有状态 MySQL 实例</a>
+      <ul>
+        <li><a href="#1-创建-namespace">1. 创建 Namespace</a></li>
+        <li><a href="#2-创建-secret-保存-mysql-密码">2. 创建 Secret 保存 MySQL 密码</a></li>
+        <li><a href="#3-创建无头-service">3. 创建无头 Service</a></li>
+        <li><a href="#4-创建-statefulset">4. 创建 StatefulSet</a></li>
+        <li><a href="#5-验证">5. 验证</a></li>
+      </ul>
+    </li>
+    <li><a href="#扩缩容与更新策略">扩缩容与更新策略</a>
+      <ul>
+        <li><a href="#扩缩容">扩缩容</a></li>
+        <li><a href="#更新策略">更新策略</a></li>
+      </ul>
+    </li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#系列文章">系列文章</a></li>
+  </ul>
+</nav>
+    </nav>
+    <div class="toc-footer">
+        <a href="#" class="back-to-top" id="back-to-top">
+            <span class="back-to-top-icon">↑</span>
+            <span class="back-to-top-text">返回顶部</span>
+        </a>
+    </div>
+</aside>
+    
+    <article class="page">
+        <header class="page-header">
+            <h1 class="page-title">K8s（九）：StatefulSet 与有状态应用</h1>
+        </header>
+
+        <div class="page-content">
+            <p>在前面的文章中，我们学习了 Deployment、Service、Volume 等核心概念。Deployment 非常适合部署无状态应用——所有 Pod 都是可互换的，任何一个 Pod 都可以随时被替换。但如果应用需要<strong>持久化数据</strong>和<strong>稳定的网络标识</strong>呢？比如数据库、消息队列、缓存集群等有状态应用。这时，StatefulSet 就派上了用场。</p>
+<h2 id="有状态-vs-无状态应用">有状态 vs 无状态应用</h2>
+<p>在深入 StatefulSet 之前，先理解两个概念：</p>
+<table>
+	<thead>
+			<tr>
+					<th>特性</th>
+					<th>无状态应用（Stateless）</th>
+					<th>有状态应用（Stateful）</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>数据持久性</td>
+					<td>不需要持久化数据</td>
+					<td>需要持久化数据</td>
+			</tr>
+			<tr>
+					<td>网络标识</td>
+					<td>不要求固定名称</td>
+					<td>需要稳定的网络标识</td>
+			</tr>
+			<tr>
+					<td>扩缩容</td>
+					<td>随意扩缩、顺序无关</td>
+					<td>需要有序、可控的扩缩</td>
+			</tr>
+			<tr>
+					<td>典型代表</td>
+					<td>Web 前端、API 服务</td>
+					<td>数据库、消息队列、缓存</td>
+			</tr>
+	</tbody>
+</table>
+<p>Deployment 创建的 Pod 名称是随机 hash（如 <code>web-7d8b9c5d6f-abcde</code>），重启后名称和 IP 都会变。这对无状态应用没问题，但对有状态应用——比如数据库主从节点——节点身份必须固定，不能随着重启而改变。</p>
+<h2 id="statefulset-核心特性">StatefulSet 核心特性</h2>
+<p>StatefulSet 专门为有状态应用设计，提供了三个关键保证：</p>
+<h3 id="1-稳定的网络标识">1. 稳定的网络标识</h3>
+<p>StatefulSet 创建的每个 Pod 都有一个<strong>固定且有序的标识</strong>，格式为 <code>$(statefulset名称)-$(序号)</code>。</p>
+<p>例如，一个名为 <code>mysql</code>、副本数为 3 的 StatefulSet 会依次创建：</p>
+<pre><code class="language-text">mysql-0
+mysql-1
+mysql-2
+</code></pre>
+<p>每个 Pod 的名称在整个生命周期内保持不变——即使 Pod 被重新调度到其他节点，名称也不会变。配合无头服务（Headless Service），可以通过 DNS 以固定域名访问每个 Pod。</p>
+<h3 id="2-稳定的存储">2. 稳定的存储</h3>
+<p>StatefulSet 通过 <code>volumeClaimTemplates</code>（卷申请模板）为每个 Pod 自动创建独立的 PVC（PersistentVolumeClaim）。即使 Pod 被删除重建，PVC 依然保留，新 Pod 会自动挂载同一块持久化存储。</p>
+<h3 id="3-有序部署伸缩与删除">3. 有序部署、伸缩与删除</h3>
+<p>StatefulSet 对 Pod 的创建和删除遵循严格的顺序：</p>
+<ul>
+<li><strong>有序创建</strong>：从序号 0 开始，依次创建，只有前一个 Pod 进入 Running 状态后才会创建下一个</li>
+<li><strong>有序缩容</strong>：从序号最大的 Pod 开始删除</li>
+<li><strong>有序滚动更新</strong>：默认从最大序号开始更新，保证应用始终可用</li>
+</ul>
+<h2 id="statefulset-的-yaml-结构">StatefulSet 的 YAML 结构</h2>
+<p>下面是一个 StatefulSet 的典型 YAML：</p>
+<pre><code class="language-yaml">apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: web
+spec:
+  serviceName: &quot;nginx&quot;          # 关联的无头 Service 名称
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.21
+        ports:
+        - containerPort: 80
+          name: web
+        volumeMounts:
+        - name: www
+          mountPath: /usr/share/nginx/html
+  volumeClaimTemplates:          # 卷申请模板
+  - metadata:
+      name: www
+    spec:
+      accessModes: [&quot;ReadWriteOnce&quot;]
+      resources:
+        requests:
+          storage: 1Gi
+</code></pre>
+<p>关键字段说明：</p>
+<ul>
+<li><strong><code>serviceName</code></strong>：必须指定一个无头 Service（Headless Service，即 <code>clusterIP: None</code>），用来为每个 Pod 提供稳定的 DNS 域名</li>
+<li><strong><code>volumeClaimTemplates</code></strong>：定义 PVC 模板，StatefulSet 会为每个 Pod 自动创建一个 PVC，命名格式为 <code>$(volumeClaimTemplates名称)-$(statefulset名称)-$(序号)</code></li>
+</ul>
+<h3 id="无头-service-示例">无头 Service 示例</h3>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+spec:
+  clusterIP: None        # 无头 Service
+  selector:
+    app: nginx
+  ports:
+  - port: 80
+</code></pre>
+<p>有了这个 Service，每个 Pod 可以通过以下 DNS 名称被直接访问：</p>
+<pre><code class="language-text">web-0.nginx.default.svc.cluster.local
+web-1.nginx.default.svc.cluster.local
+web-2.nginx.default.svc.cluster.local
+</code></pre>
+<h2 id="实战部署有状态-mysql-实例">实战：部署有状态 MySQL 实例</h2>
+<p>下面我们通过 StatefulSet 部署一个单实例 MySQL，体会稳定的存储和网络标识带来的好处。</p>
+<h3 id="1-创建-namespace">1. 创建 Namespace</h3>
+<pre><code class="language-bash">kubectl create namespace database
+</code></pre>
+<h3 id="2-创建-secret-保存-mysql-密码">2. 创建 Secret 保存 MySQL 密码</h3>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  namespace: database
+type: Opaque
+data:
+  root-password: cm9vdDEyMzQ1Ng==   # root123456 的 base64
+</code></pre>
+<h3 id="3-创建无头-service">3. 创建无头 Service</h3>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: database
+spec:
+  clusterIP: None
+  selector:
+    app: mysql
+  ports:
+  - port: 3306
+</code></pre>
+<h3 id="4-创建-statefulset">4. 创建 StatefulSet</h3>
+<pre><code class="language-yaml">apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: database
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: root-password
+        ports:
+        - containerPort: 3306
+          name: mysql
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [&quot;ReadWriteOnce&quot;]
+      resources:
+        requests:
+          storage: 10Gi
+</code></pre>
+<p>启动后，MySQL Pod 名称为 <code>mysql-0</code>，数据存储在自动创建的 PVC <code>data-mysql-0</code> 中。</p>
+<h3 id="5-验证">5. 验证</h3>
+<pre><code class="language-bash"># 查看 Pod
+kubectl -n database get pods
+
+# 查看 PVC
+kubectl -n database get pvc
+
+# 通过 DNS 访问
+kubectl run -it --rm busybox --image=busybox -- sh
+# nslookup mysql-0.mysql.database.svc.cluster.local
+</code></pre>
+<p>删除 Pod 后重建，验证数据是否保留：</p>
+<pre><code class="language-bash"># 删除 Pod
+kubectl -n database delete pod mysql-0
+
+# 等待 StatefulSet 自动重建
+kubectl -n database get pods -w
+
+# 进入容器检查数据
+kubectl -n database exec mysql-0 -- mysql -uroot -proot123456 -e &quot;SHOW DATABASES;&quot;
+</code></pre>
+<p>数据依然存在！这就是 <code>volumeClaimTemplates</code> 的功劳——Pod 虽然重建了，但 PVC 没有删除，新 Pod 自动绑定了同一块存储。</p>
+<h2 id="扩缩容与更新策略">扩缩容与更新策略</h2>
+<h3 id="扩缩容">扩缩容</h3>
+<p>与 Deployment 类似，修改 <code>replicas</code> 即可：</p>
+<pre><code class="language-bash">kubectl scale sts mysql --replicas=3 -n database
+</code></pre>
+<p>StatefulSet 会依次创建 <code>mysql-1</code>、<code>mysql-2</code>（前提是你配置了主从同步机制）。</p>
+<h3 id="更新策略">更新策略</h3>
+<p>StatefulSet 支持两种更新策略：</p>
+<ol>
+<li><strong><code>RollingUpdate</code>（默认）</strong>：滚动更新，从最大序号开始更新，保证应用持续可用</li>
+<li><strong><code>OnDelete</code></strong>：手动删除 Pod 后才触发更新，适合需要精细控制的场景</li>
+</ol>
+<pre><code class="language-yaml">spec:
+  updateStrategy:
+    type: RollingUpdate
+</code></pre>
+<p><code>RollingUpdate</code> 还支持 <code>partition</code> 参数，用于实现<strong>金丝雀发布</strong>（灰度发布）：</p>
+<pre><code class="language-yaml">spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 2   # 只更新序号 &gt;= 2 的 Pod
+</code></pre>
+<p>这样只有 <code>mysql-2</code> 会被更新，<code>mysql-0</code> 和 <code>mysql-1</code> 保持不变，验证新版本没问题后再逐步降低 <code>partition</code> 值。</p>
+<h2 id="总结">总结</h2>
+<p>本文我们学习了：</p>
+<ul>
+<li><strong>StatefulSet</strong> 是 K8s 中有状态应用的核心工作负载，提供稳定的网络标识、稳定的存储和有序的部署/伸缩行为</li>
+<li>通过 <strong><code>volumeClaimTemplates</code></strong> 自动为每个 Pod 创建独立的 PVC，实现存储与 Pod 生命周期的解耦</li>
+<li>配合<strong>无头 Service（Headless Service）</strong>，为每个 Pod 提供固定的 DNS 域名</li>
+<li>支持<strong>有序滚动更新</strong>和 <strong>OnDelete</strong> 两种更新策略，以及**分区更新（partition）**实现灰度发布</li>
+<li>实战部署了 MySQL 实例，验证了 Pod 重建后数据持久化能力</li>
+</ul>
+<p>StatefulSet 在 K8s 生态中承担着&quot;压舱石&quot;的角色——当你的应用需要稳定的身份和数据时，它就是不二之选。下一篇文章我们将介绍 Helm 包管理器，看看如何将复杂的 K8s 资源打包复用。</p>
+<hr>
+<h2 id="系列文章">系列文章</h2>
+<ul>
+<li><a href="/posts/k8s%E4%B8%80%E4%BB%8E%E9%9B%B6%E8%AE%A4%E8%AF%86-kubernetes-%E6%9E%B6%E6%9E%84%E4%B8%8E%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5/">K8s（一）：从零认识 Kubernetes — 架构与核心概念</a></li>
+<li><a href="/posts/k8s%E4%BA%8C%E4%BD%BF%E7%94%A8-kubeadm-%E6%90%AD%E5%BB%BA-k8s-%E9%9B%86%E7%BE%A4%E5%AE%9E%E6%88%98/">K8s（二）：使用 kubeadm 搭建 K8s 集群实战</a></li>
+<li><a href="/posts/k8s%E4%B8%89pod-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%E4%B8%8E%E5%AE%B9%E5%99%A8%E7%BC%96%E6%8E%92%E5%9F%BA%E7%A1%80/">K8s（三）：Pod 核心概念与容器编排基础</a></li>
+<li><a href="/posts/k8s%E5%9B%9Bdeployment-%E4%B8%8E-replicaset-%E5%BA%94%E7%94%A8%E9%83%A8%E7%BD%B2%E4%B8%8E%E6%89%A9%E7%BC%A9%E5%AE%B9/">K8s（四）：Deployment 与 ReplicaSet — 应用部署与扩缩容</a></li>
+<li><a href="/posts/k8s%E4%BA%94service-%E4%B8%8E%E9%9B%86%E7%BE%A4%E5%86%85%E6%9C%8D%E5%8A%A1%E5%8F%91%E7%8E%B0/">K8s（五）：Service 与集群内服务发现</a></li>
+<li><a href="/posts/k8s%E5%85%ADingress-%E4%B8%8E%E9%9B%86%E7%BE%A4%E5%A4%96%E9%83%A8%E6%B5%81%E9%87%8F%E6%8E%A5%E5%85%A5/">K8s（六）：Ingress 与集群外部流量接入</a></li>
+<li><a href="/posts/k8s%E4%B8%83configmap-%E4%B8%8E-secret-%E9%85%8D%E7%BD%AE%E7%AE%A1%E7%90%86/">K8s（七）：ConfigMap 与 Secret — 配置管理</a></li>
+<li><a href="/posts/k8s%E5%85%ABvolume-%E4%B8%8E%E6%8C%81%E4%B9%85%E5%8C%96%E5%AD%98%E5%82%A8/">K8s（八）：Volume 与持久化存储</a></li>
+<li><a href="/posts/k8s%E5%8D%81helm-%E5%8C%85%E7%AE%A1%E7%90%86%E5%99%A8%E5%85%A5%E9%97%A8/">K8s（十）：Helm 包管理器入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%B8%80%E9%9B%86%E7%BE%A4%E5%AE%89%E5%85%A8%E5%9F%BA%E7%A1%80-rbac-%E4%B8%8E-serviceaccount/">K8s（十一）：集群安全基础 — RBAC 与 ServiceAccount</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%BA%8C%E7%9B%91%E6%8E%A7%E4%B8%8E%E6%97%A5%E5%BF%97-%E5%8F%AF%E8%A7%82%E6%B5%8B%E6%80%A7%E5%85%A5%E9%97%A8/">K8s（十二）：监控与日志 — 可观测性入门</a></li>
+<li><a href="/posts/k8s%E5%8D%81%E4%B8%89%E7%94%9F%E4%BA%A7%E5%AE%9E%E8%B7%B5%E4%B8%8E%E7%B3%BB%E5%88%97%E6%80%BB%E7%BB%93/">K8s（十三）：生产实践与系列总结</a></li>
+</ul>
+        </div>
+    </article>
+</div>
+
+        </div>
+    </main>
+    
+    
+    <footer class="footer">
+    <div class="footer-container">
+        <div class="footer-social">
+            
+            <a href="https://github.com/liwenqikeep" target="_blank" class="social-link" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+            </a>
+            
+            
+            <a href="mailto:liwenqikeep@foxmail.com" class="social-link" title="邮箱">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </a>
+            
+        </div>
+        
+        <div class="footer-info">
+            <p>&copy; 2026 Liwenqi. All rights reserved.</p>
+            <p>Powered by <a href="https://gohugo.io/" target="_blank">Hugo</a></p>
+        </div>
+    </div>
+</footer>
+    
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <script src="/js/main.js"></script>
+    <script src="/js/toc.js"></script>
+    
+    
+</body>
+</html>

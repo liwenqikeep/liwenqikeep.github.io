@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -97,177 +94,185 @@
             <h1 id="nio-selector-多路复用">NIO Selector 多路复用</h1>
 <h2 id="什么是-selector">什么是 Selector</h2>
 <p>Selector（选择器）是 NIO 的核心组件，用于监控多个 Channel 的 IO 状态，实现单线程管理多连接。</p>
-<pre tabindex="0"><code>传统 BIO:                    NIO Selector:
+<pre><code>传统 BIO:                    NIO Selector:
 [线程1] → [连接1]           [线程] → [Selector] → [连接1]
 [线程2] → [连接2]           ↓                   [连接2]
 [线程3] → [连接3]           监控 IO 状态        [连接3]
   ...                       ↓
                           处理就绪事件
-</code></pre><h2 id="为什么需要-selector">为什么需要 Selector</h2>
+</code></pre>
+<h2 id="为什么需要-selector">为什么需要 Selector</h2>
 <p>假设有 10000 个连接：</p>
 <ul>
 <li>BIO：需要 10000 个线程，线程栈占用 ~1MB → ~10GB 内存</li>
 <li>NIO Selector：只需 1 个线程 + 1 个 Selector → ~10MB 内存</li>
 </ul>
 <h2 id="selector-创建">Selector 创建</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 创建 Selector</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">Selector</span><span class="w"> </span><span class="n">selector</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Selector</span><span class="p">.</span><span class="na">open</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 检查是否打开</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="n">selector</span><span class="p">.</span><span class="na">isOpen</span><span class="p">());</span><span class="w">  </span><span class="c1">// true</span><span class="w">
-</span></span></span></code></pre></div><h2 id="selectionkey">SelectionKey</h2>
+<pre><code class="language-java">// 创建 Selector
+Selector selector = Selector.open();
+
+// 检查是否打开
+System.out.println(selector.isOpen());  // true
+</code></pre>
+<h2 id="selectionkey">SelectionKey</h2>
 <p>SelectionKey 是注册到 Selector 的 Channel 的标记：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">abstract</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SelectionKey</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 兴趣操作位</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">OP_READ</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">      </span><span class="c1">// 1</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">OP_WRITE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">2</span><span class="p">;</span><span class="w">    </span><span class="c1">// 4</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">OP_CONNECT</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">3</span><span class="p">;</span><span class="w">  </span><span class="c1">// 8</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">OP_ACCEPT</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">4</span><span class="p">;</span><span class="w">   </span><span class="c1">// 16</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 获取关联的 Channel</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">abstract</span><span class="w"> </span><span class="n">SelectableChannel</span><span class="w"> </span><span class="nf">channel</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 获取关联的 Selector</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">abstract</span><span class="w"> </span><span class="n">Selector</span><span class="w"> </span><span class="nf">selector</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 是否就绪</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">abstract</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">isReadable</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">abstract</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">isWritable</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">abstract</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">isConnectable</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">abstract</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">isAcceptable</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 附加对象</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">attach</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">ob</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">attachment</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="channel-注册">Channel 注册</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">ServerSocketChannel</span><span class="w"> </span><span class="n">serverChannel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ServerSocketChannel</span><span class="p">.</span><span class="na">open</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">serverChannel</span><span class="p">.</span><span class="na">bind</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">InetSocketAddress</span><span class="p">(</span><span class="n">8080</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">serverChannel</span><span class="p">.</span><span class="na">configureBlocking</span><span class="p">(</span><span class="kc">false</span><span class="p">);</span><span class="w">  </span><span class="c1">// 必须设置为非阻塞</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 注册到 Selector，监听 Accept 事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">SelectionKey</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">serverChannel</span><span class="p">.</span><span class="na">register</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span><span class="w"> </span><span class="n">SelectionKey</span><span class="p">.</span><span class="na">OP_ACCEPT</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 注册多个兴趣</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">serverChannel</span><span class="p">.</span><span class="na">register</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">SelectionKey</span><span class="p">.</span><span class="na">OP_READ</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">SelectionKey</span><span class="p">.</span><span class="na">OP_WRITE</span><span class="p">);</span><span class="w">
-</span></span></span></code></pre></div><h2 id="selector-使用流程">Selector 使用流程</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">Selector</span><span class="w"> </span><span class="n">selector</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Selector</span><span class="p">.</span><span class="na">open</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 阻塞等待就绪事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">readyChannels</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">selector</span><span class="p">.</span><span class="na">select</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">readyChannels</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">0</span><span class="p">)</span><span class="w"> </span><span class="k">continue</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 2. 获取就绪的 SelectionKey</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">SelectionKey</span><span class="o">&gt;</span><span class="w"> </span><span class="n">selectedKeys</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">selector</span><span class="p">.</span><span class="na">selectedKeys</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Iterator</span><span class="o">&lt;</span><span class="n">SelectionKey</span><span class="o">&gt;</span><span class="w"> </span><span class="n">keyIterator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">selectedKeys</span><span class="p">.</span><span class="na">iterator</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">keyIterator</span><span class="p">.</span><span class="na">hasNext</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SelectionKey</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">keyIterator</span><span class="p">.</span><span class="na">next</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 处理事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">key</span><span class="p">.</span><span class="na">isAcceptable</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 接受连接</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">key</span><span class="p">.</span><span class="na">isReadable</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 读取数据</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">key</span><span class="p">.</span><span class="na">isWritable</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 写入数据</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. 移除已处理的 Key</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">keyIterator</span><span class="p">.</span><span class="na">remove</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="完整示例echo-server">完整示例：Echo Server</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">NIOEchoServer</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">IOException</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Selector</span><span class="w"> </span><span class="n">selector</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Selector</span><span class="p">.</span><span class="na">open</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 打开 ServerSocketChannel</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ServerSocketChannel</span><span class="w"> </span><span class="n">serverChannel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ServerSocketChannel</span><span class="p">.</span><span class="na">open</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">serverChannel</span><span class="p">.</span><span class="na">socket</span><span class="p">().</span><span class="na">bind</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">InetSocketAddress</span><span class="p">(</span><span class="n">8080</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">serverChannel</span><span class="p">.</span><span class="na">configureBlocking</span><span class="p">(</span><span class="kc">false</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 注册到 Selector</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">serverChannel</span><span class="p">.</span><span class="na">register</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span><span class="w"> </span><span class="n">SelectionKey</span><span class="p">.</span><span class="na">OP_ACCEPT</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;Server started on port 8080&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 事件循环</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">selector</span><span class="p">.</span><span class="na">select</span><span class="p">();</span><span class="w">  </span><span class="c1">// 阻塞等待</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">SelectionKey</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">selector</span><span class="p">.</span><span class="na">selectedKeys</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">key</span><span class="p">.</span><span class="na">isAcceptable</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">handleAccept</span><span class="p">(</span><span class="n">key</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">key</span><span class="p">.</span><span class="na">isReadable</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                        </span><span class="n">handleRead</span><span class="p">(</span><span class="n">key</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">IOException</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">key</span><span class="p">.</span><span class="na">cancel</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">key</span><span class="p">.</span><span class="na">channel</span><span class="p">().</span><span class="na">close</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">selector</span><span class="p">.</span><span class="na">selectedKeys</span><span class="p">().</span><span class="na">clear</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleAccept</span><span class="p">(</span><span class="n">SelectionKey</span><span class="w"> </span><span class="n">key</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">IOException</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ServerSocketChannel</span><span class="w"> </span><span class="n">server</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">ServerSocketChannel</span><span class="p">)</span><span class="w"> </span><span class="n">key</span><span class="p">.</span><span class="na">channel</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SocketChannel</span><span class="w"> </span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">server</span><span class="p">.</span><span class="na">accept</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">client</span><span class="p">.</span><span class="na">configureBlocking</span><span class="p">(</span><span class="kc">false</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 注册读事件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">client</span><span class="p">.</span><span class="na">register</span><span class="p">(</span><span class="n">key</span><span class="p">.</span><span class="na">selector</span><span class="p">(),</span><span class="w"> </span><span class="n">SelectionKey</span><span class="p">.</span><span class="na">OP_READ</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;Client connected: &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">client</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">handleRead</span><span class="p">(</span><span class="n">SelectionKey</span><span class="w"> </span><span class="n">key</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">IOException</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">SocketChannel</span><span class="w"> </span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">SocketChannel</span><span class="p">)</span><span class="w"> </span><span class="n">key</span><span class="p">.</span><span class="na">channel</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ByteBuffer</span><span class="w"> </span><span class="n">buffer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ByteBuffer</span><span class="p">.</span><span class="na">allocate</span><span class="p">(</span><span class="n">1024</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">read</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="na">read</span><span class="p">(</span><span class="n">buffer</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">read</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">client</span><span class="p">.</span><span class="na">close</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;Client disconnected&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">buffer</span><span class="p">.</span><span class="na">flip</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">client</span><span class="p">.</span><span class="na">write</span><span class="p">(</span><span class="n">buffer</span><span class="p">);</span><span class="w">  </span><span class="c1">// Echo back</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">buffer</span><span class="p">.</span><span class="na">clear</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="select-方法族">select() 方法族</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 阻塞直到至少有一个 Channel 就绪</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kt">int</span><span class="w"> </span><span class="nf">select</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 阻塞指定时间</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kt">int</span><span class="w"> </span><span class="nf">select</span><span class="p">(</span><span class="kt">long</span><span class="w"> </span><span class="n">timeout</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 立即返回，不阻塞</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kt">int</span><span class="w"> </span><span class="nf">selectNow</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// wakeup() 使正在阻塞的 select 立即返回</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">selector</span><span class="p">.</span><span class="na">wakeup</span><span class="p">();</span><span class="w">
-</span></span></span></code></pre></div><h2 id="select-状态管理">select() 状态管理</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// select 过程中 Channel 变化</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">ServerSocketChannel</span><span class="w"> </span><span class="n">ch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ServerSocketChannel</span><span class="p">.</span><span class="na">open</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">ch</span><span class="p">.</span><span class="na">configureBlocking</span><span class="p">(</span><span class="kc">false</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">ch</span><span class="p">.</span><span class="na">register</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span><span class="w"> </span><span class="n">SelectionKey</span><span class="p">.</span><span class="na">OP_ACCEPT</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 当 accept() 被调用时：</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 1. Channel 从 unregister → register</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. Selector.wakeup() 使 select() 立即返回</span><span class="w">
-</span></span></span></code></pre></div><h2 id="reactor-模型">Reactor 模型</h2>
+<pre><code class="language-java">public abstract class SelectionKey {
+    // 兴趣操作位
+    public static final int OP_READ = 1 &lt;&lt; 0;      // 1
+    public static final int OP_WRITE = 1 &lt;&lt; 2;    // 4
+    public static final int OP_CONNECT = 1 &lt;&lt; 3;  // 8
+    public static final int OP_ACCEPT = 1 &lt;&lt; 4;   // 16
+    
+    // 获取关联的 Channel
+    public abstract SelectableChannel channel();
+    
+    // 获取关联的 Selector
+    public abstract Selector selector();
+    
+    // 是否就绪
+    public abstract boolean isReadable();
+    public abstract boolean isWritable();
+    public abstract boolean isConnectable();
+    public abstract boolean isAcceptable();
+    
+    // 附加对象
+    public Object attach(Object ob);
+    public Object attachment();
+}
+</code></pre>
+<h2 id="channel-注册">Channel 注册</h2>
+<pre><code class="language-java">ServerSocketChannel serverChannel = ServerSocketChannel.open();
+serverChannel.bind(new InetSocketAddress(8080));
+serverChannel.configureBlocking(false);  // 必须设置为非阻塞
+
+// 注册到 Selector，监听 Accept 事件
+SelectionKey key = serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+
+// 注册多个兴趣
+key = serverChannel.register(selector, 
+    SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+</code></pre>
+<h2 id="selector-使用流程">Selector 使用流程</h2>
+<pre><code class="language-java">Selector selector = Selector.open();
+
+while (true) {
+    // 1. 阻塞等待就绪事件
+    int readyChannels = selector.select();
+    
+    if (readyChannels == 0) continue;
+    
+    // 2. 获取就绪的 SelectionKey
+    Set&lt;SelectionKey&gt; selectedKeys = selector.selectedKeys();
+    Iterator&lt;SelectionKey&gt; keyIterator = selectedKeys.iterator();
+    
+    while (keyIterator.hasNext()) {
+        SelectionKey key = keyIterator.next();
+        
+        // 3. 处理事件
+        if (key.isAcceptable()) {
+            // 接受连接
+        }
+        if (key.isReadable()) {
+            // 读取数据
+        }
+        if (key.isWritable()) {
+            // 写入数据
+        }
+        
+        // 4. 移除已处理的 Key
+        keyIterator.remove();
+    }
+}
+</code></pre>
+<h2 id="完整示例echo-server">完整示例：Echo Server</h2>
+<pre><code class="language-java">public class NIOEchoServer {
+    public static void main(String[] args) throws IOException {
+        Selector selector = Selector.open();
+        
+        // 1. 打开 ServerSocketChannel
+        ServerSocketChannel serverChannel = ServerSocketChannel.open();
+        serverChannel.socket().bind(new InetSocketAddress(8080));
+        serverChannel.configureBlocking(false);
+        
+        // 2. 注册到 Selector
+        serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+        
+        System.out.println(&quot;Server started on port 8080&quot;);
+        
+        // 3. 事件循环
+        while (true) {
+            selector.select();  // 阻塞等待
+            
+            for (SelectionKey key : selector.selectedKeys()) {
+                try {
+                    if (key.isAcceptable()) {
+                        handleAccept(key);
+                    }
+                    if (key.isReadable()) {
+                        handleRead(key);
+                    }
+                } catch (IOException e) {
+                    key.cancel();
+                    key.channel().close();
+                }
+            }
+            selector.selectedKeys().clear();
+        }
+    }
+    
+    private static void handleAccept(SelectionKey key) throws IOException {
+        ServerSocketChannel server = (ServerSocketChannel) key.channel();
+        SocketChannel client = server.accept();
+        client.configureBlocking(false);
+        
+        // 注册读事件
+        client.register(key.selector(), SelectionKey.OP_READ);
+        System.out.println(&quot;Client connected: &quot; + client);
+    }
+    
+    private static void handleRead(SelectionKey key) throws IOException {
+        SocketChannel client = (SocketChannel) key.channel();
+        ByteBuffer buffer = ByteBuffer.allocate(1024);
+        
+        int read = client.read(buffer);
+        if (read == -1) {
+            client.close();
+            System.out.println(&quot;Client disconnected&quot;);
+            return;
+        }
+        
+        buffer.flip();
+        client.write(buffer);  // Echo back
+        buffer.clear();
+    }
+}
+</code></pre>
+<h2 id="select-方法族">select() 方法族</h2>
+<pre><code class="language-java">// 阻塞直到至少有一个 Channel 就绪
+int select();
+
+// 阻塞指定时间
+int select(long timeout);
+
+// 立即返回，不阻塞
+int selectNow();
+
+// wakeup() 使正在阻塞的 select 立即返回
+selector.wakeup();
+</code></pre>
+<h2 id="select-状态管理">select() 状态管理</h2>
+<pre><code class="language-java">// select 过程中 Channel 变化
+ServerSocketChannel ch = ServerSocketChannel.open();
+ch.configureBlocking(false);
+ch.register(selector, SelectionKey.OP_ACCEPT);
+
+// 当 accept() 被调用时：
+// 1. Channel 从 unregister → register
+// 2. Selector.wakeup() 使 select() 立即返回
+</code></pre>
+<h2 id="reactor-模型">Reactor 模型</h2>
 <p>Selector 是 Reactor 模型的核心实现：</p>
-<pre tabindex="0"><code>Reactor 单线程模型:
+<pre><code>Reactor 单线程模型:
 ┌─────────────────────────────────────────┐
 │                 Reactor                  │
 │  ┌─────────────────────────────────────┐ │
@@ -300,58 +305,63 @@ Reactor 多线程模型:
 │  Handler   Handler    Handler          │
 │  (业务线程池)                        │
 └─────────────────────────────────────────┘
-</code></pre><h2 id="常见问题">常见问题</h2>
+</code></pre>
+<h2 id="常见问题">常见问题</h2>
 <h3 id="1-空轮询-bug">1. 空轮询 Bug</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 问题：Selector.select() 可能什么都没发生就返回</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">count</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">selector</span><span class="p">.</span><span class="na">select</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">count</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 可能什么都没就绪</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">continue</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ...</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 解决方案：使用 wakeup() 或处理空轮询</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">Selector</span><span class="w"> </span><span class="n">selector</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Selector</span><span class="p">.</span><span class="na">open</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// ...</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">selector</span><span class="p">.</span><span class="na">wakeup</span><span class="p">();</span><span class="w">  </span><span class="c1">// 唤醒</span><span class="w">
-</span></span></span></code></pre></div><h3 id="2-并发问题">2. 并发问题</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ❌ 错误：在不同线程中注册</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">new</span><span class="w"> </span><span class="n">Thread</span><span class="p">(()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">channel</span><span class="p">.</span><span class="na">register</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span><span class="w"> </span><span class="n">SelectionKey</span><span class="p">.</span><span class="na">OP_READ</span><span class="p">);</span><span class="w">  </span><span class="c1">// 可能冲突</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">});</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// ✅ 正确：在同一个线程中注册</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">synchronized</span><span class="w"> </span><span class="p">(</span><span class="n">channel</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">channel</span><span class="p">.</span><span class="na">register</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span><span class="w"> </span><span class="n">SelectionKey</span><span class="p">.</span><span class="na">OP_READ</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="3-op_write-的使用">3. OP_WRITE 的使用</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ❌ 过度使用 OP_WRITE</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">key</span><span class="p">.</span><span class="na">interestOps</span><span class="p">(</span><span class="n">SelectionKey</span><span class="p">.</span><span class="na">OP_WRITE</span><span class="p">);</span><span class="w">  </span><span class="c1">// 每次可写都触发</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// ✅ 按需启用</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">buffer</span><span class="p">.</span><span class="na">hasRemaining</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">key</span><span class="p">.</span><span class="na">interestOps</span><span class="p">(</span><span class="n">SelectionKey</span><span class="p">.</span><span class="na">OP_WRITE</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">key</span><span class="p">.</span><span class="na">interestOps</span><span class="p">(</span><span class="n">SelectionKey</span><span class="p">.</span><span class="na">OP_READ</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="性能优化">性能优化</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. 使用足够大的 Selector 数组</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">Selector</span><span class="o">[]</span><span class="w"> </span><span class="n">selectors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Selector</span><span class="o">[</span><span class="n">numThreads</span><span class="o">]</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">numThreads</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">selectors</span><span class="o">[</span><span class="n">i</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Selector</span><span class="p">.</span><span class="na">open</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 使用 keys() vs selectedKeys()</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">Set</span><span class="o">&lt;</span><span class="n">SelectionKey</span><span class="o">&gt;</span><span class="w"> </span><span class="n">allKeys</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">selector</span><span class="p">.</span><span class="na">keys</span><span class="p">();</span><span class="w">      </span><span class="c1">// 所有注册的 key</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="n">Set</span><span class="o">&lt;</span><span class="n">SelectionKey</span><span class="o">&gt;</span><span class="w"> </span><span class="n">readyKeys</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">selector</span><span class="p">.</span><span class="na">selectedKeys</span><span class="p">();</span><span class="w">  </span><span class="c1">// 已就绪的 key</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 3. 及时取消无效的 key</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">channel</span><span class="p">.</span><span class="na">socket</span><span class="p">().</span><span class="na">isClosed</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">key</span><span class="p">.</span><span class="na">cancel</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="总结">总结</h2>
+<pre><code class="language-java">// 问题：Selector.select() 可能什么都没发生就返回
+while (true) {
+    int count = selector.select();
+    if (count == 0) {
+        // 可能什么都没就绪
+        continue;
+    }
+    // ...
+}
+
+// 解决方案：使用 wakeup() 或处理空轮询
+Selector selector = Selector.open();
+// ...
+selector.wakeup();  // 唤醒
+</code></pre>
+<h3 id="2-并发问题">2. 并发问题</h3>
+<pre><code class="language-java">// ❌ 错误：在不同线程中注册
+new Thread(() -&gt; {
+    channel.register(selector, SelectionKey.OP_READ);  // 可能冲突
+});
+
+// ✅ 正确：在同一个线程中注册
+synchronized (channel) {
+    channel.register(selector, SelectionKey.OP_READ);
+}
+</code></pre>
+<h3 id="3-op_write-的使用">3. OP_WRITE 的使用</h3>
+<pre><code class="language-java">// ❌ 过度使用 OP_WRITE
+key.interestOps(SelectionKey.OP_WRITE);  // 每次可写都触发
+
+// ✅ 按需启用
+if (buffer.hasRemaining()) {
+    key.interestOps(SelectionKey.OP_WRITE);
+} else {
+    key.interestOps(SelectionKey.OP_READ);
+}
+</code></pre>
+<h2 id="性能优化">性能优化</h2>
+<pre><code class="language-java">// 1. 使用足够大的 Selector 数组
+Selector[] selectors = new Selector[numThreads];
+for (int i = 0; i &lt; numThreads; i++) {
+    selectors[i] = Selector.open();
+}
+
+// 2. 使用 keys() vs selectedKeys()
+Set&lt;SelectionKey&gt; allKeys = selector.keys();      // 所有注册的 key
+Set&lt;SelectionKey&gt; readyKeys = selector.selectedKeys();  // 已就绪的 key
+
+// 3. 及时取消无效的 key
+if (channel.socket().isClosed()) {
+    key.cancel();
+}
+</code></pre>
+<h2 id="总结">总结</h2>
 <ul>
 <li>Selector 允许单线程管理多个 Channel</li>
 <li>通过 SelectionKey 表示 Channel 的就绪状态</li>
@@ -403,6 +413,9 @@ Reactor 多线程模型:
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

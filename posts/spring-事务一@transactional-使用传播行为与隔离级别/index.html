@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -132,148 +129,154 @@
 <p>本文从使用出发，全面覆盖 Spring 事务的核心概念、7 种传播行为、5 种隔离级别、常见配置和踩坑点，为后续的源码分析做准备。</p>
 <h2 id="一声明式事务">一、声明式事务</h2>
 <h3 id="11-快速开始">1.1 快速开始</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 1. 启用事务（Spring Boot 自动配置，无需手动开启）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 非 Spring Boot 项目需要：</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableTransactionManagement</span><span class="w">  </span><span class="c1">// 启用声明式事务</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">TransactionConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">PlatformTransactionManager</span><span class="w"> </span><span class="nf">transactionManager</span><span class="p">(</span><span class="n">DataSource</span><span class="w"> </span><span class="n">dataSource</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DataSourceTransactionManager</span><span class="p">(</span><span class="n">dataSource</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 2. 在方法上使用</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">UserRepository</span><span class="w"> </span><span class="n">userRepository</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">  </span><span class="c1">// 声明事务</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">createUser</span><span class="p">(</span><span class="n">User</span><span class="w"> </span><span class="n">user</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">userRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="n">user</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果这里抛出 RuntimeException，事务自动回滚</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="12-transactional-核心属性">1.2 @Transactional 核心属性</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Target</span><span class="p">({</span><span class="n">ElementType</span><span class="p">.</span><span class="na">TYPE</span><span class="p">,</span><span class="w"> </span><span class="n">ElementType</span><span class="p">.</span><span class="na">METHOD</span><span class="p">})</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Retention</span><span class="p">(</span><span class="n">RetentionPolicy</span><span class="p">.</span><span class="na">RUNTIME</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Inherited</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Documented</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="nd">@interface</span><span class="w"> </span><span class="n">Transactional</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@AliasFor</span><span class="p">(</span><span class="s">&#34;transactionManager&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="nf">value</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="s">&#34;&#34;</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@AliasFor</span><span class="p">(</span><span class="s">&#34;value&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="w"> </span><span class="nf">transactionManager</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="s">&#34;&#34;</span><span class="p">;</span><span class="w">  </span><span class="c1">// 指定事务管理器</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="nf">propagation</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="p">{};</span><span class="w">      </span><span class="c1">// 传播行为（实际上是 Propagation 枚举）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Isolation</span><span class="w"> </span><span class="nf">isolation</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="n">Isolation</span><span class="p">.</span><span class="na">DEFAULT</span><span class="p">;</span><span class="w">  </span><span class="c1">// 隔离级别</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="nf">timeout</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">;</span><span class="w">               </span><span class="c1">// 超时时间（秒）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">readOnly</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">        </span><span class="c1">// 是否只读</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Class</span><span class="o">&lt;?</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">Throwable</span><span class="o">&gt;[]</span><span class="w"> </span><span class="nf">rollbackFor</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="p">{};</span><span class="w">    </span><span class="c1">// 触发回滚的异常</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="nf">rollbackForClassName</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="p">{};</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">Class</span><span class="o">&lt;?</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">Throwable</span><span class="o">&gt;[]</span><span class="w"> </span><span class="nf">noRollbackFor</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="p">{};</span><span class="w">  </span><span class="c1">// 不触发回滚的异常</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="nf">noRollbackForClassName</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="p">{};</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p><strong>常用配置示例：</strong></p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 指定异常回滚（默认只回滚 RuntimeException 和 Error）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="p">(</span><span class="n">rollbackFor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Exception</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 只读事务（优化查询性能）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="p">(</span><span class="n">readOnly</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 设置超时</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="p">(</span><span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">30</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 指定事务管理器（多数据源时）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="p">(</span><span class="n">transactionManager</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;orderTransactionManager&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 指定传播行为</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="p">(</span><span class="n">propagation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Propagation</span><span class="p">.</span><span class="na">REQUIRES_NEW</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 指定隔离级别</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="p">(</span><span class="n">isolation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Isolation</span><span class="p">.</span><span class="na">REPEATABLE_READ</span><span class="p">)</span><span class="w">
-</span></span></span></code></pre></div><h3 id="13-类级别与方法级别">1.3 类级别与方法级别</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 类级别定义默认事务行为</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="p">(</span><span class="n">rollbackFor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Exception</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">30</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 方法级别覆盖类级别配置</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="p">(</span><span class="n">readOnly</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">User</span><span class="w"> </span><span class="nf">findById</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 继承类级别的 rollbackFor 和 timeout</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="p">(</span><span class="n">propagation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Propagation</span><span class="p">.</span><span class="na">REQUIRES_NEW</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">createUser</span><span class="p">(</span><span class="n">User</span><span class="w"> </span><span class="n">user</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 没有 @Transactional → 类级别的配置对此方法不生效</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">noTransaction</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><blockquote>
+<pre><code class="language-java">// 1. 启用事务（Spring Boot 自动配置，无需手动开启）
+// 非 Spring Boot 项目需要：
+@Configuration
+@EnableTransactionManagement  // 启用声明式事务
+public class TransactionConfig {
+    
+    @Bean
+    public PlatformTransactionManager transactionManager(DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
+    }
+}
+
+// 2. 在方法上使用
+@Service
+public class UserService {
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Transactional  // 声明事务
+    public void createUser(User user) {
+        userRepository.save(user);
+        // 如果这里抛出 RuntimeException，事务自动回滚
+    }
+}
+</code></pre>
+<h3 id="12-transactional-核心属性">1.2 @Transactional 核心属性</h3>
+<pre><code class="language-java">@Target({ElementType.TYPE, ElementType.METHOD})
+@Retention(RetentionPolicy.RUNTIME)
+@Inherited
+@Documented
+public @interface Transactional {
+
+    @AliasFor(&quot;transactionManager&quot;)
+    String value() default &quot;&quot;;
+    
+    @AliasFor(&quot;value&quot;)
+    String transactionManager() default &quot;&quot;;  // 指定事务管理器
+    
+    String[] propagation() default {};      // 传播行为（实际上是 Propagation 枚举）
+    Isolation isolation() default Isolation.DEFAULT;  // 隔离级别
+    int timeout() default -1;               // 超时时间（秒）
+    boolean readOnly() default false;        // 是否只读
+    Class&lt;? extends Throwable&gt;[] rollbackFor() default {};    // 触发回滚的异常
+    String[] rollbackForClassName() default {};
+    Class&lt;? extends Throwable&gt;[] noRollbackFor() default {};  // 不触发回滚的异常
+    String[] noRollbackForClassName() default {};
+}
+</code></pre>
+<p><strong>常用配置示例：</strong></p>
+<pre><code class="language-java">// 指定异常回滚（默认只回滚 RuntimeException 和 Error）
+@Transactional(rollbackFor = Exception.class)
+
+// 只读事务（优化查询性能）
+@Transactional(readOnly = true)
+
+// 设置超时
+@Transactional(timeout = 30)
+
+// 指定事务管理器（多数据源时）
+@Transactional(transactionManager = &quot;orderTransactionManager&quot;)
+
+// 指定传播行为
+@Transactional(propagation = Propagation.REQUIRES_NEW)
+
+// 指定隔离级别
+@Transactional(isolation = Isolation.REPEATABLE_READ)
+</code></pre>
+<h3 id="13-类级别与方法级别">1.3 类级别与方法级别</h3>
+<pre><code class="language-java">// 类级别定义默认事务行为
+@Transactional(rollbackFor = Exception.class, timeout = 30)
+@Service
+public class UserService {
+    
+    // 方法级别覆盖类级别配置
+    @Transactional(readOnly = true)
+    public User findById(Long id) { ... }
+    
+    // 继承类级别的 rollbackFor 和 timeout
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void createUser(User user) { ... }
+    
+    // 没有 @Transactional → 类级别的配置对此方法不生效
+    public void noTransaction() { ... }
+}
+</code></pre>
+<blockquote>
 <p><strong>注意：</strong> 类级别的 <code>@Transactional</code> 对类中所有方法生效，但方法自己标注的注解会覆盖类级别的配置。</p>
 </blockquote>
 <h2 id="二编程式事务">二、编程式事务</h2>
 <h3 id="21-transactiontemplate">2.1 TransactionTemplate</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">TransactionService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">TransactionTemplate</span><span class="w"> </span><span class="n">transactionTemplate</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doInTransaction</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 正常执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">transactionTemplate</span><span class="p">.</span><span class="na">execute</span><span class="p">(</span><span class="n">status</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 数据库操作</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">User</span><span class="w"> </span><span class="n">user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">userRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">User</span><span class="p">(</span><span class="s">&#34;Tom&#34;</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Order</span><span class="w"> </span><span class="n">order</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">orderRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">Order</span><span class="p">(</span><span class="n">user</span><span class="p">.</span><span class="na">getId</span><span class="p">()));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">order</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">});</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doWithRollback</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 手动回滚</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">transactionTemplate</span><span class="p">.</span><span class="na">execute</span><span class="p">(</span><span class="n">status</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 操作</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">userRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">User</span><span class="p">(</span><span class="s">&#34;Tom&#34;</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">status</span><span class="p">.</span><span class="na">setRollbackOnly</span><span class="p">();</span><span class="w">  </span><span class="c1">// 标记回滚</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">throw</span><span class="w"> </span><span class="n">e</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">});</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="22-platformtransactionmanager-直接使用">2.2 PlatformTransactionManager 直接使用</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">TransactionService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">PlatformTransactionManager</span><span class="w"> </span><span class="n">transactionManager</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">manualTransaction</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">DefaultTransactionDefinition</span><span class="w"> </span><span class="n">def</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DefaultTransactionDefinition</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">def</span><span class="p">.</span><span class="na">setPropagationBehavior</span><span class="p">(</span><span class="n">TransactionDefinition</span><span class="p">.</span><span class="na">PROPAGATION_REQUIRED</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">def</span><span class="p">.</span><span class="na">setIsolationLevel</span><span class="p">(</span><span class="n">TransactionDefinition</span><span class="p">.</span><span class="na">ISOLATION_DEFAULT</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">TransactionStatus</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">transactionManager</span><span class="p">.</span><span class="na">getTransaction</span><span class="p">(</span><span class="n">def</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 业务操作</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">userRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">User</span><span class="p">(</span><span class="s">&#34;Tom&#34;</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">transactionManager</span><span class="p">.</span><span class="na">commit</span><span class="p">(</span><span class="n">status</span><span class="p">);</span><span class="w">  </span><span class="c1">// 提交</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">transactionManager</span><span class="p">.</span><span class="na">rollback</span><span class="p">(</span><span class="n">status</span><span class="p">);</span><span class="w">  </span><span class="c1">// 回滚</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="n">e</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="23-声明式-vs-编程式">2.3 声明式 vs 编程式</h3>
+<pre><code class="language-java">@Service
+public class TransactionService {
+    
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+    
+    public void doInTransaction() {
+        // 正常执行
+        transactionTemplate.execute(status -&gt; {
+            // 数据库操作
+            User user = userRepository.save(new User(&quot;Tom&quot;));
+            Order order = orderRepository.save(new Order(user.getId()));
+            return order;
+        });
+    }
+    
+    public void doWithRollback() {
+        // 手动回滚
+        transactionTemplate.execute(status -&gt; {
+            try {
+                // 操作
+                userRepository.save(new User(&quot;Tom&quot;));
+            } catch (Exception e) {
+                status.setRollbackOnly();  // 标记回滚
+                throw e;
+            }
+            return null;
+        });
+    }
+}
+</code></pre>
+<h3 id="22-platformtransactionmanager-直接使用">2.2 PlatformTransactionManager 直接使用</h3>
+<pre><code class="language-java">@Service
+public class TransactionService {
+    
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+    
+    public void manualTransaction() {
+        DefaultTransactionDefinition def = new DefaultTransactionDefinition();
+        def.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
+        def.setIsolationLevel(TransactionDefinition.ISOLATION_DEFAULT);
+        
+        TransactionStatus status = transactionManager.getTransaction(def);
+        try {
+            // 业务操作
+            userRepository.save(new User(&quot;Tom&quot;));
+            
+            transactionManager.commit(status);  // 提交
+        } catch (Exception e) {
+            transactionManager.rollback(status);  // 回滚
+            throw e;
+        }
+    }
+}
+</code></pre>
+<h3 id="23-声明式-vs-编程式">2.3 声明式 vs 编程式</h3>
 <table>
 	<thead>
 			<tr>
@@ -354,70 +357,76 @@
 	</tbody>
 </table>
 <h3 id="32-required默认">3.2 REQUIRED（默认）</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">OuterService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">InnerService</span><span class="w"> </span><span class="n">innerService</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">outer</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">userRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">User</span><span class="p">(</span><span class="s">&#34;Tom&#34;</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">innerService</span><span class="p">.</span><span class="na">inner</span><span class="p">();</span><span class="w">  </span><span class="c1">// 加入当前事务</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 任何一个抛出异常 → 整个事务全部回滚</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">InnerService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="p">(</span><span class="n">propagation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Propagation</span><span class="p">.</span><span class="na">REQUIRED</span><span class="p">)</span><span class="w">  </span><span class="c1">// 默认行为</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">inner</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">orderRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">Order</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><pre tabindex="0"><code>outer() 开始事务 T1
+<pre><code class="language-java">@Service
+public class OuterService {
+    
+    @Autowired
+    private InnerService innerService;
+    
+    @Transactional
+    public void outer() {
+        userRepository.save(new User(&quot;Tom&quot;));
+        innerService.inner();  // 加入当前事务
+        // 任何一个抛出异常 → 整个事务全部回滚
+    }
+}
+
+@Service
+public class InnerService {
+    
+    @Transactional(propagation = Propagation.REQUIRED)  // 默认行为
+    public void inner() {
+        orderRepository.save(new Order());
+    }
+}
+</code></pre>
+<pre><code>outer() 开始事务 T1
   ├── save User
   ├── inner() → 加入 T1
   │     └── save Order
   └── 异常 → T1 全部回滚（User 和 Order 都回滚）
-</code></pre><h3 id="33-requires_new">3.3 REQUIRES_NEW</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AuditService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 不管外部有没有事务，自己开启新事务</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="p">(</span><span class="n">propagation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Propagation</span><span class="p">.</span><span class="na">REQUIRES_NEW</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">logAudit</span><span class="p">(</span><span class="n">AuditLog</span><span class="w"> </span><span class="n">log</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">auditRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="n">log</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 即使外部事务回滚，这条审计日志也提交了</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><pre tabindex="0"><code>outer() 开始事务 T1
+</code></pre>
+<h3 id="33-requires_new">3.3 REQUIRES_NEW</h3>
+<pre><code class="language-java">@Service
+public class AuditService {
+    
+    // 不管外部有没有事务，自己开启新事务
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void logAudit(AuditLog log) {
+        auditRepository.save(log);
+        // 即使外部事务回滚，这条审计日志也提交了
+    }
+}
+</code></pre>
+<pre><code>outer() 开始事务 T1
   ├── save User
   ├── logAudit()
   │     └── 挂起 T1，开始 T2
   │           └── save AuditLog → 提交 T2
   │     → 恢复 T1
   └── 异常 → T1 回滚（User 回滚，但 AuditLog 已提交）
-</code></pre><h3 id="34-nested嵌套事务">3.4 NESTED（嵌套事务）</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SubService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="p">(</span><span class="n">propagation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Propagation</span><span class="p">.</span><span class="na">NESTED</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">subOperation</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 在外部事务的 Savepoint 中执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">orderRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">Order</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果这里抛出异常 → 只回滚到 Savepoint，不影响外部事务</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><pre tabindex="0"><code>outer() 开始事务 T1
+</code></pre>
+<h3 id="34-nested嵌套事务">3.4 NESTED（嵌套事务）</h3>
+<pre><code class="language-java">@Service
+public class SubService {
+    
+    @Transactional(propagation = Propagation.NESTED)
+    public void subOperation() {
+        // 在外部事务的 Savepoint 中执行
+        orderRepository.save(new Order());
+        // 如果这里抛出异常 → 只回滚到 Savepoint，不影响外部事务
+    }
+}
+</code></pre>
+<pre><code>outer() 开始事务 T1
   ├── save User
   ├── subOperation()
   │     └── 设置 Savepoint (T1 内部)
   │           └── save Order
   │     └── 异常 → 回滚到 Savepoint，T1 继续
   └── save Another → T1 提交
-</code></pre><h3 id="35-传播行为对比">3.5 传播行为对比</h3>
+</code></pre>
+<h3 id="35-传播行为对比">3.5 传播行为对比</h3>
 <table>
 	<thead>
 			<tr>
@@ -493,14 +502,15 @@
 	</tbody>
 </table>
 <h3 id="42-spring-支持的隔离级别">4.2 Spring 支持的隔离级别</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">enum</span><span class="w"> </span><span class="n">Isolation</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">DEFAULT</span><span class="p">(</span><span class="o">-</span><span class="n">1</span><span class="p">),</span><span class="w">           </span><span class="c1">// 使用数据库默认级别</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">READ_UNCOMMITTED</span><span class="p">(</span><span class="n">1</span><span class="p">),</span><span class="w">   </span><span class="c1">// 读未提交（可以读到未提交的数据）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">READ_COMMITTED</span><span class="p">(</span><span class="n">2</span><span class="p">),</span><span class="w">     </span><span class="c1">// 读已提交（MySQL 默认，解决脏读）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">REPEATABLE_READ</span><span class="p">(</span><span class="n">4</span><span class="p">),</span><span class="w">    </span><span class="c1">// 可重复读（MySQL InnoDB 默认，解决脏读 + 不可重复读）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">SERIALIZABLE</span><span class="p">(</span><span class="n">8</span><span class="p">)</span><span class="w">        </span><span class="c1">// 串行化（解决所有并发问题，性能最差）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><table>
+<pre><code class="language-java">public enum Isolation {
+    DEFAULT(-1),           // 使用数据库默认级别
+    READ_UNCOMMITTED(1),   // 读未提交（可以读到未提交的数据）
+    READ_COMMITTED(2),     // 读已提交（MySQL 默认，解决脏读）
+    REPEATABLE_READ(4),    // 可重复读（MySQL InnoDB 默认，解决脏读 + 不可重复读）
+    SERIALIZABLE(8)        // 串行化（解决所有并发问题，性能最差）
+}
+</code></pre>
+<table>
 	<thead>
 			<tr>
 					<th>隔离级别</th>
@@ -537,139 +547,147 @@
 	</tbody>
 </table>
 <h3 id="43-隔离级别配置">4.3 隔离级别配置</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 推荐：使用数据库默认级别</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="p">(</span><span class="n">isolation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Isolation</span><span class="p">.</span><span class="na">DEFAULT</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 显式指定（MySQL InnoDB 默认是 REPEATABLE_READ）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="p">(</span><span class="n">isolation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Isolation</span><span class="p">.</span><span class="na">READ_COMMITTED</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 注意：隔离级别是全局事务配置，不是每个方法都适合不同隔离级别</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 最好的做法是大部分方法使用 DEFAULT，少数关键业务单独设置</span><span class="w">
-</span></span></span></code></pre></div><h2 id="五常见配置场景">五、常见配置场景</h2>
+<pre><code class="language-java">// 推荐：使用数据库默认级别
+@Transactional(isolation = Isolation.DEFAULT)
+
+// 显式指定（MySQL InnoDB 默认是 REPEATABLE_READ）
+@Transactional(isolation = Isolation.READ_COMMITTED)
+
+// 注意：隔离级别是全局事务配置，不是每个方法都适合不同隔离级别
+// 最好的做法是大部分方法使用 DEFAULT，少数关键业务单独设置
+</code></pre>
+<h2 id="五常见配置场景">五、常见配置场景</h2>
 <h3 id="51-多数据源事务">5.1 多数据源事务</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 配置两个事务管理器</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">MultiDataSourceConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Primary</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">DataSource</span><span class="w"> </span><span class="nf">primaryDataSource</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">DataSource</span><span class="w"> </span><span class="nf">secondaryDataSource</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Primary</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">PlatformTransactionManager</span><span class="w"> </span><span class="nf">primaryTransactionManager</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DataSourceTransactionManager</span><span class="p">(</span><span class="n">primaryDataSource</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">PlatformTransactionManager</span><span class="w"> </span><span class="nf">secondaryTransactionManager</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">DataSourceTransactionManager</span><span class="p">(</span><span class="n">secondaryDataSource</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 使用时指定事务管理器</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="p">(</span><span class="s">&#34;primaryTransactionManager&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doPrimary</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="p">(</span><span class="s">&#34;secondaryTransactionManager&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">doSecondary</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="52-自调用事务失效">5.2 自调用事务失效</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">outer</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 自调用 → this.inner() 不经过代理 → @Transactional 失效</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">inner</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="p">(</span><span class="n">propagation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Propagation</span><span class="p">.</span><span class="na">REQUIRES_NEW</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">inner</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 不会在新事务中执行！直接在原有事务中执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p><strong>解决方案：</strong></p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 方式一：注入自身（Spring Boot 允许循环引用时）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">UserService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">UserService</span><span class="w"> </span><span class="n">self</span><span class="p">;</span><span class="w">  </span><span class="c1">// 注入代理对象</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">outer</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">self</span><span class="p">.</span><span class="na">inner</span><span class="p">();</span><span class="w">  </span><span class="c1">// 通过代理调用，事务生效</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="p">(</span><span class="n">propagation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Propagation</span><span class="p">.</span><span class="na">REQUIRES_NEW</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">inner</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 方式二：提取到另一个 Service（推荐）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Service</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">InnerService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Transactional</span><span class="p">(</span><span class="n">propagation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Propagation</span><span class="p">.</span><span class="na">REQUIRES_NEW</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">inner</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="53-transactional-回滚规则">5.3 @Transactional 回滚规则</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 默认：只回滚 RuntimeException 和 Error</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">defaultRollback</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RuntimeException</span><span class="p">();</span><span class="w">  </span><span class="c1">// 回滚</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">noRollback</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">SQLException</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SQLException</span><span class="p">();</span><span class="w">  </span><span class="c1">// 不回滚！SQLException 是 checked exception</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 修复：指定 rollbackFor</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="p">(</span><span class="n">rollbackFor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Exception</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">fixedRollback</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">SQLException</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SQLException</span><span class="p">();</span><span class="w">  </span><span class="c1">// 回滚</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 排除特定异常</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="p">(</span><span class="n">noRollbackFor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">IllegalArgumentException</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">excludeRollback</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalArgumentException</span><span class="p">();</span><span class="w">  </span><span class="c1">// 不回滚</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">NullPointerException</span><span class="p">();</span><span class="w">      </span><span class="c1">// 回滚（RuntimeException 子类）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="六常见踩坑">六、常见踩坑</h2>
+<pre><code class="language-java">// 配置两个事务管理器
+@Configuration
+public class MultiDataSourceConfig {
+    
+    @Bean
+    @Primary
+    public DataSource primaryDataSource() { ... }
+    
+    @Bean
+    public DataSource secondaryDataSource() { ... }
+    
+    @Bean
+    @Primary
+    public PlatformTransactionManager primaryTransactionManager() {
+        return new DataSourceTransactionManager(primaryDataSource());
+    }
+    
+    @Bean
+    public PlatformTransactionManager secondaryTransactionManager() {
+        return new DataSourceTransactionManager(secondaryDataSource());
+    }
+}
+
+// 使用时指定事务管理器
+@Service
+public class UserService {
+    
+    @Transactional(&quot;primaryTransactionManager&quot;)
+    public void doPrimary() { ... }
+    
+    @Transactional(&quot;secondaryTransactionManager&quot;)
+    public void doSecondary() { ... }
+}
+</code></pre>
+<h3 id="52-自调用事务失效">5.2 自调用事务失效</h3>
+<pre><code class="language-java">@Service
+public class UserService {
+    
+    @Transactional
+    public void outer() {
+        // 自调用 → this.inner() 不经过代理 → @Transactional 失效
+        inner();
+    }
+    
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void inner() {
+        // 不会在新事务中执行！直接在原有事务中执行
+    }
+}
+</code></pre>
+<p><strong>解决方案：</strong></p>
+<pre><code class="language-java">// 方式一：注入自身（Spring Boot 允许循环引用时）
+@Service
+public class UserService {
+    @Autowired
+    private UserService self;  // 注入代理对象
+    
+    @Transactional
+    public void outer() {
+        self.inner();  // 通过代理调用，事务生效
+    }
+    
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void inner() { ... }
+}
+
+// 方式二：提取到另一个 Service（推荐）
+@Service
+public class InnerService {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void inner() { ... }
+}
+</code></pre>
+<h3 id="53-transactional-回滚规则">5.3 @Transactional 回滚规则</h3>
+<pre><code class="language-java">// 默认：只回滚 RuntimeException 和 Error
+@Transactional
+public void defaultRollback() {
+    throw new RuntimeException();  // 回滚
+}
+
+@Transactional
+public void noRollback() throws SQLException {
+    throw new SQLException();  // 不回滚！SQLException 是 checked exception
+}
+
+// 修复：指定 rollbackFor
+@Transactional(rollbackFor = Exception.class)
+public void fixedRollback() throws SQLException {
+    throw new SQLException();  // 回滚
+}
+
+// 排除特定异常
+@Transactional(noRollbackFor = IllegalArgumentException.class)
+public void excludeRollback() {
+    throw new IllegalArgumentException();  // 不回滚
+    throw new NullPointerException();      // 回滚（RuntimeException 子类）
+}
+</code></pre>
+<h2 id="六常见踩坑">六、常见踩坑</h2>
 <h3 id="61-transactional-只对-public-方法生效">6.1 @Transactional 只对 public 方法生效</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="w">  </span><span class="c1">// ✅ 生效</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">publicMethod</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="w">  </span><span class="c1">// ❌ 不生效！protected/private 不会创建事务</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">protectedMethod</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="62-transactional-的异常不要-try-catch">6.2 @Transactional 的异常不要 try-catch</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">wrong</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">userRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="n">user</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RuntimeException</span><span class="p">();</span><span class="w">  </span><span class="c1">// 异常被 catch 了</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 异常被吃掉 → 事务不会回滚！数据已提交</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">correct</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">userRepository</span><span class="p">.</span><span class="na">save</span><span class="p">(</span><span class="n">user</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RuntimeException</span><span class="p">();</span><span class="w">  </span><span class="c1">// 让事务拦截器感知异常并回滚</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="63-事务超时">6.3 事务超时</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Transactional</span><span class="p">(</span><span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">5</span><span class="p">)</span><span class="w">  </span><span class="c1">// 5 秒超时</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">longRunning</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 方法执行超过 5 秒 → TransactionTimedOutException</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h2 id="七总结">七、总结</h2>
+<pre><code class="language-java">@Transactional  // ✅ 生效
+public void publicMethod() { ... }
+
+@Transactional  // ❌ 不生效！protected/private 不会创建事务
+protected void protectedMethod() { ... }
+</code></pre>
+<h3 id="62-transactional-的异常不要-try-catch">6.2 @Transactional 的异常不要 try-catch</h3>
+<pre><code class="language-java">@Transactional
+public void wrong() {
+    try {
+        userRepository.save(user);
+        throw new RuntimeException();  // 异常被 catch 了
+    } catch (Exception e) {
+        // 异常被吃掉 → 事务不会回滚！数据已提交
+    }
+}
+
+@Transactional
+public void correct() {
+    userRepository.save(user);
+    throw new RuntimeException();  // 让事务拦截器感知异常并回滚
+}
+</code></pre>
+<h3 id="63-事务超时">6.3 事务超时</h3>
+<pre><code class="language-java">@Transactional(timeout = 5)  // 5 秒超时
+public void longRunning() {
+    // 方法执行超过 5 秒 → TransactionTimedOutException
+}
+</code></pre>
+<h2 id="七总结">七、总结</h2>
 <h3 id="transactional-属性速查">@Transactional 属性速查</h3>
 <table>
 	<thead>
@@ -708,14 +726,15 @@
 	</tbody>
 </table>
 <h3 id="传播行为速记">传播行为速记</h3>
-<pre tabindex="0"><code>REQUIRED       → 有则加入，无则新建
+<pre><code>REQUIRED       → 有则加入，无则新建
 REQUIRES_NEW   → 新建，挂起当前
 NESTED         → 嵌套于当前事务（Savepoint）
 MANDATORY      → 必须有事务
 SUPPORTS       → 有则加入，无则非事务
 NEVER          → 不能有事务
 NOT_SUPPORTED  → 挂起当前，非事务
-</code></pre><h3 id="事务最佳实践">事务最佳实践</h3>
+</code></pre>
+<h3 id="事务最佳实践">事务最佳实践</h3>
 <ol>
 <li><code>@Transactional</code> 只放 public 方法</li>
 <li>不要 try-catch 吃掉异常</li>
@@ -763,6 +782,9 @@ NOT_SUPPORTED  → 挂起当前，非事务
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>

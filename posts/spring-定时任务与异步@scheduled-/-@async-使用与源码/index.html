@@ -14,10 +14,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
     
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/fonts/fonts.css">
     
     
 </head>
@@ -130,513 +127,532 @@
 </ul>
 <p>两者底层都依赖 <strong>TaskExecutor</strong> 和 <strong>TaskScheduler</strong> 抽象，且都通过 AOP 代理机制实现。本文从使用到源码，一次性覆盖这两个注解。</p>
 <h2 id="一开启异步与定时任务">一、开启异步与定时任务</h2>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableAsync</span><span class="w">      </span><span class="c1">// 开启 @Async</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableScheduling</span><span class="w">  </span><span class="c1">// 开启 @Scheduled</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AppConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 自定义线程池（可选）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="p">(</span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;taskExecutor&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Executor</span><span class="w"> </span><span class="nf">taskExecutor</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ThreadPoolTaskExecutor</span><span class="w"> </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ThreadPoolTaskExecutor</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">setCorePoolSize</span><span class="p">(</span><span class="n">5</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">setMaxPoolSize</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">setQueueCapacity</span><span class="p">(</span><span class="n">100</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">setThreadNamePrefix</span><span class="p">(</span><span class="s">&#34;async-&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">setRejectedExecutionHandler</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ThreadPoolExecutor</span><span class="p">.</span><span class="na">CallerRunsPolicy</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">initialize</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">executor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 自定义定时任务线程池（可选）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="p">(</span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;taskScheduler&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">TaskScheduler</span><span class="w"> </span><span class="nf">taskScheduler</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ThreadPoolTaskScheduler</span><span class="w"> </span><span class="n">scheduler</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ThreadPoolTaskScheduler</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">scheduler</span><span class="p">.</span><span class="na">setPoolSize</span><span class="p">(</span><span class="n">5</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">scheduler</span><span class="p">.</span><span class="na">setThreadNamePrefix</span><span class="p">(</span><span class="s">&#34;scheduled-&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">scheduler</span><span class="p">.</span><span class="na">initialize</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">scheduler</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><p><strong>Spring Boot 中</strong>，<code>@EnableAsync</code> 和 <code>@EnableScheduling</code> 一般不需要手动开启——可以通过配置直接使用：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-properties" data-lang="properties"><span class="line"><span class="cl"><span class="c1"># Spring Boot 自动配置了 TaskExecutor 和 TaskScheduler</span>
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.execution.pool.core-size</span><span class="o">=</span><span class="s">5</span>
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.execution.pool.max-size</span><span class="o">=</span><span class="s">10</span>
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.execution.pool.queue-capacity</span><span class="o">=</span><span class="s">100</span>
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.execution.thread-name-prefix</span><span class="o">=</span><span class="s">async-</span>
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.scheduling.pool.size</span><span class="o">=</span><span class="s">5</span>
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.scheduling.thread-name-prefix</span><span class="o">=</span><span class="s">scheduled-</span>
-</span></span></code></pre></div><hr>
+<pre><code class="language-java">@Configuration
+@EnableAsync      // 开启 @Async
+@EnableScheduling  // 开启 @Scheduled
+public class AppConfig {
+    
+    // 自定义线程池（可选）
+    @Bean(name = &quot;taskExecutor&quot;)
+    public Executor taskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(5);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix(&quot;async-&quot;);
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
+    
+    // 自定义定时任务线程池（可选）
+    @Bean(name = &quot;taskScheduler&quot;)
+    public TaskScheduler taskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(5);
+        scheduler.setThreadNamePrefix(&quot;scheduled-&quot;);
+        scheduler.initialize();
+        return scheduler;
+    }
+}
+</code></pre>
+<p><strong>Spring Boot 中</strong>，<code>@EnableAsync</code> 和 <code>@EnableScheduling</code> 一般不需要手动开启——可以通过配置直接使用：</p>
+<pre><code class="language-properties"># Spring Boot 自动配置了 TaskExecutor 和 TaskScheduler
+spring.task.execution.pool.core-size=5
+spring.task.execution.pool.max-size=10
+spring.task.execution.pool.queue-capacity=100
+spring.task.execution.thread-name-prefix=async-
+
+spring.task.scheduling.pool.size=5
+spring.task.scheduling.thread-name-prefix=scheduled-
+</code></pre>
+<hr>
 <h2 id="二scheduled-定时任务">二、@Scheduled 定时任务</h2>
 <h3 id="21-基本使用">2.1 基本使用</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ScheduledTasks</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Logger</span><span class="w"> </span><span class="n">log</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LoggerFactory</span><span class="p">.</span><span class="na">getLogger</span><span class="p">(</span><span class="n">getClass</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 固定延迟：上次执行完 → 下次开始（单位毫秒）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">fixedDelay</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">5000</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">runWithFixedDelay</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;fixedDelay 任务执行&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Thread</span><span class="p">.</span><span class="na">sleep</span><span class="p">(</span><span class="n">2000</span><span class="p">);</span><span class="w">  </span><span class="c1">// 假设任务执行 2 秒</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 下次执行在 5+2=7 秒后</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 固定频率：每 5 秒执行一次，不管上次是否完成</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">fixedRate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">5000</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">runWithFixedRate</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;fixedRate 任务执行&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果任务执行超过 5 秒，下次执行会重叠（取决于 @Async）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 初始延迟 + 固定延迟</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">initialDelay</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">10000</span><span class="p">,</span><span class="w"> </span><span class="n">fixedDelay</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">5000</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">runWithInitialDelay</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;延迟 10 秒后首次执行，之后每 5 秒执行&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ Cron 表达式（最灵活）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">cron</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;0 0 2 * * ?&#34;</span><span class="p">)</span><span class="w">  </span><span class="c1">// 每天凌晨 2 点执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">runWithCron</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;每日凌晨 2 点执行的任务&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 带时区的 Cron</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">cron</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;0 0 9 * * ?&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">zone</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;Asia/Shanghai&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">runWithTimezone</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">log</span><span class="p">.</span><span class="na">info</span><span class="p">(</span><span class="s">&#34;北京时间每天 9 点执行&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="22-cron-表达式">2.2 Cron 表达式</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ┌───────── 秒 (0-59)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// │ ┌───────── 分 (0-59)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// │ │ ┌───────── 时 (0-23)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// │ │ │ ┌───────── 日 (1-31)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// │ │ │ │ ┌───────── 月 (1-12)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// │ │ │ │ │ ┌───────── 周 (0-7, 0和7都是周日)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// * * * * * *</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">cron</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;0 0 2 * * ?&#34;</span><span class="p">)</span><span class="w">       </span><span class="c1">// 每天 02:00</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">cron</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;0 0/30 9-17 * * ?&#34;</span><span class="p">)</span><span class="w"> </span><span class="c1">// 9:00-17:00 每 30 分钟</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">cron</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;0 0 9,18 * * ?&#34;</span><span class="p">)</span><span class="w">    </span><span class="c1">// 每天 9:00 和 18:00</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">cron</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;0 0 0 1 * ?&#34;</span><span class="p">)</span><span class="w">       </span><span class="c1">// 每月 1 日 00:00</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">cron</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;0 0 9 * * MON-FRI&#34;</span><span class="p">)</span><span class="w"> </span><span class="c1">// 工作日 9:00</span><span class="w">
-</span></span></span></code></pre></div><h3 id="23-编程式-taskscheduler">2.3 编程式 TaskScheduler</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">DynamicScheduler</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Autowired</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">TaskScheduler</span><span class="w"> </span><span class="n">taskScheduler</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">scheduleDynamicTask</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 一次性任务：5 秒后执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">taskScheduler</span><span class="p">.</span><span class="na">schedule</span><span class="p">(()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;一次性任务执行&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">},</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Date</span><span class="p">(</span><span class="n">System</span><span class="p">.</span><span class="na">currentTimeMillis</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">5000</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// Cron 触发</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">taskScheduler</span><span class="p">.</span><span class="na">schedule</span><span class="p">(()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;Cron 任务执行&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">},</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CronTrigger</span><span class="p">(</span><span class="s">&#34;0 0/5 * * * ?&#34;</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 固定延迟</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">taskScheduler</span><span class="p">.</span><span class="na">scheduleWithFixedDelay</span><span class="p">(()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;固定延迟任务&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">},</span><span class="w"> </span><span class="n">5000</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="24-scheduled-常见坑">2.4 @Scheduled 常见坑</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ScheduledPitfalls</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ❌ 坑 1：@Scheduled 方法不能有返回值（必须 void）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">fixedRate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">5000</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">wrongReturnType</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="s">&#34;error&#34;</span><span class="p">;</span><span class="w">  </span><span class="c1">// 编译报错</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ❌ 坑 2：@Scheduled 方法不能有参数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">fixedRate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">5000</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">wrongParams</span><span class="p">(</span><span class="n">String</span><span class="w"> </span><span class="n">param</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 不会执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ✅ 正确形式</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">fixedRate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">5000</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">correct</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">doSomething</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ❌ 坑 3：同一个类中 @Scheduled 方法互相调用（自调用问题）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Scheduled</span><span class="p">(</span><span class="n">cron</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&#34;0 0 2 * * ?&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">dailyTask</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 这里调用 subTask() 是 this.subTask()，不经过代理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">subTask</span><span class="p">();</span><span class="w">  </span><span class="c1">// @Scheduled 生效，但 @Async 不会生效</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Async</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">subTask</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 如果是自调用，@Async 不会异步执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">@Component
+public class ScheduledTasks {
+    
+    private final Logger log = LoggerFactory.getLogger(getClass());
+    
+    // ★ 固定延迟：上次执行完 → 下次开始（单位毫秒）
+    @Scheduled(fixedDelay = 5000)
+    public void runWithFixedDelay() {
+        log.info(&quot;fixedDelay 任务执行&quot;);
+        Thread.sleep(2000);  // 假设任务执行 2 秒
+        // 下次执行在 5+2=7 秒后
+    }
+    
+    // ★ 固定频率：每 5 秒执行一次，不管上次是否完成
+    @Scheduled(fixedRate = 5000)
+    public void runWithFixedRate() {
+        log.info(&quot;fixedRate 任务执行&quot;);
+        // 如果任务执行超过 5 秒，下次执行会重叠（取决于 @Async）
+    }
+    
+    // ★ 初始延迟 + 固定延迟
+    @Scheduled(initialDelay = 10000, fixedDelay = 5000)
+    public void runWithInitialDelay() {
+        log.info(&quot;延迟 10 秒后首次执行，之后每 5 秒执行&quot;);
+    }
+    
+    // ★ Cron 表达式（最灵活）
+    @Scheduled(cron = &quot;0 0 2 * * ?&quot;)  // 每天凌晨 2 点执行
+    public void runWithCron() {
+        log.info(&quot;每日凌晨 2 点执行的任务&quot;);
+    }
+    
+    // 带时区的 Cron
+    @Scheduled(cron = &quot;0 0 9 * * ?&quot;, zone = &quot;Asia/Shanghai&quot;)
+    public void runWithTimezone() {
+        log.info(&quot;北京时间每天 9 点执行&quot;);
+    }
+}
+</code></pre>
+<h3 id="22-cron-表达式">2.2 Cron 表达式</h3>
+<pre><code class="language-java">// ┌───────── 秒 (0-59)
+// │ ┌───────── 分 (0-59)
+// │ │ ┌───────── 时 (0-23)
+// │ │ │ ┌───────── 日 (1-31)
+// │ │ │ │ ┌───────── 月 (1-12)
+// │ │ │ │ │ ┌───────── 周 (0-7, 0和7都是周日)
+// * * * * * *
+
+@Scheduled(cron = &quot;0 0 2 * * ?&quot;)       // 每天 02:00
+@Scheduled(cron = &quot;0 0/30 9-17 * * ?&quot;) // 9:00-17:00 每 30 分钟
+@Scheduled(cron = &quot;0 0 9,18 * * ?&quot;)    // 每天 9:00 和 18:00
+@Scheduled(cron = &quot;0 0 0 1 * ?&quot;)       // 每月 1 日 00:00
+@Scheduled(cron = &quot;0 0 9 * * MON-FRI&quot;) // 工作日 9:00
+</code></pre>
+<h3 id="23-编程式-taskscheduler">2.3 编程式 TaskScheduler</h3>
+<pre><code class="language-java">@Component
+public class DynamicScheduler {
+    
+    @Autowired
+    private TaskScheduler taskScheduler;
+    
+    public void scheduleDynamicTask() {
+        // 一次性任务：5 秒后执行
+        taskScheduler.schedule(() -&gt; {
+            System.out.println(&quot;一次性任务执行&quot;);
+        }, new Date(System.currentTimeMillis() + 5000));
+        
+        // Cron 触发
+        taskScheduler.schedule(() -&gt; {
+            System.out.println(&quot;Cron 任务执行&quot;);
+        }, new CronTrigger(&quot;0 0/5 * * * ?&quot;));
+        
+        // 固定延迟
+        taskScheduler.scheduleWithFixedDelay(() -&gt; {
+            System.out.println(&quot;固定延迟任务&quot;);
+        }, 5000);
+    }
+}
+</code></pre>
+<h3 id="24-scheduled-常见坑">2.4 @Scheduled 常见坑</h3>
+<pre><code class="language-java">@Component
+public class ScheduledPitfalls {
+    
+    // ❌ 坑 1：@Scheduled 方法不能有返回值（必须 void）
+    @Scheduled(fixedRate = 5000)
+    public String wrongReturnType() {
+        return &quot;error&quot;;  // 编译报错
+    }
+    
+    // ❌ 坑 2：@Scheduled 方法不能有参数
+    @Scheduled(fixedRate = 5000)
+    public void wrongParams(String param) {
+        // 不会执行
+    }
+    
+    // ✅ 正确形式
+    @Scheduled(fixedRate = 5000)
+    public void correct() {
+        doSomething();
+    }
+    
+    // ❌ 坑 3：同一个类中 @Scheduled 方法互相调用（自调用问题）
+    @Scheduled(cron = &quot;0 0 2 * * ?&quot;)
+    public void dailyTask() {
+        // 这里调用 subTask() 是 this.subTask()，不经过代理
+        subTask();  // @Scheduled 生效，但 @Async 不会生效
+    }
+    
+    @Async
+    public void subTask() {
+        // 如果是自调用，@Async 不会异步执行
+    }
+}
+</code></pre>
+<hr>
 <h2 id="三async-异步执行">三、@Async 异步执行</h2>
 <h3 id="31-基本使用">3.1 基本使用</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AsyncService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 无返回值</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Async</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">sendNotification</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">userId</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 在独立线程中执行，调用者立即返回</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Thread</span><span class="w"> </span><span class="n">current</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Thread</span><span class="p">.</span><span class="na">currentThread</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;异步执行线程: &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">current</span><span class="p">.</span><span class="na">getName</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 模拟耗时操作</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Thread</span><span class="p">.</span><span class="na">sleep</span><span class="p">(</span><span class="n">3000</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 有返回值（Future）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Async</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Future</span><span class="o">&lt;</span><span class="n">String</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">processOrder</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">orderId</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">doProcess</span><span class="p">(</span><span class="n">orderId</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">AsyncResult</span><span class="o">&lt;&gt;</span><span class="p">(</span><span class="n">result</span><span class="p">);</span><span class="w">  </span><span class="c1">// 包装返回</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 有返回值（CompletableFuture，推荐）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Async</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">CompletableFuture</span><span class="o">&lt;</span><span class="n">User</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">findUser</span><span class="p">(</span><span class="n">Long</span><span class="w"> </span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">User</span><span class="w"> </span><span class="n">user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">userRepository</span><span class="p">.</span><span class="na">findById</span><span class="p">(</span><span class="n">id</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">CompletableFuture</span><span class="p">.</span><span class="na">completedFuture</span><span class="p">(</span><span class="n">user</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="32-指定线程池">3.2 指定线程池</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 方式一：定义多个线程池</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableAsync</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AsyncConfig</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="p">(</span><span class="s">&#34;emailExecutor&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Executor</span><span class="w"> </span><span class="nf">emailExecutor</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ThreadPoolTaskExecutor</span><span class="w"> </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ThreadPoolTaskExecutor</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">setCorePoolSize</span><span class="p">(</span><span class="n">2</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">setMaxPoolSize</span><span class="p">(</span><span class="n">5</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">setThreadNamePrefix</span><span class="p">(</span><span class="s">&#34;email-&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">initialize</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">executor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="p">(</span><span class="s">&#34;reportExecutor&#34;</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Executor</span><span class="w"> </span><span class="nf">reportExecutor</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ThreadPoolTaskExecutor</span><span class="w"> </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ThreadPoolTaskExecutor</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">setCorePoolSize</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">setMaxPoolSize</span><span class="p">(</span><span class="n">20</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">setThreadNamePrefix</span><span class="p">(</span><span class="s">&#34;report-&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">initialize</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">executor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 方式二：@Async 指定线程池名称</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Component</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AsyncService</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Async</span><span class="p">(</span><span class="s">&#34;emailExecutor&#34;</span><span class="p">)</span><span class="w">  </span><span class="c1">// 使用 emailExecutor 线程池</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">sendEmail</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Async</span><span class="p">(</span><span class="s">&#34;reportExecutor&#34;</span><span class="p">)</span><span class="w">  </span><span class="c1">// 使用 reportExecutor 线程池</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">generateReport</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Async</span><span class="w">  </span><span class="c1">// 使用默认线程池</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">defaultPool</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="33-async-的异常处理">3.3 @Async 的异常处理</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// 无返回值时，异常默认被吞掉</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Async</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">sendNotification</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RuntimeException</span><span class="p">(</span><span class="s">&#34;异常!&#34;</span><span class="p">);</span><span class="w">  </span><span class="c1">// 被 AOP 拦截器捕获，不抛出</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 如果需要处理异常，自定义 AsyncUncaughtExceptionHandler</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@EnableAsync</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AsyncConfig</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">AsyncConfigurer</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Executor</span><span class="w"> </span><span class="nf">getAsyncExecutor</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ThreadPoolTaskExecutor</span><span class="w"> </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ThreadPoolTaskExecutor</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">setCorePoolSize</span><span class="p">(</span><span class="n">5</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">initialize</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">executor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">AsyncUncaughtExceptionHandler</span><span class="w"> </span><span class="nf">getAsyncUncaughtExceptionHandler</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">ex</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">params</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">log</span><span class="p">.</span><span class="na">error</span><span class="p">(</span><span class="s">&#34;异步方法异常: {}#{}, 参数: {}&#34;</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                     </span><span class="n">method</span><span class="p">.</span><span class="na">getDeclaringClass</span><span class="p">().</span><span class="na">getName</span><span class="p">(),</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                     </span><span class="n">method</span><span class="p">.</span><span class="na">getName</span><span class="p">(),</span><span class="w"> </span><span class="n">params</span><span class="p">,</span><span class="w"> </span><span class="n">ex</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">};</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">@Component
+public class AsyncService {
+    
+    // 无返回值
+    @Async
+    public void sendNotification(Long userId) {
+        // 在独立线程中执行，调用者立即返回
+        Thread current = Thread.currentThread();
+        System.out.println(&quot;异步执行线程: &quot; + current.getName());
+        // 模拟耗时操作
+        Thread.sleep(3000);
+    }
+    
+    // 有返回值（Future）
+    @Async
+    public Future&lt;String&gt; processOrder(Long orderId) {
+        String result = doProcess(orderId);
+        return new AsyncResult&lt;&gt;(result);  // 包装返回
+    }
+    
+    // 有返回值（CompletableFuture，推荐）
+    @Async
+    public CompletableFuture&lt;User&gt; findUser(Long id) {
+        User user = userRepository.findById(id);
+        return CompletableFuture.completedFuture(user);
+    }
+}
+</code></pre>
+<h3 id="32-指定线程池">3.2 指定线程池</h3>
+<pre><code class="language-java">// 方式一：定义多个线程池
+@Configuration
+@EnableAsync
+public class AsyncConfig {
+    
+    @Bean(&quot;emailExecutor&quot;)
+    public Executor emailExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(5);
+        executor.setThreadNamePrefix(&quot;email-&quot;);
+        executor.initialize();
+        return executor;
+    }
+    
+    @Bean(&quot;reportExecutor&quot;)
+    public Executor reportExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(10);
+        executor.setMaxPoolSize(20);
+        executor.setThreadNamePrefix(&quot;report-&quot;);
+        executor.initialize();
+        return executor;
+    }
+}
+
+// 方式二：@Async 指定线程池名称
+@Component
+public class AsyncService {
+    
+    @Async(&quot;emailExecutor&quot;)  // 使用 emailExecutor 线程池
+    public void sendEmail() { ... }
+    
+    @Async(&quot;reportExecutor&quot;)  // 使用 reportExecutor 线程池
+    public void generateReport() { ... }
+    
+    @Async  // 使用默认线程池
+    public void defaultPool() { ... }
+}
+</code></pre>
+<h3 id="33-async-的异常处理">3.3 @Async 的异常处理</h3>
+<pre><code class="language-java">// 无返回值时，异常默认被吞掉
+@Async
+public void sendNotification() {
+    throw new RuntimeException(&quot;异常!&quot;);  // 被 AOP 拦截器捕获，不抛出
+}
+
+// 如果需要处理异常，自定义 AsyncUncaughtExceptionHandler
+@Configuration
+@EnableAsync
+public class AsyncConfig implements AsyncConfigurer {
+    
+    @Override
+    public Executor getAsyncExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(5);
+        executor.initialize();
+        return executor;
+    }
+    
+    @Override
+    public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
+        return (ex, method, params) -&gt; {
+            log.error(&quot;异步方法异常: {}#{}, 参数: {}&quot;, 
+                     method.getDeclaringClass().getName(), 
+                     method.getName(), params, ex);
+        };
+    }
+}
+</code></pre>
+<hr>
 <h2 id="四scheduled-源码解析">四、@Scheduled 源码解析</h2>
 <h3 id="41-enablescheduling-入口">4.1 @EnableScheduling 入口</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Target</span><span class="p">(</span><span class="n">ElementType</span><span class="p">.</span><span class="na">TYPE</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Retention</span><span class="p">(</span><span class="n">RetentionPolicy</span><span class="p">.</span><span class="na">RUNTIME</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Import</span><span class="p">(</span><span class="n">SchedulingConfiguration</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="nd">@interface</span><span class="w"> </span><span class="n">EnableScheduling</span><span class="w"> </span><span class="p">{}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// SchedulingConfiguration 注册了一个 BeanPostProcessor</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Configuration</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">SchedulingConfiguration</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Bean</span><span class="p">(</span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TaskManagementConfigUtils</span><span class="p">.</span><span class="na">SCHEDULED_ANNOTATION_PROCESSOR_BEAN_NAME</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Role</span><span class="p">(</span><span class="n">BeanDefinitionRole</span><span class="p">.</span><span class="na">INFRASTRUCTURE</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">ScheduledAnnotationBeanPostProcessor</span><span class="w"> </span><span class="nf">scheduledAnnotationProcessor</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ScheduledAnnotationBeanPostProcessor</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="42-scheduledannotationbeanpostprocessor">4.2 ScheduledAnnotationBeanPostProcessor</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ScheduledAnnotationBeanPostProcessor.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">ScheduledAnnotationBeanPostProcessor</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">implements</span><span class="w"> </span><span class="n">BeanPostProcessor</span><span class="p">,</span><span class="w"> </span><span class="n">DestructionAwareBeanPostProcessor</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                   </span><span class="n">Ordered</span><span class="p">,</span><span class="w"> </span><span class="n">EmbeddedValueResolverAware</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ★ 扫描 @Scheduled 并注册定时任务</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">postProcessAfterInitialization</span><span class="p">(</span><span class="n">Object</span><span class="w"> </span><span class="n">bean</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">beanName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">targetClass</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AopProxyUtils</span><span class="p">.</span><span class="na">ultimateTargetClass</span><span class="p">(</span><span class="n">bean</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 查找类中所有标注了 @Scheduled 的方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">Method</span><span class="p">,</span><span class="w"> </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Scheduled</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">annotatedMethods</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MethodIntrospector</span><span class="p">.</span><span class="na">selectMethods</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">targetClass</span><span class="p">,</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">(</span><span class="n">MethodIntrospector</span><span class="p">.</span><span class="na">MetadataLookup</span><span class="o">&lt;</span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Scheduled</span><span class="o">&gt;&gt;</span><span class="p">)</span><span class="w"> </span><span class="n">method</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Scheduled</span><span class="o">&gt;</span><span class="w"> </span><span class="n">scheduledMethods</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AnnotatedElementUtils</span><span class="p">.</span><span class="na">getMergedRepeatableAnnotations</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                            </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Scheduled</span><span class="p">.</span><span class="na">class</span><span class="p">,</span><span class="w"> </span><span class="n">Schedules</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">scheduledMethods</span><span class="p">.</span><span class="na">isEmpty</span><span class="p">()</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">scheduledMethods</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">});</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 注册每个 @Scheduled 方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Map</span><span class="p">.</span><span class="na">Entry</span><span class="o">&lt;</span><span class="n">Method</span><span class="p">,</span><span class="w"> </span><span class="n">Set</span><span class="o">&lt;</span><span class="n">Scheduled</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">entry</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">annotatedMethods</span><span class="p">.</span><span class="na">entrySet</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">entry</span><span class="p">.</span><span class="na">getKey</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">Scheduled</span><span class="w"> </span><span class="n">scheduled</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">entry</span><span class="p">.</span><span class="na">getValue</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// ★ 将 @Scheduled 方法注册到 TaskScheduler</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">processScheduled</span><span class="p">(</span><span class="n">scheduled</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">bean</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">bean</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="43-注册定时任务">4.3 注册定时任务</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ScheduledAnnotationBeanPostProcessor.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">processScheduled</span><span class="p">(</span><span class="n">Scheduled</span><span class="w"> </span><span class="n">scheduled</span><span class="p">,</span><span class="w"> </span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="n">bean</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Runnable</span><span class="w"> </span><span class="n">runnable</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">createRunnable</span><span class="p">(</span><span class="n">bean</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 获取用于注册的 TaskScheduler（从容器或自定义）</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ScheduledTaskRegistrar</span><span class="w"> </span><span class="n">registrar</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">registrar</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 处理 fixedDelay</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">long</span><span class="w"> </span><span class="n">fixedDelay</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">scheduled</span><span class="p">.</span><span class="na">fixedDelay</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">fixedDelay</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">registrar</span><span class="p">.</span><span class="na">addFixedDelayTask</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">FixedDelayTask</span><span class="p">(</span><span class="n">runnable</span><span class="p">,</span><span class="w"> </span><span class="n">fixedDelay</span><span class="p">,</span><span class="w"> </span><span class="n">scheduled</span><span class="p">.</span><span class="na">initialDelay</span><span class="p">()));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 处理 fixedRate</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kt">long</span><span class="w"> </span><span class="n">fixedRate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">scheduled</span><span class="p">.</span><span class="na">fixedRate</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">fixedRate</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">registrar</span><span class="p">.</span><span class="na">addFixedRateTask</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">FixedRateTask</span><span class="p">(</span><span class="n">runnable</span><span class="p">,</span><span class="w"> </span><span class="n">fixedRate</span><span class="p">,</span><span class="w"> </span><span class="n">scheduled</span><span class="p">.</span><span class="na">initialDelay</span><span class="p">()));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. ★ 处理 Cron 表达式</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">cron</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">scheduled</span><span class="p">.</span><span class="na">cron</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">StringUtils</span><span class="p">.</span><span class="na">hasText</span><span class="p">(</span><span class="n">cron</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">String</span><span class="w"> </span><span class="n">resolvedCron</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">embeddedValueResolver</span><span class="p">.</span><span class="na">resolveStringValue</span><span class="p">(</span><span class="n">cron</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">registrar</span><span class="p">.</span><span class="na">addCronTask</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">CronTask</span><span class="p">(</span><span class="n">runnable</span><span class="p">,</span><span class="w"> </span><span class="n">resolvedCron</span><span class="p">));</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">IllegalArgumentException</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IllegalStateException</span><span class="p">(</span><span class="s">&#34;...&#34;</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="44-任务执行">4.4 任务执行</h3>
+<pre><code class="language-java">@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Import(SchedulingConfiguration.class)
+public @interface EnableScheduling {}
+
+// SchedulingConfiguration 注册了一个 BeanPostProcessor
+@Configuration
+public class SchedulingConfiguration {
+    
+    @Bean(name = TaskManagementConfigUtils.SCHEDULED_ANNOTATION_PROCESSOR_BEAN_NAME)
+    @Role(BeanDefinitionRole.INFRASTRUCTURE)
+    public ScheduledAnnotationBeanPostProcessor scheduledAnnotationProcessor() {
+        return new ScheduledAnnotationBeanPostProcessor();
+    }
+}
+</code></pre>
+<h3 id="42-scheduledannotationbeanpostprocessor">4.2 ScheduledAnnotationBeanPostProcessor</h3>
+<pre><code class="language-java">// ScheduledAnnotationBeanPostProcessor.java
+public class ScheduledAnnotationBeanPostProcessor 
+        implements BeanPostProcessor, DestructionAwareBeanPostProcessor,
+                   Ordered, EmbeddedValueResolverAware {
+    
+    // ★ 扫描 @Scheduled 并注册定时任务
+    @Override
+    public Object postProcessAfterInitialization(Object bean, String beanName) {
+        Class&lt;?&gt; targetClass = AopProxyUtils.ultimateTargetClass(bean);
+        
+        // 1. 查找类中所有标注了 @Scheduled 的方法
+        Map&lt;Method, Set&lt;Scheduled&gt;&gt; annotatedMethods = MethodIntrospector.selectMethods(
+                targetClass,
+                (MethodIntrospector.MetadataLookup&lt;Set&lt;Scheduled&gt;&gt;) method -&gt; {
+                    Set&lt;Scheduled&gt; scheduledMethods = AnnotatedElementUtils.getMergedRepeatableAnnotations(
+                            method, Scheduled.class, Schedules.class);
+                    return (!scheduledMethods.isEmpty() ? scheduledMethods : null);
+                });
+        
+        // 2. 注册每个 @Scheduled 方法
+        for (Map.Entry&lt;Method, Set&lt;Scheduled&gt;&gt; entry : annotatedMethods.entrySet()) {
+            Method method = entry.getKey();
+            for (Scheduled scheduled : entry.getValue()) {
+                // ★ 将 @Scheduled 方法注册到 TaskScheduler
+                processScheduled(scheduled, method, bean);
+            }
+        }
+        
+        return bean;
+    }
+}
+</code></pre>
+<h3 id="43-注册定时任务">4.3 注册定时任务</h3>
+<pre><code class="language-java">// ScheduledAnnotationBeanPostProcessor.java
+protected void processScheduled(Scheduled scheduled, Method method, Object bean) {
+    try {
+        Runnable runnable = createRunnable(bean, method);
+        
+        // 1. 获取用于注册的 TaskScheduler（从容器或自定义）
+        ScheduledTaskRegistrar registrar = this.registrar;
+        
+        // 2. 处理 fixedDelay
+        long fixedDelay = scheduled.fixedDelay();
+        if (fixedDelay &gt;= 0) {
+            registrar.addFixedDelayTask(new FixedDelayTask(runnable, fixedDelay, scheduled.initialDelay()));
+        }
+        
+        // 3. 处理 fixedRate
+        long fixedRate = scheduled.fixedRate();
+        if (fixedRate &gt;= 0) {
+            registrar.addFixedRateTask(new FixedRateTask(runnable, fixedRate, scheduled.initialDelay()));
+        }
+        
+        // 4. ★ 处理 Cron 表达式
+        String cron = scheduled.cron();
+        if (StringUtils.hasText(cron)) {
+            String resolvedCron = this.embeddedValueResolver.resolveStringValue(cron);
+            registrar.addCronTask(new CronTask(runnable, resolvedCron));
+        }
+        
+    } catch (IllegalArgumentException ex) {
+        throw new IllegalStateException(&quot;...&quot;);
+    }
+}
+</code></pre>
+<h3 id="44-任务执行">4.4 任务执行</h3>
 <p><code>TaskScheduler</code> 的实现类 <code>ConcurrentTaskScheduler</code> 底层使用 <code>ScheduledExecutorService</code>：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// ConcurrentTaskScheduler.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">ScheduledFuture</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="nf">schedule</span><span class="p">(</span><span class="n">Runnable</span><span class="w"> </span><span class="n">task</span><span class="p">,</span><span class="w"> </span><span class="n">Trigger</span><span class="w"> </span><span class="n">trigger</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 委托给 ScheduledExecutorService</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">scheduledExecutor</span><span class="p">.</span><span class="na">schedule</span><span class="p">(</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">task</span><span class="p">,</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">trigger</span><span class="p">.</span><span class="na">nextExecutionTime</span><span class="p">(</span><span class="n">taskContext</span><span class="p">),</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">MILLISECONDS</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 对于 fixedRate</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">ScheduledFuture</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="nf">scheduleAtFixedRate</span><span class="p">(</span><span class="n">Runnable</span><span class="w"> </span><span class="n">task</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">period</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">scheduledExecutor</span><span class="p">.</span><span class="na">scheduleAtFixedRate</span><span class="p">(</span><span class="n">task</span><span class="p">,</span><span class="w"> </span><span class="n">period</span><span class="p">,</span><span class="w"> </span><span class="n">period</span><span class="p">,</span><span class="w"> </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">MILLISECONDS</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 对于 fixedDelay</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">ScheduledFuture</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="nf">scheduleWithFixedDelay</span><span class="p">(</span><span class="n">Runnable</span><span class="w"> </span><span class="n">task</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">delay</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">scheduledExecutor</span><span class="p">.</span><span class="na">scheduleWithFixedDelay</span><span class="p">(</span><span class="n">task</span><span class="p">,</span><span class="w"> </span><span class="n">delay</span><span class="p">,</span><span class="w"> </span><span class="n">delay</span><span class="p">,</span><span class="w"> </span><span class="n">TimeUnit</span><span class="p">.</span><span class="na">MILLISECONDS</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// ConcurrentTaskScheduler.java
+@Override
+public ScheduledFuture&lt;?&gt; schedule(Runnable task, Trigger trigger) {
+    // 委托给 ScheduledExecutorService
+    return this.scheduledExecutor.schedule(
+            task, 
+            trigger.nextExecutionTime(taskContext),
+            TimeUnit.MILLISECONDS);
+}
+
+// 对于 fixedRate
+@Override
+public ScheduledFuture&lt;?&gt; scheduleAtFixedRate(Runnable task, long period) {
+    return this.scheduledExecutor.scheduleAtFixedRate(task, period, period, TimeUnit.MILLISECONDS);
+}
+
+// 对于 fixedDelay
+@Override
+public ScheduledFuture&lt;?&gt; scheduleWithFixedDelay(Runnable task, long delay) {
+    return this.scheduledExecutor.scheduleWithFixedDelay(task, delay, delay, TimeUnit.MILLISECONDS);
+}
+</code></pre>
+<hr>
 <h2 id="五async-源码解析">五、@Async 源码解析</h2>
 <h3 id="51-enableasync-入口">5.1 @EnableAsync 入口</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Target</span><span class="p">(</span><span class="n">ElementType</span><span class="p">.</span><span class="na">TYPE</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Retention</span><span class="p">(</span><span class="n">RetentionPolicy</span><span class="p">.</span><span class="na">RUNTIME</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="nd">@Import</span><span class="p">(</span><span class="n">AsyncConfigurationSelector</span><span class="p">.</span><span class="na">class</span><span class="p">)</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="nd">@interface</span><span class="w"> </span><span class="n">EnableAsync</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kt">boolean</span><span class="w"> </span><span class="nf">proxyTargetClass</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">AdviceMode</span><span class="w"> </span><span class="nf">mode</span><span class="p">()</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="n">AdviceMode</span><span class="p">.</span><span class="na">PROXY</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// AsyncConfigurationSelector 导入 ProxyAsyncConfiguration</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// → 注册 AsyncAnnotationBeanPostProcessor（即 AsyncExecutionInterceptor）</span><span class="w">
-</span></span></span></code></pre></div><h3 id="52-asyncexecutioninterceptoraop-拦截器">5.2 AsyncExecutionInterceptor——AOP 拦截器</h3>
+<pre><code class="language-java">@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Import(AsyncConfigurationSelector.class)
+public @interface EnableAsync {
+    boolean proxyTargetClass() default false;
+    AdviceMode mode() default AdviceMode.PROXY;
+}
+
+// AsyncConfigurationSelector 导入 ProxyAsyncConfiguration
+// → 注册 AsyncAnnotationBeanPostProcessor（即 AsyncExecutionInterceptor）
+</code></pre>
+<h3 id="52-asyncexecutioninterceptoraop-拦截器">5.2 AsyncExecutionInterceptor——AOP 拦截器</h3>
 <p><code>@Async</code> 通过 AOP 实现。<code>AsyncExecutionInterceptor</code> 是一个 <code>MethodInterceptor</code>：</p>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AsyncExecutionInterceptor.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AsyncExecutionInterceptor</span><span class="w"> </span><span class="kd">extends</span><span class="w"> </span><span class="n">AsyncExecutionAspectSupport</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="kd">implements</span><span class="w"> </span><span class="n">MethodInterceptor</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nd">@Override</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="n">MethodInvocation</span><span class="w"> </span><span class="n">invocation</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Throwable</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 1. 确定目标方法</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">targetClass</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">invocation</span><span class="p">.</span><span class="na">getThis</span><span class="p">()</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="o">?</span><span class="w"> </span><span class="n">AopUtils</span><span class="p">.</span><span class="na">getTargetClass</span><span class="p">(</span><span class="n">invocation</span><span class="p">.</span><span class="na">getThis</span><span class="p">())</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Method</span><span class="w"> </span><span class="n">specificMethod</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ClassUtils</span><span class="p">.</span><span class="na">getMostSpecificMethod</span><span class="p">(</span><span class="n">invocation</span><span class="p">.</span><span class="na">getMethod</span><span class="p">(),</span><span class="w"> </span><span class="n">targetClass</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. ★ 确定使用的线程池</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">AsyncTaskExecutor</span><span class="w"> </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">determineAsyncExecutor</span><span class="p">(</span><span class="n">specificMethod</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 3. 将方法调用包装为 Callable</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Callable</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">task</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">Object</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">proceed</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">Future</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                    </span><span class="k">return</span><span class="w"> </span><span class="p">((</span><span class="n">Future</span><span class="o">&lt;?&gt;</span><span class="p">)</span><span class="w"> </span><span class="n">result</span><span class="p">).</span><span class="na">get</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Throwable</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="c1">// 异常处理</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">handleError</span><span class="p">(</span><span class="n">ex</span><span class="p">,</span><span class="w"> </span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">params</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">throw</span><span class="w"> </span><span class="n">ex</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">};</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 4. ★ 提交到线程池执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">doSubmit</span><span class="p">(</span><span class="n">task</span><span class="p">,</span><span class="w"> </span><span class="n">executor</span><span class="p">,</span><span class="w"> </span><span class="n">invocation</span><span class="p">.</span><span class="na">getMethod</span><span class="p">().</span><span class="na">getReturnType</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="53-确定线程池">5.3 确定线程池</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AsyncExecutionAspectSupport.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">AsyncTaskExecutor</span><span class="w"> </span><span class="nf">determineAsyncExecutor</span><span class="p">(</span><span class="n">Method</span><span class="w"> </span><span class="n">method</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 检查缓存</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">AsyncTaskExecutor</span><span class="w"> </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">executors</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">method</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">executor</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// 2. 从 @Async 注解获取线程池名称</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">String</span><span class="w"> </span><span class="n">qualifier</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getExecutorQualifier</span><span class="p">(</span><span class="n">method</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">StringUtils</span><span class="p">.</span><span class="na">hasLength</span><span class="p">(</span><span class="n">qualifier</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// @Async(&#34;myExecutor&#34;) → 从容器中查找指定名称的 Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">findOnBeanQualifiers</span><span class="p">(</span><span class="n">qualifier</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">executor</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 3. 没有指定名称 → 使用默认线程池</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="na">defaultExecutor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">executor</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getDefaultExecutor</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="na">beanFactory</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">executors</span><span class="p">.</span><span class="na">put</span><span class="p">(</span><span class="n">method</span><span class="p">,</span><span class="w"> </span><span class="n">executor</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">executor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="c1">// 获取默认线程池</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">Executor</span><span class="w"> </span><span class="nf">getDefaultExecutor</span><span class="p">(</span><span class="n">BeanFactory</span><span class="w"> </span><span class="n">beanFactory</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 1. 查找容器中唯一的 TaskExecutor Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">beanFactory</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">getBean</span><span class="p">(</span><span class="n">TaskExecutor</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">NoUniqueBeanDefinitionException</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// 有多个 → 尝试查找 &#34;taskExecutor&#34;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">beanFactory</span><span class="p">.</span><span class="na">getBean</span><span class="p">(</span><span class="s">&#34;taskExecutor&#34;</span><span class="p">,</span><span class="w"> </span><span class="n">Executor</span><span class="p">.</span><span class="na">class</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SimpleAsyncTaskExecutor</span><span class="p">();</span><span class="w">  </span><span class="c1">// 兜底</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="54-提交到线程池">5.4 提交到线程池</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="c1">// AsyncExecutionAspectSupport.java</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">protected</span><span class="w"> </span><span class="n">Object</span><span class="w"> </span><span class="nf">doSubmit</span><span class="p">(</span><span class="n">Callable</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">task</span><span class="p">,</span><span class="w"> </span><span class="n">AsyncTaskExecutor</span><span class="w"> </span><span class="n">executor</span><span class="p">,</span><span class="w"> </span><span class="n">Class</span><span class="o">&lt;?&gt;</span><span class="w"> </span><span class="n">returnType</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">CompletableFuture</span><span class="p">.</span><span class="na">class</span><span class="p">.</span><span class="na">isAssignableFrom</span><span class="p">(</span><span class="n">returnType</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 返回 CompletableFuture → 提交到线程池，返回 CompletableFuture</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">CompletableFuture</span><span class="p">.</span><span class="na">supplyAsync</span><span class="p">(()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="n">task</span><span class="p">.</span><span class="na">call</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Throwable</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">CompletionException</span><span class="p">(</span><span class="n">ex</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">},</span><span class="w"> </span><span class="n">executor</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">Future</span><span class="p">.</span><span class="na">class</span><span class="p">.</span><span class="na">isAssignableFrom</span><span class="p">(</span><span class="n">returnType</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 返回 Future → 提交到线程池，返回 Future</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">executor</span><span class="p">.</span><span class="na">submit</span><span class="p">(</span><span class="n">task</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="kt">void</span><span class="p">.</span><span class="na">class</span><span class="p">.</span><span class="na">isAssignableFrom</span><span class="p">(</span><span class="n">returnType</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 返回 void → 提交到线程池，不等待结果</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">executor</span><span class="p">.</span><span class="na">submit</span><span class="p">(</span><span class="n">task</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">// ★ 其他返回类型 → 提交并等待结果</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Future</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span><span class="w"> </span><span class="n">future</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">executor</span><span class="p">.</span><span class="na">submit</span><span class="p">(</span><span class="n">task</span><span class="p">);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">future</span><span class="p">.</span><span class="na">get</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">ExecutionException</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">handleError</span><span class="p">(</span><span class="n">ex</span><span class="p">.</span><span class="na">getCause</span><span class="p">(),</span><span class="w"> </span><span class="p">...);</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><hr>
+<pre><code class="language-java">// AsyncExecutionInterceptor.java
+public class AsyncExecutionInterceptor extends AsyncExecutionAspectSupport
+        implements MethodInterceptor {
+    
+    @Override
+    public Object invoke(MethodInvocation invocation) throws Throwable {
+        // 1. 确定目标方法
+        Class&lt;?&gt; targetClass = (invocation.getThis() != null 
+                ? AopUtils.getTargetClass(invocation.getThis()) : null);
+        Method specificMethod = ClassUtils.getMostSpecificMethod(invocation.getMethod(), targetClass);
+        
+        // 2. ★ 确定使用的线程池
+        AsyncTaskExecutor executor = determineAsyncExecutor(specificMethod);
+        
+        // 3. 将方法调用包装为 Callable
+        Callable&lt;Object&gt; task = () -&gt; {
+            try {
+                Object result = invocation.proceed();
+                if (result instanceof Future) {
+                    return ((Future&lt;?&gt;) result).get();
+                }
+                return result;
+            } catch (Throwable ex) {
+                // 异常处理
+                handleError(ex, method, params);
+                throw ex;
+            }
+        };
+        
+        // 4. ★ 提交到线程池执行
+        return doSubmit(task, executor, invocation.getMethod().getReturnType());
+    }
+}
+</code></pre>
+<h3 id="53-确定线程池">5.3 确定线程池</h3>
+<pre><code class="language-java">// AsyncExecutionAspectSupport.java
+protected AsyncTaskExecutor determineAsyncExecutor(Method method) {
+    // 1. 检查缓存
+    AsyncTaskExecutor executor = this.executors.get(method);
+    if (executor == null) {
+        // 2. 从 @Async 注解获取线程池名称
+        String qualifier = getExecutorQualifier(method);
+        
+        if (StringUtils.hasLength(qualifier)) {
+            // @Async(&quot;myExecutor&quot;) → 从容器中查找指定名称的 Bean
+            executor = findOnBeanQualifiers(qualifier);
+        }
+        
+        if (executor == null) {
+            // 3. 没有指定名称 → 使用默认线程池
+            executor = this.defaultExecutor;
+            if (executor == null) {
+                executor = getDefaultExecutor(this.beanFactory);
+            }
+        }
+        
+        this.executors.put(method, executor);
+    }
+    return executor;
+}
+
+// 获取默认线程池
+protected Executor getDefaultExecutor(BeanFactory beanFactory) {
+    // 1. 查找容器中唯一的 TaskExecutor Bean
+    if (beanFactory != null) {
+        try {
+            return beanFactory.getBean(TaskExecutor.class);
+        } catch (NoUniqueBeanDefinitionException ex) {
+            // 有多个 → 尝试查找 &quot;taskExecutor&quot;
+            return beanFactory.getBean(&quot;taskExecutor&quot;, Executor.class);
+        }
+    }
+    return new SimpleAsyncTaskExecutor();  // 兜底
+}
+</code></pre>
+<h3 id="54-提交到线程池">5.4 提交到线程池</h3>
+<pre><code class="language-java">// AsyncExecutionAspectSupport.java
+protected Object doSubmit(Callable&lt;Object&gt; task, AsyncTaskExecutor executor, Class&lt;?&gt; returnType) {
+    
+    if (CompletableFuture.class.isAssignableFrom(returnType)) {
+        // ★ 返回 CompletableFuture → 提交到线程池，返回 CompletableFuture
+        return CompletableFuture.supplyAsync(() -&gt; {
+            try {
+                return task.call();
+            } catch (Throwable ex) {
+                throw new CompletionException(ex);
+            }
+        }, executor);
+    } else if (Future.class.isAssignableFrom(returnType)) {
+        // ★ 返回 Future → 提交到线程池，返回 Future
+        return executor.submit(task);
+    } else if (void.class.isAssignableFrom(returnType)) {
+        // ★ 返回 void → 提交到线程池，不等待结果
+        executor.submit(task);
+        return null;
+    } else {
+        // ★ 其他返回类型 → 提交并等待结果
+        Future&lt;Object&gt; future = executor.submit(task);
+        try {
+            return future.get();
+        } catch (ExecutionException ex) {
+            handleError(ex.getCause(), ...);
+        }
+    }
+}
+</code></pre>
+<hr>
 <h2 id="六线程池配置详解">六、线程池配置详解</h2>
 <h3 id="61-threadpooltaskexecutor">6.1 ThreadPoolTaskExecutor</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="nd">@Bean</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="n">ThreadPoolTaskExecutor</span><span class="w"> </span><span class="nf">taskExecutor</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">ThreadPoolTaskExecutor</span><span class="w"> </span><span class="n">executor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ThreadPoolTaskExecutor</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executor</span><span class="p">.</span><span class="na">setCorePoolSize</span><span class="p">(</span><span class="n">5</span><span class="p">);</span><span class="w">          </span><span class="c1">// 核心线程数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executor</span><span class="p">.</span><span class="na">setMaxPoolSize</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">          </span><span class="c1">// 最大线程数</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executor</span><span class="p">.</span><span class="na">setKeepAliveSeconds</span><span class="p">(</span><span class="n">60</span><span class="p">);</span><span class="w">     </span><span class="c1">// 空闲线程存活时间</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executor</span><span class="p">.</span><span class="na">setQueueCapacity</span><span class="p">(</span><span class="n">100</span><span class="p">);</span><span class="w">       </span><span class="c1">// 工作队列容量</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executor</span><span class="p">.</span><span class="na">setThreadNamePrefix</span><span class="p">(</span><span class="s">&#34;my-&#34;</span><span class="p">);</span><span class="w">  </span><span class="c1">// 线程名前缀</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 拒绝策略</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executor</span><span class="p">.</span><span class="na">setRejectedExecutionHandler</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ThreadPoolExecutor</span><span class="p">.</span><span class="na">CallerRunsPolicy</span><span class="p">());</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// AbortPolicy（默认）→ 抛 RejectedExecutionException</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// CallerRunsPolicy → 调用者线程执行</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// DiscardPolicy → 丢弃不抛异常</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// DiscardOldestPolicy → 丢弃队列中最老的任务</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">executor</span><span class="p">.</span><span class="na">initialize</span><span class="p">();</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">executor</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
-</span></span></span></code></pre></div><h3 id="62-spring-boot-配置">6.2 Spring Boot 配置</h3>
-<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-properties" data-lang="properties"><span class="line"><span class="cl"><span class="c1"># 异步任务线程池</span>
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.execution.pool.core-size</span><span class="o">=</span><span class="s">5</span>
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.execution.pool.max-size</span><span class="o">=</span><span class="s">10</span>
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.execution.pool.queue-capacity</span><span class="o">=</span><span class="s">100</span>
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.execution.pool.keep-alive</span><span class="o">=</span><span class="s">60s</span>
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.execution.thread-name-prefix</span><span class="o">=</span><span class="s">async-task-</span>
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl"><span class="c1"># 定时任务线程池</span>
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.scheduling.pool.size</span><span class="o">=</span><span class="s">5</span>
-</span></span><span class="line"><span class="cl"><span class="na">spring.task.scheduling.thread-name-prefix</span><span class="o">=</span><span class="s">scheduled-task-</span>
-</span></span></code></pre></div><h3 id="63-合理配置建议">6.3 合理配置建议</h3>
+<pre><code class="language-java">@Bean
+public ThreadPoolTaskExecutor taskExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    
+    executor.setCorePoolSize(5);          // 核心线程数
+    executor.setMaxPoolSize(10);          // 最大线程数
+    executor.setKeepAliveSeconds(60);     // 空闲线程存活时间
+    executor.setQueueCapacity(100);       // 工作队列容量
+    executor.setThreadNamePrefix(&quot;my-&quot;);  // 线程名前缀
+    
+    // 拒绝策略
+    executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+    // AbortPolicy（默认）→ 抛 RejectedExecutionException
+    // CallerRunsPolicy → 调用者线程执行
+    // DiscardPolicy → 丢弃不抛异常
+    // DiscardOldestPolicy → 丢弃队列中最老的任务
+    
+    executor.initialize();
+    return executor;
+}
+</code></pre>
+<h3 id="62-spring-boot-配置">6.2 Spring Boot 配置</h3>
+<pre><code class="language-properties"># 异步任务线程池
+spring.task.execution.pool.core-size=5
+spring.task.execution.pool.max-size=10
+spring.task.execution.pool.queue-capacity=100
+spring.task.execution.pool.keep-alive=60s
+spring.task.execution.thread-name-prefix=async-task-
+
+# 定时任务线程池
+spring.task.scheduling.pool.size=5
+spring.task.scheduling.thread-name-prefix=scheduled-task-
+</code></pre>
+<h3 id="63-合理配置建议">6.3 合理配置建议</h3>
 <table>
 	<thead>
 			<tr>
@@ -802,6 +818,9 @@
     
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
     <script>hljs.highlightAll();</script>
     <script src="/js/main.js"></script>
     <script src="/js/toc.js"></script>
